@@ -1,0 +1,151 @@
+services:
+  # Banco de Dados
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: easydora
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 69Nxa3dfk2M%40
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - easydora-network
+
+  # RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: 87j9d]#2@5B5
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - easydora-network
+
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - PRODUCTS_SERVICE_URL=http://products-service:8082
+      - INVENTORY_SERVICE_URL=http://inventory-service:8083
+      - ORDERS_SERVICE_URL=http://orders-service:8084
+    depends_on:
+      - auth-service
+      - products-service
+    networks:
+      - easydora-network
+
+  # Auth Service
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=create-drop
+      - JWT_SECRET=14aa6d3a76d7a21f3395d59ae3f01d57997dfa03c20b5ecd9d6525d8278cf926
+    depends_on:
+      - postgres
+    networks:
+      - easydora-network
+
+  # Products Service
+  products-service:
+    build: ./products-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+    depends_on:
+      - postgres
+    networks:
+      - easydora-network
+
+  # Inventory Service
+  inventory-service:
+    build: ./inventory-service
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
+      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - easydora-network
+
+  # Orders Service
+  orders-service:
+    build: ./orders-service
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USERNAME=admin
+      - RABBITMQ_PASSWORD=87j9d]#2@5B5
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - easydora-network
+
+  # Billing Service
+  billing-service:
+    build: ./billing-service
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+    depends_on:
+      - postgres
+    networks:
+      - easydora-network
+
+  # Notification Service
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8086:8086"
+    environment:
+      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+    depends_on:
+      - rabbitmq
+    networks:
+      - easydora-network
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - API_BASE_URL=http://localhost:8080
+    depends_on:
+      - api-gateway
+    networks:
+      - easydora-network
+
+volumes:
+  postgres_data:
+
+networks:
+  easydora-network:
+    driver: bridge
