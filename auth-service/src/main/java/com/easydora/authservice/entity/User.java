@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -51,6 +52,12 @@ public class User {
     @Column(name = "email_verified")
     private Boolean emailVerified = false;
     
+    @Column(name = "email_verification_token", length = 500)
+    private String emailVerificationToken;
+
+    @Column(name = "token_created_at")
+    private LocalDateTime tokenCreatedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -98,6 +105,16 @@ public class User {
     public Boolean getEmailVerified() { return emailVerified; }
     public void setEmailVerified(Boolean emailVerified) { this.emailVerified = emailVerified; }
     
+    public String getEmailVerificationToken() { return emailVerificationToken; }
+    public void setEmailVerificationToken(String emailVerificationToken) { 
+        this.emailVerificationToken = emailVerificationToken; 
+    }
+    
+    public LocalDateTime getTokenCreatedAt() { return tokenCreatedAt; }
+    public void setTokenCreatedAt(LocalDateTime tokenCreatedAt) { 
+        this.tokenCreatedAt = tokenCreatedAt; 
+    }
+
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     

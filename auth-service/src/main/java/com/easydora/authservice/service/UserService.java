@@ -5,12 +5,16 @@ import com.easydora.authservice.dto.SignupResponse;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserRole;
 import com.easydora.authservice.entity.UserStatus;
+import com.easydora.authservice.event.UserRegisteredEvent;
 import com.easydora.authservice.repository.UserRepository;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Service
@@ -19,11 +23,15 @@ public class UserService {
     
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    
+    private final ApplicationEventPublisher eventPublisher;
+    private final VerificationTokenService verificationTokenService;
+
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, ApplicationEventPublisher eventPublisher, VerificationTokenService verificationTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.eventPublisher = eventPublisher;
+        this.verificationTokenService = verificationTokenService;
     }
     
     public SignupResponse registerUser(SignupRequest signupRequest) {
@@ -37,11 +45,24 @@ public class UserService {
         
         // Criar e salvar usuário
         User user = createUserFromRequest(signupRequest, role);
+
+        String verificationToken = verificationTokenService.generateEmailVerificationToken(user);
+        user.setEmailVerificationToken(verificationToken);
+        user.setTokenCreatedAt(LocalDateTime.now());
+
         User savedUser = userRepository.save(user);
-        
+
+        eventPublisher.publishEvent(new UserRegisteredEvent(
+            savedUser.getId(),
+            savedUser.getEmail(),
+            savedUser.getFirstName(),
+            savedUser.getLastName(),
+            verificationToken
+        ));
+
         return mapToSignupResponse(savedUser);
     }
-    
+
     private UserRole validateAndConvertRole(String roleString) {
         try {
             return UserRole.valueOf(roleString.toUpperCase());
@@ -74,10 +95,9 @@ public class UserService {
         response.setCreatedAt(user.getCreatedAt());
         return response;
     }
-    
-    // Método adicional para buscar usuário (útil para o login futuro)
-    public Optional<User> findUserByEmail(String email) {
-        return userRepository.findByEmail(email);
+
+    public Optional<User> findActiveUserByEmail(String email) {
+        return userRepository.findActiveUserByEmail(email);
     }
     
     public boolean validateUserCredentials(String email, String password) {
@@ -88,5 +108,38 @@ public class UserService {
         
         User user = userOpt.get();
         return passwordEncoder.matches(password, user.getPasswordHash());
+    }
+
+    public void verifyEmail(String token) {
+        // Validar o token JWT primeiro
+        if (!verificationTokenService.validateVerificationToken(token)) {
+            throw new RuntimeException("Invalid or expired verification token");
+        }
+        
+        // Extrair o email do token JWT
+        String email = verificationTokenService.getEmailFromToken(token);
+        
+        // Buscar usuário pelo email
+        User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        // Verificar se o token armazenado no banco corresponde (opcional - camada extra de segurança)
+        if (user.getEmailVerificationToken() != null && 
+            !user.getEmailVerificationToken().equals(token)) {
+            throw new RuntimeException("Token mismatch");
+        }
+        
+        // Verificar se já não está ativo
+        if (user.getStatus() == UserStatus.ACTIVE) {
+            throw new RuntimeException("Email already verified");
+        }
+        
+        // Ativar o usuário
+        user.setStatus(UserStatus.ACTIVE);
+        user.setEmailVerified(true);
+        user.setEmailVerificationToken(null); // Remove o token após uso
+        user.setUpdatedAt(LocalDateTime.now());
+        
+        userRepository.save(user);
     }
 }
