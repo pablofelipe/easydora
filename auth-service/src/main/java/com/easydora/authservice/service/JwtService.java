@@ -1,16 +1,17 @@
 package com.easydora.authservice.service;
 
+import org.springframework.stereotype.Service;
 import com.easydora.authservice.config.JwtProperties;
 import com.easydora.authservice.entity.User;
 
-import io.jsonwebtoken.*;
-import io.jsonwebtoken.security.Keys;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import java.util.Date;
 import javax.crypto.SecretKey;
+import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.Date;
 
 @Service
 public class JwtService {
@@ -71,5 +72,34 @@ public class JwtService {
                 .getBody();
         
         return claims.getExpiration();
+    }
+
+    public String extractUserId(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        
+        Object userId = claims.get("userId");
+        return userId != null ? userId.toString() : null;
+    }
+    
+    public String extractRoles(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        
+        return claims.get("role", String.class);
+    }
+    
+    public Long getExpirationTime() {
+        return jwtProperties.getExpirationMs();
+    }
+    
+    public String extractEmail(String token) {
+        return getEmailFromToken(token);
     }
 }

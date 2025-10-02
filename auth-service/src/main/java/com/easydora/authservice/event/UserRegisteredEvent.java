@@ -3,12 +3,14 @@ package com.easydora.authservice.event;
 import java.time.LocalDateTime;
 
 public class UserRegisteredEvent {
-    private final Long userId;
-    private final String email;
-    private final String firstName;
-    private final String lastName;
-    private final String verificationToken;
-    private final LocalDateTime createdAt;
+    private Long userId;
+    private String email;
+    private String firstName;
+    private String lastName;
+    private String verificationToken;
+    private LocalDateTime createdAt;
+    
+    public UserRegisteredEvent() {}
     
     public UserRegisteredEvent(Long userId, String email, String firstName, 
                              String lastName, String verificationToken) {

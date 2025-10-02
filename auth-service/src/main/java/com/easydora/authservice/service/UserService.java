@@ -5,11 +5,9 @@ import com.easydora.authservice.dto.SignupResponse;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserRole;
 import com.easydora.authservice.entity.UserStatus;
-import com.easydora.authservice.event.UserRegisteredEvent;
 import com.easydora.authservice.repository.UserRepository;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,14 +21,14 @@ public class UserService {
     
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final ApplicationEventPublisher eventPublisher;
+    private final RabbitMQProducerService rabbitMQProducerService;
     private final VerificationTokenService verificationTokenService;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, ApplicationEventPublisher eventPublisher, VerificationTokenService verificationTokenService) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, RabbitMQProducerService rabbitMQProducerService, VerificationTokenService verificationTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.eventPublisher = eventPublisher;
+        this.rabbitMQProducerService = rabbitMQProducerService;
         this.verificationTokenService = verificationTokenService;
     }
     
@@ -52,15 +50,15 @@ public class UserService {
 
         User savedUser = userRepository.save(user);
 
-        eventPublisher.publishEvent(new UserRegisteredEvent(
+        rabbitMQProducerService.sendUserRegisteredEvent(
             savedUser.getId(),
             savedUser.getEmail(),
             savedUser.getFirstName(),
             savedUser.getLastName(),
             verificationToken
-        ));
+        );
 
-        return mapToSignupResponse(savedUser);
+        return mapToSignupResponse(savedUser, verificationToken);
     }
 
     private UserRole validateAndConvertRole(String roleString) {
@@ -84,7 +82,7 @@ public class UserService {
         return user;
     }
     
-    private SignupResponse mapToSignupResponse(User user) {
+    private SignupResponse mapToSignupResponse(User user, String verificationToken) {
         SignupResponse response = new SignupResponse();
         response.setId(user.getId());
         response.setEmail(user.getEmail());
@@ -93,6 +91,7 @@ public class UserService {
         response.setRole(user.getRole().name());
         response.setStatus(user.getStatus().name());
         response.setCreatedAt(user.getCreatedAt());
+        response.setVerificationToken(verificationToken);
         return response;
     }
 

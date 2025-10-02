@@ -4,15 +4,11 @@ import com.easydora.authservice.dto.LoginRequest;
 import com.easydora.authservice.dto.LoginResponse;
 import com.easydora.authservice.dto.SignupRequest;
 import com.easydora.authservice.dto.SignupResponse;
-import com.easydora.authservice.entity.UserStatus;
-import com.easydora.authservice.entity.User;
 import com.easydora.authservice.service.UserService;
-import com.easydora.authservice.service.JwtService;
+import com.easydora.authservice.service.AuthService;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 import jakarta.validation.Valid;
 
@@ -25,12 +21,12 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final UserService userService;
-    private final JwtService jwtService;
+    private final AuthService authService;
 
     @Autowired
-    public AuthController(UserService userService, JwtService jwtService) {
+    public AuthController(UserService userService, AuthService authService) {
         this.userService = userService;
-        this.jwtService = jwtService;
+        this.authService = authService;
     }
 
     @GetMapping("/ping")
@@ -70,56 +66,16 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest loginRequest) {
         try {
-            // Buscar usuário ativo pelo email
-            Optional<User> userOpt = userService.findActiveUserByEmail(loginRequest.getEmail());
-            
-            if (userOpt.isEmpty()) {
-                Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Login failed");
-                errorResponse.put("message", "Invalid email or password");
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
-            }
-            
-            User user = userOpt.get();
-            
-            // Verificar senha
-            if (!userService.validateUserCredentials(loginRequest.getEmail(), loginRequest.getPassword())) {
-                Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Login failed");
-                errorResponse.put("message", "Invalid email or password");
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
-            }
-            
-            // Verificar se usuário está ativo
-            if (user.getStatus() != UserStatus.ACTIVE) {
-                Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Login failed");
-                errorResponse.put("message", "Account is not active");
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
-            }
-            
-            // Gerar token JWT
-            String token = jwtService.generateToken(user);
-            LocalDateTime expiresAt = user.getLastLoginAt(); // Você pode calcular baseado na expiração do JWT
-            
-            // Criar resposta
-            LoginResponse response = new LoginResponse(
-                token,
-                user.getId(),
-                user.getEmail(),
-                user.getFirstName(),
-                user.getLastName(),
-                user.getRole().name(),
-                expiresAt
+            LoginResponse response = authService.authenticateUser(
+                loginRequest.getEmail(), 
+                loginRequest.getPassword()
             );
-            
             return ResponseEntity.ok(response);
-            
         } catch (RuntimeException e) {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("error", "Login failed");
             errorResponse.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(errorResponse);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
         }
     }
 

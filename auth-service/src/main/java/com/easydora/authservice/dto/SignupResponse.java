@@ -10,6 +10,7 @@ public class SignupResponse {
     private String role;
     private String status;
     private LocalDateTime createdAt;
+    private String verificationToken;
     
     // Getters e Setters
     public Long getId() { return id; }
@@ -32,4 +33,7 @@ public class SignupResponse {
     
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    
+    public String getVerificationToken() { return verificationToken; }
+    public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
 }
