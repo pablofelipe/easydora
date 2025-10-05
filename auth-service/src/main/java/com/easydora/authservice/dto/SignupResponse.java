@@ -11,6 +11,7 @@ public class SignupResponse {
     private String status;
     private LocalDateTime createdAt;
     private String verificationToken;
+    private String verificationUrl;
     
     // Getters e Setters
     public Long getId() { return id; }
@@ -36,4 +37,7 @@ public class SignupResponse {
     
     public String getVerificationToken() { return verificationToken; }
     public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
+
+    public String getVerificationUrl() { return verificationUrl; }
+    public void setVerificationUrl(String verificationUrl) { this.verificationUrl = verificationUrl; }
 }

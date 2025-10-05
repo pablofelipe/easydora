@@ -15,7 +15,7 @@ public class UserRegisteredEventListener {
     public void handleUserRegistered(UserRegisteredEvent event) {
         // Apenas para testes por enquanto
         String verificationLink = String.format(
-            "http://localhost:8082/auth/verify-email?token=%s", 
+            "http://localhost:8081/auth/verify-email?token=%s", 
             event.getVerificationToken()
         );
         
@@ -39,7 +39,7 @@ public class UserRegisteredEventListener {
     
     private void logVerificationCurlCommand(String token) {
         String curlCommand = String.format(
-            "curl -X GET \"http://localhost:8082/verify-email?token=%s\"",
+            "curl -X GET \"http://localhost:8081/verify-email?token=%s\"",
             token
         );
         

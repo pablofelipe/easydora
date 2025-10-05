@@ -92,6 +92,7 @@ public class UserService {
         response.setStatus(user.getStatus().name());
         response.setCreatedAt(user.getCreatedAt());
         response.setVerificationToken(verificationToken);
+        response.setVerificationUrl("/auth/verify-email?token=" + verificationToken);
         return response;
     }
 
