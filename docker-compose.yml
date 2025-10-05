@@ -33,15 +33,14 @@ services:
       - "8080:8080"
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8081
-      - PRODUCTS_SERVICE_URL=
-      #- PRODUCTS_SERVICE_URL=http://products-service:8082
+      - PRODUCTS_SERVICE_URL=http://products-service:8082
       - INVENTORY_SERVICE_URL=
       #- INVENTORY_SERVICE_URL=http://inventory-service:8083
       - ORDERS_SERVICE_URL=
       #- ORDERS_SERVICE_URL=http://orders-service:8084
     depends_on:
       - auth-service
-      #- products-service
+      - products-service
     networks:
       - easydora-network
 
@@ -76,8 +75,10 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - RABBITMQ_HOST=rabbitmq
     depends_on:
       - postgres
+      - rabbitmq
     networks:
       - easydora-network
 

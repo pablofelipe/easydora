@@ -12,8 +12,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.net.URLEncoder;
 
 @Service
 @Transactional
@@ -92,7 +94,10 @@ public class UserService {
         response.setStatus(user.getStatus().name());
         response.setCreatedAt(user.getCreatedAt());
         response.setVerificationToken(verificationToken);
-        response.setVerificationUrl("/auth/verify-email?token=" + verificationToken);
+
+        String encodedToken = URLEncoder.encode(verificationToken, StandardCharsets.UTF_8);
+        response.setVerificationUrl("/auth/verify-email?token=" + encodedToken);
+
         return response;
     }
 

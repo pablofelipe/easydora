@@ -44,7 +44,7 @@ public class AuthService {
         String roles = jwtService.extractRoles(token);
         Long expiresIn = jwtService.getExpirationTime();
         
-        rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), roles, expiresIn);
+        rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), user.getFirstName(),user.getLastName(), roles, expiresIn);
         
         // Criar resposta
         return new LoginResponse(

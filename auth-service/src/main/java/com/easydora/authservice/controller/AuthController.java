@@ -7,6 +7,8 @@ import com.easydora.authservice.dto.SignupResponse;
 import com.easydora.authservice.service.UserService;
 import com.easydora.authservice.service.AuthService;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -82,7 +84,9 @@ public class AuthController {
     @GetMapping("/verify-email")
     public ResponseEntity<?> verifyEmail(@RequestParam String token) {
         try {
-            userService.verifyEmail(token);
+            String decodedToken = URLDecoder.decode(token, StandardCharsets.UTF_8);
+
+            userService.verifyEmail(decodedToken);
             
             Map<String, String> response = new HashMap<>();
             response.put("message", "Email verified successfully");
