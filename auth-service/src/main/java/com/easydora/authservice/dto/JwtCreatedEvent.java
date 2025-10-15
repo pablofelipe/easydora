@@ -8,20 +8,20 @@ public class JwtCreatedEvent {
     private String email;
     private String firstName;
     private String lastName;
-    private String roles;
+    private String role;
     private LocalDateTime createdAt;
     private Long expiresIn;
 
     // Construtores
     public JwtCreatedEvent() {}
 
-    public JwtCreatedEvent(String token, String userId, String email, String firstName, String lastName, String roles, LocalDateTime createdAt, Long expiresIn) {
+    public JwtCreatedEvent(String token, String userId, String email, String firstName, String lastName, String role, LocalDateTime createdAt, Long expiresIn) {
         this.token = token;
         this.userId = userId;
         this.email = email;
         this.firstName = firstName;
         this.lastName = lastName;
-        this.roles = roles;
+        this.role = role;
         this.createdAt = createdAt;
         this.expiresIn = expiresIn;
     }
@@ -42,8 +42,8 @@ public class JwtCreatedEvent {
     public String getLastName() { return lastName; }
     public void setLastName(String lastName) { this.lastName = lastName; }
     
-    public String getRoles() { return roles; }
-    public void setRoles(String roles) { this.roles = roles; }
+    public String getRole() { return role; }
+    public void setRole(String roles) { this.role = roles; }
     
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

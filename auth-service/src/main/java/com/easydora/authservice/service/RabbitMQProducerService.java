@@ -20,8 +20,8 @@ public class RabbitMQProducerService {
         this.exchange = exchange;
     }
 
-    public void sendJwtCreatedEvent(String token, String userId, String email, String firstName, String lastName, String roles, Long expiresIn) {
-        JwtCreatedEvent event = new JwtCreatedEvent(token, userId, email, firstName, lastName, roles, LocalDateTime.now(), expiresIn);
+    public void sendJwtCreatedEvent(String token, String userId, String email, String firstName, String lastName, String role, Long expiresIn) {
+        JwtCreatedEvent event = new JwtCreatedEvent(token, userId, email, firstName, lastName, role, LocalDateTime.now(), expiresIn);
         
         rabbitTemplate.convertAndSend(
             exchange.getName(),

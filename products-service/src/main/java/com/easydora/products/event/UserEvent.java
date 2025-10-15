@@ -1,19 +1,34 @@
 package com.easydora.products.event;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.LocalDateTime;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class UserEvent {
+    @JsonProperty("eventType")
     private String eventType; // "USER_REGISTERED" ou "JWT_CREATED"
+    @JsonProperty("userId")
     private String userId;
+    @JsonProperty("email")
     private String email;
+    @JsonProperty("firstName")
     private String firstName;
+    @JsonProperty("lastName")
     private String lastName;
+    @JsonProperty("verificationToken")
+    private String verificationToken;
+    @JsonProperty("token")
     private String token;
+    @JsonProperty("role")
     private String role;
+    @JsonProperty("expiresIn")
     private Long expiresIn;
-    private LocalDateTime timestamp;
+    @JsonProperty("createdAt")
+    private LocalDateTime createdAt;
+    
+    private LocalDateTime timestamp = LocalDateTime.now();
 
     // Constructors
     public UserEvent() {}
@@ -30,6 +45,9 @@ public class UserEvent {
     
     public String getFirstName() { return firstName; }
     public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getVerificationToken() { return verificationToken; }
+    public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
     
     public String getLastName() { return lastName; }
     public void setLastName(String lastName) { this.lastName = lastName; }
@@ -45,6 +63,9 @@ public class UserEvent {
     
     public LocalDateTime getTimestamp() { return timestamp; }
     public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
     // Helper methods
     public boolean isSeller() {

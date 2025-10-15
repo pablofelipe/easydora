@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/sellers")
+@RequestMapping("/sellers")
 public class SellerController {
     
     private final SellerRepository sellerRepository;

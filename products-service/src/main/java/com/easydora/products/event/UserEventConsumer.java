@@ -104,13 +104,17 @@ public class UserEventConsumer {
         seller.setEmail(userEvent.getEmail());
         seller.setName(userEvent.getFullName());
         
-        // Define role - assume BUYER como default
-        String role = userEvent.getRole() != null ? userEvent.getRole() : "BUYER";
-        try {
-            seller.setRole(UserRole.valueOf(role.toUpperCase()));
-        } catch (IllegalArgumentException e) {
-            logger.warn("Invalid role: {}, defaulting to BUYER", role);
-            seller.setRole(UserRole.BUYER);
+        System.out.println("Role do evento: " + userEvent.getRole());
+
+        if (userEvent.getRole() != null && !userEvent.getRole().isBlank()) {
+            try {
+                seller.setRole(UserRole.valueOf(userEvent.getRole().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid role: {}, defaulting to BUYER", userEvent.getRole());
+                seller.setRole(UserRole.BUYER);
+            }
+        } else if (seller.getRole() == null) {
+            seller.setRole(UserRole.BUYER); // default
         }
         
         seller.setActive(true);

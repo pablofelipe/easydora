@@ -41,10 +41,10 @@ public class AuthService {
         // Gerar token e publicar evento
         String token = jwtService.generateToken(user);
         String userId = jwtService.extractUserId(token);
-        String roles = jwtService.extractRoles(token);
+        String role = jwtService.extractRoles(token);
         Long expiresIn = jwtService.getExpirationTime();
         
-        rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), user.getFirstName(),user.getLastName(), roles, expiresIn);
+        rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), user.getFirstName(),user.getLastName(), role, expiresIn);
         
         // Criar resposta
         return new LoginResponse(

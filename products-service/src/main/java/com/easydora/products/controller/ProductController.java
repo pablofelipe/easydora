@@ -7,27 +7,58 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
-@RequestMapping("/api/products")
+@RequestMapping("/products")
 public class ProductController {
     
     private final ProductService productService;
-    
+    private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
+
     public ProductController(ProductService productService) {
         this.productService = productService;
     }
     
-    @PostMapping
+
+    @GetMapping("/ping")
+    public ResponseEntity<Map<String, String>> ping() {
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Products service is running!");
+        response.put("status", "OK");
+        response.put("schema", "products_schema");
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        Map<String, Object> health = new HashMap<>();
+        health.put("status", "OK");
+        health.put("service", "products-service");
+        health.put("schema", "products_schema");
+        health.put("database", "Connected");
+        
+        return ResponseEntity.ok(health);
+    }
+
+    @PostMapping("/createProduct")
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody ProductRequest request,
             @RequestHeader("X-User-Id") String sellerId) {
+
+        logger.info("Received createProduct request - Seller: {}, Product: {}", sellerId, request.getName());
+        logger.info("Request body: {}", request);
+
         ProductResponse response = productService.createProduct(request, sellerId);
         return ResponseEntity.ok(response);
     }
     
-    @GetMapping
+    @GetMapping("/products")
     public ResponseEntity<List<ProductResponse>> getAllProducts() {
         List<ProductResponse> products = productService.getAllProducts();
         return ResponseEntity.ok(products);
