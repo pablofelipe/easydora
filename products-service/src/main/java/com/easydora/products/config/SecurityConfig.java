@@ -13,8 +13,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import com.easydora.products.consumer.JwtConsumer;
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,22 +35,6 @@ public class SecurityConfig {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
-    /*
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-        .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests(auth -> auth
-                .anyRequest().permitAll() // TODO: Just for development purposes
-            )
-            .formLogin(form -> form.disable()) // Desabilitar form login
-            .httpBasic(basic -> basic.disable()); // Desabilitar basic auth
-        
-        return http.build();
-    }
-        */
-
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
@@ -73,11 +55,11 @@ public class SecurityConfig {
         String requestURI = request.getRequestURI();
         
         // Log para debug
-        logger.info("🔍 Request URI: {}", requestURI);
-        logger.info("🔍 Method: {}", request.getMethod());
+        logger.info("Request URI: {}", requestURI);
+        logger.info("Method: {}", request.getMethod());
         
         // PERMITIR TODAS AS REQUESTS TEMPORARIAMENTE PARA DEBUG
-        logger.warn("🚨 PERMITINDO TODAS AS REQUESTS - MODO DEBUG");
+        logger.warn("PERMITINDO TODAS AS REQUESTS - MODO DEBUG");
         filterChain.doFilter(request, response);
         return;
     }

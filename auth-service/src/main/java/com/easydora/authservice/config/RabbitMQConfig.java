@@ -19,6 +19,7 @@ public class RabbitMQConfig {
     public static final String EXCHANGE_NAME = "auth.exchange";
     public static final String JWT_ROUTING_KEY = "jwt.created";
     public static final String USER_REGISTERED_KEY = "user.registered";
+    public static final String USER_VERIFIED_KEY = "user.verified";
 
     @Bean
     public TopicExchange exchange() {

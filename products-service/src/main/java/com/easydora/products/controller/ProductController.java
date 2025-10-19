@@ -15,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @RestController
-@RequestMapping("/products")
 public class ProductController {
     
     private final ProductService productService;
@@ -25,7 +24,6 @@ public class ProductController {
         this.productService = productService;
     }
     
-
     @GetMapping("/ping")
     public ResponseEntity<Map<String, String>> ping() {
         Map<String, String> response = new HashMap<>();
@@ -55,30 +53,39 @@ public class ProductController {
         logger.info("Request body: {}", request);
 
         ProductResponse response = productService.createProduct(request, sellerId);
+        logger.info("Product created successfully - ID: {}", response.getId());
         return ResponseEntity.ok(response);
     }
     
-    @GetMapping("/products")
+    @GetMapping("/all-products")
     public ResponseEntity<List<ProductResponse>> getAllProducts() {
+        logger.info("Fetching all active products");
         List<ProductResponse> products = productService.getAllProducts();
+        logger.info("Found {} active products", products.size());
         return ResponseEntity.ok(products);
     }
     
     @GetMapping("/{id}")
     public ResponseEntity<ProductResponse> getProductById(@PathVariable String id) {
+        logger.info("Fetching product by ID: {}", id);
         ProductResponse product = productService.getProductById(id);
+        logger.info("Product found: {}", product.getName());
         return ResponseEntity.ok(product);
     }
     
     @GetMapping("/seller/{sellerId}")
     public ResponseEntity<List<ProductResponse>> getProductsBySeller(@PathVariable String sellerId) {
+        logger.info("Fetching products for seller: {}", sellerId);
         List<ProductResponse> products = productService.getProductsBySeller(sellerId);
+        logger.info("Found {} products for seller {}", products.size(), sellerId);
         return ResponseEntity.ok(products);
     }
     
     @GetMapping("/my-products")
     public ResponseEntity<List<ProductResponse>> getMyProducts(@RequestHeader("X-User-Id") String sellerId) {
+        logger.info("Fetching products for current seller: {}", sellerId);
         List<ProductResponse> products = productService.getProductsBySeller(sellerId);
+        logger.info("Found {} products for current seller", products.size());
         return ResponseEntity.ok(products);
     }
     
@@ -87,7 +94,10 @@ public class ProductController {
             @PathVariable String id,
             @Valid @RequestBody ProductRequest request,
             @RequestHeader("X-User-Id") String sellerId) {
+        
+        logger.info("Updating product {} for seller {}", id, sellerId);
         ProductResponse response = productService.updateProduct(id, request, sellerId);
+        logger.info("Product {} updated successfully", id);
         return ResponseEntity.ok(response);
     }
     
@@ -95,7 +105,10 @@ public class ProductController {
     public ResponseEntity<Void> deleteProduct(
             @PathVariable String id,
             @RequestHeader("X-User-Id") String sellerId) {
+        
+        logger.info("Deleting product {} for seller {}", id, sellerId);
         productService.deleteProduct(id, sellerId);
+        logger.info("Product {} deleted successfully", id);
         return ResponseEntity.noContent().build();
     }
 }

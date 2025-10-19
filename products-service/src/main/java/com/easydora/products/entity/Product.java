@@ -24,12 +24,7 @@ public class Product {
     @DecimalMin("0.01")
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
-    
-    @NotNull
-    @Min(0)
-    @Column(nullable = false)
-    private Integer stockQuantity;
-    
+        
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "seller_id", nullable = false)
     private Seller seller;
@@ -53,11 +48,10 @@ public class Product {
     }
 
     public Product() {}
-    public Product(String name, String description, BigDecimal price, Integer stockQuantity, Seller seller) {
+    public Product(String name, String description, BigDecimal price, Seller seller) {
         this.name = name;
         this.description = description;
         this.price = price;
-        this.stockQuantity = stockQuantity;
         this.seller = seller;
         this.createdAt = LocalDateTime.now();
     }
@@ -73,9 +67,6 @@ public class Product {
 
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
-
-    public Integer getStockQuantity() { return stockQuantity; }
-    public void setStockQuantity(Integer stockQuantity) { this.stockQuantity = stockQuantity; }
 
     public Seller getSeller() { return seller; }
     public void setSeller(Seller seller) { this.seller = seller; }

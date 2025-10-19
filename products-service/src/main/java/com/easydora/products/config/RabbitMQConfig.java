@@ -24,14 +24,21 @@ public class RabbitMQConfig {
     // Routing keys do auth-service
     public static final String JWT_ROUTING_KEY = "jwt.created";
     public static final String USER_REGISTERED_KEY = "user.registered";
+    public static final String USER_VERIFIED_KEY = "user.verified";
     
     // Queues específicas do products-service
+    public static final String USER_VERIFIED_QUEUE = "products.user.verified.queue";
     public static final String USER_REGISTERED_QUEUE = "products.user.registered.queue";
     public static final String JWT_CREATED_QUEUE = "products.jwt.created.queue";
 
     @Bean
     public TopicExchange authExchange() {
         return new TopicExchange(AUTH_EXCHANGE);
+    }
+
+    @Bean
+    public Queue userVerifiedQueue() {
+        return new Queue(USER_VERIFIED_QUEUE, true);
     }
 
     @Bean
@@ -42,6 +49,13 @@ public class RabbitMQConfig {
     @Bean
     public Queue jwtCreatedQueue() {
         return new Queue(JWT_CREATED_QUEUE, true);
+    }
+
+    @Bean
+    public Binding userVerifiedBinding(Queue userVerifiedQueue, TopicExchange authExchange) {
+        return BindingBuilder.bind(userVerifiedQueue)
+                .to(authExchange)
+                .with(USER_VERIFIED_KEY);
     }
 
     @Bean

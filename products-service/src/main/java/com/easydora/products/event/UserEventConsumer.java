@@ -3,6 +3,7 @@ package com.easydora.products.event;
 import com.easydora.products.config.RabbitMQConfig;
 import com.easydora.products.entity.Seller;
 import com.easydora.products.entity.UserRole;
+import com.easydora.products.exception.UnauthorizedException;
 import com.easydora.products.repository.SellerRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,8 +36,15 @@ public class UserEventConsumer {
             String fullName = userEvent.getFullName();
             seller.setName(fullName);
             
-            // Define role - assume BUYER como default se não especificado
-            String role = userEvent.getRole() != null ? userEvent.getRole() : "BUYER";
+            String role = userEvent.getRole();
+            if (role == null || role.trim().isEmpty()) {
+                throw new Exception("Role não encontrado no evento USER_REGISTERED");
+            }
+            
+            if (!"SELLER".equals(role)) {
+                throw new UnauthorizedException("User must be a SELLER");
+            }
+
             seller.setRole(UserRole.valueOf(role.toUpperCase()));
             seller.setActive(false); // Inativo até ativar email
             
@@ -77,6 +85,24 @@ public class UserEventConsumer {
         }
     }
     
+    @RabbitListener(queues = RabbitMQConfig.USER_VERIFIED_QUEUE)
+    public void handleUserVerified(Long userId) {
+        logger.info("Received USER_VERIFIED_QUEUE event for user: {}", userId);
+
+        try 
+        {
+            Seller seller = sellerRepository.findById(userId.toString())
+                .orElseThrow(() -> new Exception("Seller not found: " + userId));
+                
+            seller.setActive(true); // Ativa o usuário após verificação
+
+            sellerRepository.save(seller);
+        } catch (Exception e) {
+            logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}", 
+                userId, e);
+        }
+    }
+
     private void updateSellerFromJwtEvent(Seller seller, UserEvent userEvent) {
         // Atualiza role se fornecida
         if (userEvent.getRole() != null) {

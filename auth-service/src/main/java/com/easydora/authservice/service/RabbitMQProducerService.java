@@ -30,8 +30,16 @@ public class RabbitMQProducerService {
         );
     }
 
-    public void sendUserRegisteredEvent(Long userId, String email, String firstName, String lastName, String verificationToken) {
-        UserRegisteredEvent event = new UserRegisteredEvent(userId, email, firstName, lastName, verificationToken);
+    public void sendUserVerifiedEvent(Long userId) {
+        rabbitTemplate.convertAndSend(
+            exchange.getName(),
+            RabbitMQConfig.USER_VERIFIED_KEY,
+            userId
+        );
+    }
+
+    public void sendUserRegisteredEvent(Long userId, String email, String firstName, String lastName, String role, String verificationToken) {
+        UserRegisteredEvent event = new UserRegisteredEvent(userId, email, firstName, lastName, role, verificationToken);
         
         rabbitTemplate.convertAndSend(
             exchange.getName(),

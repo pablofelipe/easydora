@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS products (
     name VARCHAR(100) NOT NULL,
     description VARCHAR(1000),
     price DECIMAL(10,2) NOT NULL CHECK (price > 0),
-    stock_quantity INTEGER NOT NULL CHECK (stock_quantity >= 0),
     seller_id VARCHAR(255) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

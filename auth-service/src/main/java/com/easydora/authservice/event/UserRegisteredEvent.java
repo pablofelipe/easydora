@@ -7,17 +7,18 @@ public class UserRegisteredEvent {
     private String email;
     private String firstName;
     private String lastName;
+    private String role;
     private String verificationToken;
     private LocalDateTime createdAt;
     
     public UserRegisteredEvent() {}
     
-    public UserRegisteredEvent(Long userId, String email, String firstName, 
-                             String lastName, String verificationToken) {
+    public UserRegisteredEvent(Long userId, String email, String firstName, String lastName, String role, String verificationToken) {
         this.userId = userId;
         this.email = email;
         this.firstName = firstName;
         this.lastName = lastName;
+        this.role = role;
         this.verificationToken = verificationToken;
         this.createdAt = LocalDateTime.now();
     }
@@ -27,6 +28,7 @@ public class UserRegisteredEvent {
     public String getEmail() { return email; }
     public String getFirstName() { return firstName; }
     public String getLastName() { return lastName; }
+    public String getRole() { return role; }
     public String getVerificationToken() { return verificationToken; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     
@@ -37,6 +39,7 @@ public class UserRegisteredEvent {
                 ", email='" + email + '\'' +
                 ", firstName='" + firstName + '\'' +
                 ", lastName='" + lastName + '\'' +
+                ", role='" + role + '\'' +
                 ", verificationToken='[HIDDEN]'" +
                 ", createdAt=" + createdAt +
                 '}';

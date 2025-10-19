@@ -6,8 +6,6 @@ import com.easydora.products.event.JwtEvent;
 
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,19 +13,17 @@ import org.slf4j.LoggerFactory;
 public class JwtConsumer {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final ObjectMapper objectMapper;
     private static final Logger logger = LoggerFactory.getLogger(JwtConsumer.class);
 
     public JwtConsumer(JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        this.objectMapper = new ObjectMapper();
     }
 
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
     public void receiveJwtCreated(JwtEvent event) {
         try {
-            logger.info("📨 📨 📨 JWT EVENT RECEBIDO 📨 📨 📨");
-            logger.info("📨 Evento: {}", event.toString());
+            logger.info("--- JWT EVENT RECEBIDO ---");
+            logger.info("Evento: {}", event.toString());
             
             String token = event.getToken();
             Long userId = event.getUserId();

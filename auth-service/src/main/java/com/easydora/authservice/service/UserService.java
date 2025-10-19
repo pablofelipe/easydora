@@ -57,6 +57,7 @@ public class UserService {
             savedUser.getEmail(),
             savedUser.getFirstName(),
             savedUser.getLastName(),
+            signupRequest.getRole(),
             verificationToken
         );
 
@@ -64,11 +65,7 @@ public class UserService {
     }
 
     private UserRole validateAndConvertRole(String roleString) {
-        try {
-            return UserRole.valueOf(roleString.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return UserRole.BUYER; // Default se role inválido
-        }
+        return UserRole.valueOf(roleString.toUpperCase());
     }
     
     private User createUserFromRequest(SignupRequest request, UserRole role) {
@@ -144,7 +141,11 @@ public class UserService {
         user.setEmailVerified(true);
         user.setEmailVerificationToken(null); // Remove o token após uso
         user.setUpdatedAt(LocalDateTime.now());
-        
+
+        rabbitMQProducerService.sendUserVerifiedEvent(
+            user.getId()
+        );
+
         userRepository.save(user);
     }
 }
