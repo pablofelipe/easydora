@@ -1,14 +1,16 @@
-package com.easydora.products.event;
+package com.easydora.products.consumer;
 
 import com.easydora.products.config.RabbitMQConfig;
 import com.easydora.products.entity.Seller;
 import com.easydora.products.entity.UserRole;
+import com.easydora.products.event.UserEvent;
 import com.easydora.products.exception.UnauthorizedException;
 import com.easydora.products.repository.SellerRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Service;
+
 
 @Service
 public class UserEventConsumer {
