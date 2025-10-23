@@ -37,9 +37,9 @@ var (
 			Implemented: false,
 		},
 		"orders": {
-			URL:         getEnv("ORDERS_SERVICE_URL", ""),
+			URL:         getEnv("ORDERS_SERVICE_URL", "http://orders-service:8084"),
 			Name:        "orders-service",
-			Implemented: false,
+			Implemented: true,
 		},
 	}
 )
@@ -131,7 +131,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		proxyPath := c.Param("proxyPath")
 		
 		// Log detalhado
-		log.Printf("🔀 Proxying %s %s → %s%s", 
+		log.Printf("Proxying %s %s → %s%s", 
 			c.Request.Method, originalPath, targetURL.Host, proxyPath)
 
 		c.Request.URL.Scheme = targetURL.Scheme
