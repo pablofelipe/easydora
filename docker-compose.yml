@@ -34,10 +34,8 @@ services:
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8081
       - PRODUCTS_SERVICE_URL=http://products-service:8082
-      - INVENTORY_SERVICE_URL=
-      #- INVENTORY_SERVICE_URL=http://inventory-service:8083
-      - ORDERS_SERVICE_URL=
-      #- ORDERS_SERVICE_URL=http://orders-service:8084
+      - INVENTORY_SERVICE_URL=http://inventory-service:8083
+      - ORDERS_SERVICE_URL=http://orders-service:8084
     depends_on:
       - auth-service
       - products-service
@@ -98,9 +96,20 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
       - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+      - KAFKA_BROKERS=kafka:9092
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=69Nxa3dfk2M%40
+      - DB_NAME=easydora
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=87j9d]#2@5B5
     depends_on:
       - postgres
       - rabbitmq
+      - kafka
     networks:
       - easydora-network
 
