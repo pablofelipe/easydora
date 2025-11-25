@@ -3,6 +3,7 @@ package com.easydora.orders.consumer;
 import com.easydora.orders.config.JwtAuthenticationFilter;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.event.JwtEvent;
+import com.easydora.orders.service.BuyerService;
 
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
@@ -13,10 +14,12 @@ import org.slf4j.LoggerFactory;
 public class JwtConsumer {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private BuyerService buyerService;
     private static final Logger logger = LoggerFactory.getLogger(JwtConsumer.class);
 
-    public JwtConsumer(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public JwtConsumer(JwtAuthenticationFilter jwtAuthenticationFilter, BuyerService buyerService) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.buyerService = buyerService;
     }
 
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
@@ -56,6 +59,13 @@ public class JwtConsumer {
                     .getDeclaredMethod("getValidTokensSize")
                     .invoke(jwtAuthenticationFilter));
             
+            buyerService.createBuyerIfNotExists(
+                event.getUserId(),
+                event.getEmail(),
+                event.getFirstName() + " " + event.getLastName(),
+                event.getRole()
+            );
+
         } catch (Exception e) {
             logger.error("ERRO ao processar JwtEvent: {}", e.getMessage(), e);
         }

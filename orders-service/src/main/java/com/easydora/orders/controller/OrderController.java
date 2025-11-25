@@ -7,7 +7,9 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/orders")
@@ -19,7 +21,24 @@ public class OrderController {
         this.orderService = orderService;
     }
     
-    @PostMapping
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        Map<String, String> response = new HashMap<>();
+        response.put("status", "OK");
+        response.put("service", "orders-service");
+        response.put("port", "8084");
+        return ResponseEntity.ok(response);
+    }
+    
+    @GetMapping("/ping")
+    public ResponseEntity<Map<String, String>> ping() {
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "pong from orders service");
+        response.put("port", "8084");
+        return ResponseEntity.ok(response);
+    }
+    
+    @PostMapping("/createOrder")
     public ResponseEntity<OrderResponse> createOrder(
             @Valid @RequestBody OrderRequest request,
             @RequestHeader("X-User-Id") Long userId) {

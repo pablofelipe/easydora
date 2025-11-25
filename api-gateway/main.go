@@ -39,7 +39,7 @@ var (
 		"orders": {
 			URL:         getEnv("ORDERS_SERVICE_URL", "http://orders-service:8084"),
 			Name:        "orders-service",
-			Implemented: true,
+			Implemented: false,
 		},
 	}
 )

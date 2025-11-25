@@ -1,6 +1,6 @@
 -- Tabela de buyers (similar à sellers do products-service)
 CREATE TABLE orders_schema.buyers (
-    user_id VARCHAR(255) PRIMARY KEY,
+    user_id BIGINT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     avatar_url VARCHAR(500),

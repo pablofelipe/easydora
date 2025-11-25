@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
+@RequestMapping("/debug")
 public class OrderDebugController {
     
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -18,23 +19,6 @@ public class OrderDebugController {
                                BuyerRepository buyerRepository) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.buyerRepository = buyerRepository;
-    }
-    
-    @GetMapping("/health")
-    public ResponseEntity<Map<String, String>> health() {
-        Map<String, String> response = new HashMap<>();
-        response.put("status", "OK");
-        response.put("service", "orders-service");
-        response.put("port", "8084");
-        return ResponseEntity.ok(response);
-    }
-    
-    @GetMapping("/ping")
-    public ResponseEntity<Map<String, String>> ping() {
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "pong from orders service");
-        response.put("port", "8084");
-        return ResponseEntity.ok(response);
     }
     
     @GetMapping("/debug/tokens")

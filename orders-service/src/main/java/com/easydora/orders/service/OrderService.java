@@ -14,7 +14,10 @@ import com.easydora.orders.repository.OrderRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,12 +32,14 @@ public class OrderService {
     private final BuyerRepository buyerRepository;
     private final OrderRepository orderRepository;
     private final OrderStateMachineService stateMachineService;
+    @Autowired
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final RabbitTemplate rabbitTemplate;
     
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
     private static final String ORDER_CREATED_TOPIC = "order-created";
     private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
-    
+
     public OrderService(BuyerRepository buyerRepository, 
                         OrderRepository orderRepository, 
                        OrderStateMachineService stateMachineService,
@@ -200,12 +205,33 @@ public class OrderService {
     }
     
     private void publishOrderCreatedEvent(Order order) {
-        OrderCreatedEvent event = new OrderCreatedEvent();
-        event.setOrderId(order.getId());
-        event.setUserId(order.getUserId());
-        event.setTotalAmount(order.getTotalAmount());
-        
-        kafkaTemplate.send(ORDER_CREATED_TOPIC, order.getId(), event);
+        try {
+            OrderCreatedEvent event = new OrderCreatedEvent();
+            event.setOrderId(order.getId());
+            event.setUserId(order.getUserId());
+            event.setTotalAmount(order.getTotalAmount());
+            event.setItems(order.getItems().stream()
+                .map(this::mapToEventItem)
+                .collect(Collectors.toList()));
+            event.setCreatedAt(order.getCreatedAt());
+            
+            // Publicar no Kafka
+            kafkaTemplate.send("order.created.topic", event);
+            logger.info("✅ OrderCreatedEvent publicado: {}", order.getId());
+            
+        } catch (Exception e) {
+            logger.error("❌ Erro ao publicar OrderCreatedEvent: {}", e.getMessage(), e);
+            // Não lançar exceção para não quebrar o fluxo principal
+        }
+    }
+    
+    private com.easydora.orders.event.OrderCreatedEvent.OrderItem mapToEventItem(OrderItem item) {
+        com.easydora.orders.event.OrderCreatedEvent.OrderItem eventItem = 
+            new com.easydora.orders.event.OrderCreatedEvent.OrderItem();
+        eventItem.setProductId(item.getProductId());
+        eventItem.setQuantity(item.getQuantity());
+        eventItem.setUnitPrice(item.getUnitPrice());
+        return eventItem;
     }
     
     private void publishOrderStatusChanged(String orderId, OrderState previousState, OrderState newState) {
