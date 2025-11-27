@@ -29,21 +29,6 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
         return nil, err
     }
 
-    // Declare exchange and queue
-    err = channel.ExchangeDeclare(
-        "order.exchange",   // name
-        "direct",  // type
-        true,      // durable
-        false,     // auto-deleted
-        false,     // internal
-        false,     // no-wait
-        nil,       // arguments
-    )
-    if err != nil {
-        conn.Close()
-        return nil, err
-    }
-
     queue, err := channel.QueueDeclare(
         "inventory.reserve.queue", // name
         true,            // durable
@@ -80,7 +65,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
     kafkaProducer *KafkaProducer,
 ) {
     msgs, err := r.channel.Consume(
-        "stock.reserve", // queue
+        "inventory.reserve.queue", // queue
         "",              // consumer
         false,           // auto-ack (we'll do manual ack)
         false,           // exclusive

@@ -15,6 +15,8 @@ public class ProductRequest {
     @DecimalMin("0.01")
     private BigDecimal price;
     
+    private Integer initialStock;
+
     // Getters and Setters
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -24,4 +26,7 @@ public class ProductRequest {
     
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
+
+    public Integer getInitialStock() { return initialStock; }
+    public void setInitialStock(Integer initialStock) { this.initialStock = initialStock; }
 }

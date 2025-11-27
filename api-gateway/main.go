@@ -32,14 +32,14 @@ var (
 			Implemented: true,
 		},
 		"inventory": {
-			URL:         getEnv("INVENTORY_SERVICE_URL", "http://products-service:8083"),
+			URL:         getEnv("INVENTORY_SERVICE_URL", "http://inventory-service:8083"),
 			Name:        "inventory-service", 
 			Implemented: true,
 		},
 		"orders": {
 			URL:         getEnv("ORDERS_SERVICE_URL", "http://orders-service:8084"),
 			Name:        "orders-service",
-			Implemented: false,
+			Implemented: true,
 		},
 	}
 )

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"inventory-service/internal/messaging"
 	"inventory-service/internal/repository"
 	"inventory-service/internal/service"
@@ -25,12 +27,25 @@ func main() {
     }
     defer db.Close()
 
+    if err := runInitScript(db); err != nil {
+        log.Fatal("Failed to run initialization script:", err)
+    }
+
     // Initialize repository
     inventoryRepo := repository.NewPostgresRepository(db)
 
     // Initialize services
     inventoryService := service.NewInventoryService(inventoryRepo)
 
+    kafkaConsumer, err := messaging.NewKafkaConsumer()
+    if err != nil {
+        log.Fatal("Failed to create Kafka consumer:", err)
+    }
+    defer kafkaConsumer.Close()
+    
+    // Executar consumer em goroutine separada
+    go kafkaConsumer.ConsumeProductCreatedEvents(inventoryService)
+        
     // Initialize RabbitMQ consumer
     rabbitMQ, err := messaging.NewRabbitMQConsumer()
     if err != nil {
@@ -110,6 +125,26 @@ func main() {
 
     log.Println("Inventory Service started on :8083")
     log.Fatal(http.ListenAndServe(":8083", nil))
+}
+
+func runInitScript(db *sql.DB) error {
+    // script init.sql
+    scriptPath := filepath.Join("scripts", "init.sql")
+    
+    // Read content of the file
+    content, err := os.ReadFile(scriptPath)
+    if err != nil {
+        return fmt.Errorf("failed to read init.sql: %v", err)
+    }
+    
+    // Run the SQL script
+    _, err = db.Exec(string(content))
+    if err != nil {
+        return fmt.Errorf("failed to execute init.sql: %v", err)
+    }
+    
+    log.Println("Database initialization script executed successfully")
+    return nil
 }
 
 func loadEnv() {
