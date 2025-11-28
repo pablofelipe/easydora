@@ -111,8 +111,8 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public Binding paymentApprovedBinding(Queue ordersPaymentFailedQueue, TopicExchange orderExchange) {
-        return BindingBuilder.bind(ordersPaymentFailedQueue)
+    public Binding paymentApprovedBinding(Queue ordersPaymentApprovedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(ordersPaymentApprovedQueue)
                 .to(orderExchange)
                 .with(PAYMENT_APPROVED_KEY);
     }

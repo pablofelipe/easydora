@@ -3,6 +3,8 @@ package com.easydora.billing.service;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
+import com.easydora.billing.service.provider.PaymentProvider;
+import com.easydora.billing.service.provider.PaymentResult;
 import com.easydora.billing.messaging.events.PaymentProcessedEvent;
 import com.easydora.billing.messaging.producer.PaymentEventProducer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.Optional;
 
 @Service
 public class PaymentService {
@@ -21,29 +23,45 @@ public class PaymentService {
     
     @Autowired
     private PaymentEventProducer paymentEventProducer;
+    
+    @Autowired
+    private PaymentProvider paymentProvider; // Pode injetar o mock como padrão
 
     @Transactional
     public Payment processPayment(Long orderId, BigDecimal amount) {
-        // Criar pagamento
         Payment payment = new Payment(orderId, amount);
         payment = paymentRepository.save(payment);
         
-        // Lógica mock: valor par = aprova, ímpar = rejeita
-        boolean isApproved = amount.remainder(BigDecimal.valueOf(2)).compareTo(BigDecimal.ZERO) == 0;
+        // Delegar para o provedor
+        PaymentResult result = paymentProvider.processPayment(orderId, amount);
         
-        if (isApproved) {
+        // Processar resultado
+        if (result.isApproved()) {
             payment.setStatus(PaymentStatus.APPROVED);
-            payment.setTransactionId("TXN_" + UUID.randomUUID().toString().substring(0, 8));
-            payment.setProcessedAt(LocalDateTime.now());
+            payment.setTransactionId(result.getTransactionId());
         } else {
             payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason("Valor ímpar rejeitado pela política mock");
-            payment.setProcessedAt(LocalDateTime.now());
+            payment.setFailureReason(result.getFailureReason());
         }
         
+        payment.setProcessedAt(LocalDateTime.now());
         payment = paymentRepository.save(payment);
         
         // Publicar evento
+        publishPaymentEvent(payment);
+        
+        return payment;
+    }
+
+    public Optional<Payment> findById(Long id) {
+        return paymentRepository.findById(id);
+    }
+    
+    public Payment findByOrderId(Long orderId) {
+        return paymentRepository.findByOrderId(orderId);
+    }
+
+    private void publishPaymentEvent(Payment payment) {
         PaymentProcessedEvent event = new PaymentProcessedEvent();
         event.setPaymentId(payment.getId());
         event.setOrderId(payment.getOrderId());
@@ -54,15 +72,5 @@ public class PaymentService {
         event.setProcessedAt(payment.getProcessedAt());
         
         paymentEventProducer.sendPaymentProcessedEvent(event);
-        
-        return payment;
-    }
-    
-    public Payment findById(Long id) {
-        return paymentRepository.findById(id).orElse(null);
-    }
-    
-    public Payment findByOrderId(Long orderId) {
-        return paymentRepository.findByOrderId(orderId);
     }
 }
