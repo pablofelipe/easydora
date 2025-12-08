@@ -19,6 +19,8 @@ public class UserEventConsumer {
     
     private final SellerRepository sellerRepository;
     
+    private static final String SELLER_ROLE = "SELLER";
+
     public UserEventConsumer(SellerRepository sellerRepository) {
         this.sellerRepository = sellerRepository;
     }
@@ -28,26 +30,21 @@ public class UserEventConsumer {
         logger.info("Received USER_REGISTERED event for user: {}", userEvent.getUserId());
         
         try {
+
+            if (!isSeller(userEvent)) {
+                logger.debug("Ignoring non-SELLER registration: {} as {}", 
+                    userEvent.getUserId(), userEvent.getRole());
+                return;
+            }
+            
             Seller seller = sellerRepository.findById(userEvent.getUserId())
                 .orElse(new Seller());
                 
             seller.setUserId(userEvent.getUserId());
             seller.setEmail(userEvent.getEmail());
             seller.setName(userEvent.getFullName());
-            
-            String fullName = userEvent.getFullName();
-            seller.setName(fullName);
-            
-            String role = userEvent.getRole();
-            if (role == null || role.trim().isEmpty()) {
-                throw new Exception("Role não encontrado no evento USER_REGISTERED");
-            }
-            
-            if (!"SELLER".equals(role)) {
-                throw new UnauthorizedException("User must be a SELLER");
-            }
-
-            seller.setRole(UserRole.valueOf(role.toUpperCase()));
+            seller.setRole(UserRole.SELLER);
+            seller.setName(userEvent.getFullName());
             seller.setActive(false); // Inativo até ativar email
             
             if (seller.getCreatedAt() == null) {
@@ -56,19 +53,29 @@ public class UserEventConsumer {
             seller.setUpdatedAt(java.time.LocalDateTime.now());
             
             sellerRepository.save(seller);
-            logger.info("User registered: {} as {}", userEvent.getUserId(), role);
             
         } catch (Exception e) {
             logger.error("Error processing USER_REGISTERED event for user: {}", 
                 userEvent.getUserId(), e);
         }
     }
-    
+
+    private boolean isSeller(UserEvent userEvent) {
+        return userEvent.getRole() != null && 
+               SELLER_ROLE.equalsIgnoreCase(userEvent.getRole().trim());
+    }
+
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
     public void handleJwtCreated(UserEvent userEvent) {
         logger.info("Received JWT_CREATED event for user: {}", userEvent.getUserId());
         
         try {
+            if (!isSeller(userEvent)) {
+                logger.debug("Ignoring non-SELLER JWT event: {} as {}", 
+                    userEvent.getUserId(), userEvent.getRole());
+                return;
+            }
+
             sellerRepository.findById(userEvent.getUserId()).ifPresentOrElse(
                 seller -> {
                     updateSellerFromJwtEvent(seller, userEvent);
@@ -107,20 +114,17 @@ public class UserEventConsumer {
 
     private void updateSellerFromJwtEvent(Seller seller, UserEvent userEvent) {
         // Atualiza role se fornecida
-        if (userEvent.getRole() != null) {
-            try {
-                seller.setRole(UserRole.valueOf(userEvent.getRole().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                logger.warn("Invalid role: {}, keeping current: {}", 
-                    userEvent.getRole(), seller.getRole());
-            }
-        }
+        seller.setRole(UserRole.SELLER);
         
         // Atualiza email se necessário
         if (userEvent.getEmail() != null) {
             seller.setEmail(userEvent.getEmail());
         }
         
+        if (userEvent.getFullName() != null) {
+            seller.setName(userEvent.getFullName());
+        }
+
         // Ativa o usuário quando faz login
         seller.setActive(true);
         seller.setUpdatedAt(java.time.LocalDateTime.now());
@@ -131,20 +135,7 @@ public class UserEventConsumer {
         seller.setUserId(userEvent.getUserId());
         seller.setEmail(userEvent.getEmail());
         seller.setName(userEvent.getFullName());
-        
-        System.out.println("Role do evento: " + userEvent.getRole());
-
-        if (userEvent.getRole() != null && !userEvent.getRole().isBlank()) {
-            try {
-                seller.setRole(UserRole.valueOf(userEvent.getRole().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                logger.warn("Invalid role: {}, defaulting to BUYER", userEvent.getRole());
-                seller.setRole(UserRole.BUYER);
-            }
-        } else if (seller.getRole() == null) {
-            seller.setRole(UserRole.BUYER); // default
-        }
-        
+        seller.setRole(UserRole.SELLER);
         seller.setActive(true);
         seller.setCreatedAt(java.time.LocalDateTime.now());
         seller.setUpdatedAt(java.time.LocalDateTime.now());

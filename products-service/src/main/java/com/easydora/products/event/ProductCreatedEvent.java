@@ -1,7 +1,6 @@
 package com.easydora.products.event;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 
 public class ProductCreatedEvent {
     private String productId;

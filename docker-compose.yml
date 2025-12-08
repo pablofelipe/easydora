@@ -81,6 +81,7 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
       - postgres
       - rabbitmq
@@ -96,7 +97,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
       - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
-      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_BROKERS=kafka:29092
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=admin
@@ -130,7 +131,7 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
       - postgres
       - rabbitmq
@@ -161,17 +162,17 @@ services:
       - easydora-network
 
   # Notification Service
-  notification-service:
-    build: ./notification-service
-    container_name: notification-service
-    ports:
-      - "8086:8086"
-    environment:
-      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
-    depends_on:
-      - rabbitmq
-    networks:
-      - easydora-network
+  #notification-service:
+  #  build: ./notification-service
+  #  container_name: notification-service
+  #  ports:
+  #    - "8086:8086"
+  #  environment:
+  #    - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+  #  depends_on:
+  #    - rabbitmq
+  #  networks:
+  #    - easydora-network
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -202,16 +203,16 @@ services:
       - easydora-network
       
   # Frontend
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - API_BASE_URL=http://localhost:8080
-    depends_on:
-      - api-gateway
-    networks:
-      - easydora-network
+  #frontend:
+  #  build: ./frontend
+  #  ports:
+  #    - "3000:3000"
+  #  environment:
+  #    - API_BASE_URL=http://localhost:8080
+  #  depends_on:
+  #    - api-gateway
+  #  networks:
+  #    - easydora-network
 
 volumes:
   postgres_data:

@@ -6,6 +6,8 @@ import com.easydora.products.entity.Product;
 import com.easydora.products.entity.Seller;
 import com.easydora.products.entity.UserRole;
 import com.easydora.products.event.ProductCreatedEvent;
+import com.easydora.products.event.ProductDeletedEvent;
+import com.easydora.products.event.ProductUpdatedEvent;
 import com.easydora.products.repository.ProductRepository;
 import com.easydora.products.repository.SellerRepository;
 import com.easydora.products.exception.*;
@@ -16,7 +18,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -30,6 +31,8 @@ public class ProductService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     
     private static final String PRODUCT_CREATED_TOPIC = "product-created";
+    private static final String PRODUCT_UPDATED_TOPIC = "product.updated";
+    private static final String PRODUCT_DELETED_TOPIC = "product.deleted";
 
     private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
 
@@ -150,9 +153,35 @@ public class ProductService {
         product.setPrice(request.getPrice());
         
         Product updatedProduct = productRepository.save(product);
+
+        publishProductUpdatedEvent(updatedProduct);
+
         return mapToProductResponse(updatedProduct);
     }
     
+    private void publishProductUpdatedEvent(Product product) {
+        try {
+            ProductUpdatedEvent event = new ProductUpdatedEvent();
+            event.setProductId(product.getId().toString());
+            event.setProductName(product.getName());
+            event.setPrice(product.getPrice());
+            event.setActive(product.getActive());
+            event.setUpdatedAt(Instant.now().toString());
+            
+            kafkaTemplate.send(PRODUCT_UPDATED_TOPIC, event)
+                .whenComplete((result, failure) -> {
+                    if (failure != null) {
+                        logger.error("Failed to publish ProductUpdatedEvent - Product: {}", product.getId(), failure);
+                    } else {
+                        logger.info("ProductUpdatedEvent published successfully - Product: {}", product.getId());
+                    }
+                });
+                
+        } catch (Exception e) {
+            logger.error("Error publishing ProductUpdatedEvent for product: {}", product.getId(), e);
+        }
+    }
+
     public void deleteProduct(String id, String sellerId) {
 
         if (sellerId == null || sellerId.trim().isEmpty()) {
@@ -167,9 +196,31 @@ public class ProductService {
         }
         
         product.setActive(false);
-        productRepository.save(product);
+        Product deletedProduct = productRepository.save(product);
+
+        publishProductDeletedEvent(deletedProduct);
     }
     
+    private void publishProductDeletedEvent(Product product) {
+        try {
+            ProductDeletedEvent event = new ProductDeletedEvent();
+            event.setProductId(product.getId().toString());
+            event.setDeletedAt(Instant.now().toString());
+            
+            kafkaTemplate.send(PRODUCT_DELETED_TOPIC, event)
+                .whenComplete((result, failure) -> {
+                    if (failure != null) {
+                        logger.error("Failed to publish ProductDeletedEvent - Product: {}", product.getId(), failure);
+                    } else {
+                        logger.info("ProductDeletedEvent published successfully - Product: {}", product.getId());
+                    }
+                });
+                
+        } catch (Exception e) {
+            logger.error("Error publishing ProductDeletedEvent for product: {}", product.getId(), e);
+        }
+    }
+
     private ProductResponse mapToProductResponse(Product product) {
         ProductResponse response = new ProductResponse();
         response.setId(product.getId());

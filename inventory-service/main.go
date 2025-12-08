@@ -44,7 +44,7 @@ func main() {
     defer kafkaConsumer.Close()
     
     // Executar consumer em goroutine separada
-    go kafkaConsumer.ConsumeProductCreatedEvents(inventoryService)
+    go kafkaConsumer.StartConsuming(inventoryService)
         
     // Initialize RabbitMQ consumer
     rabbitMQ, err := messaging.NewRabbitMQConsumer()

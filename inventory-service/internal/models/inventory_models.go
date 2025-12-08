@@ -7,6 +7,8 @@ type Inventory struct {
     ProductID string    `json:"product_id"`
     Quantity  int       `json:"quantity"`
     Reserved  int       `json:"reserved"`
+    Available bool      `json:"available"`
+    Deleted   bool      `json:"deleted"`
     CreatedAt time.Time `json:"created_at"`
     UpdatedAt time.Time `json:"updated_at"`
 }

@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"inventory-service/internal/models"
 	"inventory-service/internal/repository"
+	"log"
 )
 
 type InventoryService interface {
     GetInventory(productID string) (*models.Inventory, error)
     UpdateInventory(productID string, quantity int) error
     ReserveStock(command *models.ReserveStockCommand) (*models.StockReservedEvent, []*models.StockInsufficientEvent)
+    DeactivateProduct(productID string) error
+    DeleteProduct(productID string) error
 }
 
 type inventoryService struct {
@@ -26,6 +29,18 @@ func (s *inventoryService) GetInventory(productID string) (*models.Inventory, er
 
 func (s *inventoryService) UpdateInventory(productID string, quantity int) error {
     return s.repo.UpdateQuantity(productID, quantity)
+}
+
+func (s *inventoryService) DeactivateProduct(productID string) error {
+	log.Printf("Deactivating product in inventory: %s", productID)
+	// Marcar como indisponível sem remover
+	return s.repo.DeactivateProduct(productID)
+}
+
+func (s *inventoryService) DeleteProduct(productID string) error {
+	log.Printf("Removing product from inventory: %s", productID)
+	// Remover ou marcar como deletado
+	return s.repo.DeleteProduct(productID)
 }
 
 func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (*models.StockReservedEvent, []*models.StockInsufficientEvent) {
