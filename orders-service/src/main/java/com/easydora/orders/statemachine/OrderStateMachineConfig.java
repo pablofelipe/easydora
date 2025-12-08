@@ -1,10 +1,13 @@
 package com.easydora.orders.statemachine;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.statemachine.config.EnableStateMachineFactory;
 import org.springframework.statemachine.config.StateMachineConfigurerAdapter;
 import org.springframework.statemachine.config.builders.StateMachineStateConfigurer;
 import org.springframework.statemachine.config.builders.StateMachineTransitionConfigurer;
+
+import com.easydora.orders.actions.ReleaseInventoryAction;
 
 import java.util.EnumSet;
 
@@ -18,6 +21,11 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
             .withStates()
                 .initial(OrderState.PENDING)
                 .states(EnumSet.allOf(OrderState.class));
+    }
+
+    @Bean
+    public ReleaseInventoryAction releaseInventoryAction() {
+        return new ReleaseInventoryAction();
     }
 
     @Override
@@ -56,6 +64,18 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
                 .and()
             .withExternal()
                 .source(OrderState.PAYMENT_APPROVED).target(OrderState.CANCELLED)
-                .event(OrderEvent.CANCEL_ORDER);
+                .event(OrderEvent.CANCEL_ORDER)
+
+            .and()
+            // Cancelamento do pedido
+            .withExternal()
+                .source(OrderState.INVENTORY_RESERVED).target(OrderState.CANCELLED)
+                .event(OrderEvent.CANCEL_ORDER)
+                .action(releaseInventoryAction())  // ← liberar estoque
+            .and()
+            // reembolso
+            .withExternal()
+                .source(OrderState.PAYMENT_APPROVED).target(OrderState.REFUNDING)
+                .event(OrderEvent.INITIATE_REFUND);
     }
 }

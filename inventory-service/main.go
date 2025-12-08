@@ -64,6 +64,8 @@ func main() {
 
             // Start consuming messages
             go rabbitMQ.ConsumeReserveStockCommands(inventoryService, kafkaProducer)
+
+            go rabbitMQ.ConsumeReleaseStockCommands(inventoryService)
         }
     }
 

@@ -13,6 +13,17 @@ type Inventory struct {
     UpdatedAt time.Time `json:"updated_at"`
 }
 
+type ReleaseStockCommand struct {
+    OrderID   string               `json:"order_id"`
+    Items     []ReleaseStockItem   `json:"items"`
+    Timestamp time.Time            `json:"timestamp"`
+}
+
+type ReleaseStockItem struct {
+    ProductID string `json:"product_id"`
+    Quantity  int    `json:"quantity"`
+}
+
 type ReserveStockCommand struct {
     OrderID   string              `json:"order_id"`
     Items     []ReserveStockItem  `json:"items"`

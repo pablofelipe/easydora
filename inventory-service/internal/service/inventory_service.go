@@ -11,6 +11,7 @@ type InventoryService interface {
     GetInventory(productID string) (*models.Inventory, error)
     UpdateInventory(productID string, quantity int) error
     ReserveStock(command *models.ReserveStockCommand) (*models.StockReservedEvent, []*models.StockInsufficientEvent)
+    ReleaseStock(command *models.ReleaseStockCommand) error
     DeactivateProduct(productID string) error
     DeleteProduct(productID string) error
 }
@@ -41,6 +42,32 @@ func (s *inventoryService) DeleteProduct(productID string) error {
 	log.Printf("Removing product from inventory: %s", productID)
 	// Remover ou marcar como deletado
 	return s.repo.DeleteProduct(productID)
+}
+
+
+func (s *inventoryService) ReleaseStock(command *models.ReleaseStockCommand) error {
+    log.Printf("🔄 Releasing stock for order: %s", command.OrderID)
+    
+    var errors []string
+    
+    for _, item := range command.Items {
+        err := s.repo.ReleaseStock(item.ProductID, item.Quantity)
+        if err != nil {
+            log.Printf("❌ Failed to release %d units of product %s: %v", 
+                item.Quantity, item.ProductID, err)
+            errors = append(errors, 
+                fmt.Sprintf("product %s: %v", item.ProductID, err))
+            continue // Tenta liberar os outros itens mesmo se um falhar
+        }
+        log.Printf("✅ Released %d units of product %s", 
+            item.Quantity, item.ProductID)
+    }
+    
+    if len(errors) > 0 {
+        return fmt.Errorf("partial failure releasing stock: %v", errors)
+    }
+    
+    return nil
 }
 
 func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (*models.StockReservedEvent, []*models.StockInsufficientEvent) {

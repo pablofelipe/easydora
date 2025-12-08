@@ -60,6 +60,62 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
     }, nil
 }
 
+func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.InventoryService) {
+    // Declare release queue
+    queue, err := r.channel.QueueDeclare(
+        "inventory.release.queue",
+        true, false, false, false, nil,
+    )
+    if err != nil {
+        log.Printf("⚠️ Failed to declare release queue: %v", err)
+        return
+    }
+    
+    err = r.channel.QueueBind(
+        queue.Name,
+        "stock.release",  // Nova routing key
+        "order.exchange",
+        false, nil,
+    )
+    if err != nil {
+        log.Printf("⚠️ Failed to bind release queue: %v", err)
+        return
+    }
+    
+    msgs, err := r.channel.Consume(
+        queue.Name,
+        "", false, false, false, false, nil,
+    )
+    if err != nil {
+        log.Printf("⚠️ Failed to consume release queue: %v", err)
+        return
+    }
+    
+    go func() {
+        for d := range msgs {
+            var command models.ReleaseStockCommand
+            if err := json.Unmarshal(d.Body, &command); err != nil {
+                log.Printf("❌ Error decoding release command: %v", err)
+                d.Nack(false, false) // Não requeue - mensagem inválida
+                continue
+            }
+            
+            log.Printf("📥 Received ReleaseStockCommand for order: %s", command.OrderID)
+            
+            if err := inventoryService.ReleaseStock(&command); err != nil {
+                log.Printf("❌ Failed to process release command: %v", err)
+                d.Nack(false, true) // Requeue para tentar novamente
+                continue
+            }
+            
+            d.Ack(false)
+            log.Printf("✅ Stock released for order: %s", command.OrderID)
+        }
+    }()
+    
+    log.Printf("👂 Waiting for ReleaseStockCommand messages on queue: %s", queue.Name)
+}
+
 func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
     inventoryService service.InventoryService, 
     kafkaProducer *KafkaProducer,

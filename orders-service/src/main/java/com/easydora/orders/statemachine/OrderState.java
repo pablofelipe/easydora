@@ -9,5 +9,6 @@ public enum OrderState {
     INVENTORY_FAILED,  // Falha no estoque
     SHIPPED,           // Enviado
     DELIVERED,         // Entregue
-    CANCELLED          // Cancelado
+    CANCELLED,         // Cancelado
+    REFUNDING          // Reembolso
 }
