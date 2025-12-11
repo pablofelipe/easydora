@@ -1,10 +1,10 @@
 package com.easydora.products.consumer;
 
+import com.easydora.products.config.JwtAuthenticationFilter;
 import com.easydora.products.config.RabbitMQConfig;
 import com.easydora.products.entity.Seller;
 import com.easydora.products.entity.UserRole;
 import com.easydora.products.event.UserEvent;
-import com.easydora.products.exception.UnauthorizedException;
 import com.easydora.products.repository.SellerRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,11 +18,12 @@ public class UserEventConsumer {
     private static final Logger logger = LoggerFactory.getLogger(UserEventConsumer.class);
     
     private final SellerRepository sellerRepository;
-    
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private static final String SELLER_ROLE = "SELLER";
 
-    public UserEventConsumer(SellerRepository sellerRepository) {
+    public UserEventConsumer(SellerRepository sellerRepository, JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.sellerRepository = sellerRepository;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
     
     @RabbitListener(queues = RabbitMQConfig.USER_REGISTERED_QUEUE)
@@ -76,6 +77,8 @@ public class UserEventConsumer {
                 return;
             }
 
+            addValidToken(userEvent);
+
             sellerRepository.findById(userEvent.getUserId()).ifPresentOrElse(
                 seller -> {
                     updateSellerFromJwtEvent(seller, userEvent);
@@ -94,6 +97,34 @@ public class UserEventConsumer {
         }
     }
     
+    private void addValidToken(UserEvent event) {
+        logger.info("--- JWT EVENT RECEBIDO ---");
+        logger.info("Evento: {}", event.toString());
+        
+        String token = event.getToken();
+        Long userId = Long.valueOf(event.getUserId());
+        String email = event.getEmail();
+        String firstName = event.getFirstName();
+        String lastName = event.getLastName();
+        String role = event.getRole();
+        
+        if (token == null || token.trim().isEmpty()) {
+            logger.error("Token não encontrado no evento");
+            return;
+        }
+        
+        logger.info("Token extraído (primeiros 20 chars): {}...", 
+            token.substring(0, Math.min(20, token.length())));
+        logger.info("Dados do usuário: userId={}, email={}, role={}", userId, email, role);
+        
+        // Cria o objeto userInfo
+        JwtAuthenticationFilter.JwtUserInfo userInfo = 
+            new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role);
+        
+        // Adiciona o token
+        jwtAuthenticationFilter.addValidToken(token, userInfo);
+    }
+
     @RabbitListener(queues = RabbitMQConfig.USER_VERIFIED_QUEUE)
     public void handleUserVerified(Long userId) {
         logger.info("Received USER_VERIFIED_QUEUE event for user: {}", userId);
