@@ -29,8 +29,10 @@ func NewKafkaConsumer() (*KafkaConsumer, error) {
             MinBytes:       10e3,
             MaxBytes:       10e6,
             MaxWait:        1 * time.Second,
-            StartOffset:    kafka.FirstOffset,
+            StartOffset:    kafka.LastOffset,
             CommitInterval: time.Second,
+            Logger:         kafka.LoggerFunc(log.Printf),
+            ErrorLogger:    kafka.LoggerFunc(log.Printf),
         })
     }
 

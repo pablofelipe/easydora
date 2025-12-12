@@ -20,7 +20,11 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
         states
             .withStates()
                 .initial(OrderState.PENDING)
-                .states(EnumSet.allOf(OrderState.class));
+                .states(EnumSet.allOf(OrderState.class))
+                .end(OrderState.DELIVERED)
+                .end(OrderState.CANCELLED)
+                .end(OrderState.PAYMENT_FAILED)
+                .end(OrderState.INVENTORY_FAILED);
     }
 
     @Bean
@@ -31,51 +35,64 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
     @Override
     public void configure(StateMachineTransitionConfigurer<OrderState, OrderEvent> transitions) throws Exception {
         transitions
+            // 1. Fluxo de pagamento
             .withExternal()
                 .source(OrderState.PENDING).target(OrderState.PAYMENT_APPROVED)
                 .event(OrderEvent.PAYMENT_RECEIVED)
-                .and()
+            .and()
             .withExternal()
                 .source(OrderState.PENDING).target(OrderState.PAYMENT_FAILED)
                 .event(OrderEvent.PAYMENT_FAILED)
-                .and()
+            .and()
+
+            // 2. Transição automática para PROCESSING após pagamento aprovado
             .withExternal()
                 .source(OrderState.PAYMENT_APPROVED).target(OrderState.PROCESSING)
-                .and()
+                .event(OrderEvent.START_PROCESSING)
+            .and()
+
+            // 3. Fluxo de inventário
             .withExternal()
                 .source(OrderState.PROCESSING).target(OrderState.INVENTORY_RESERVED)
                 .event(OrderEvent.INVENTORY_RESERVED)
-                .and()
+            .and()
             .withExternal()
                 .source(OrderState.PROCESSING).target(OrderState.INVENTORY_FAILED)
                 .event(OrderEvent.INVENTORY_FAILED)
-                .and()
+            .and()
+
+            // 4. Fluxo de envio
             .withExternal()
                 .source(OrderState.INVENTORY_RESERVED).target(OrderState.SHIPPED)
                 .event(OrderEvent.SHIP_ORDER)
-                .and()
+            .and()
             .withExternal()
                 .source(OrderState.SHIPPED).target(OrderState.DELIVERED)
                 .event(OrderEvent.DELIVER_ORDER)
-                .and()
+            .and()
+
+            // 5. Cancelamento (vários estados)
             .withExternal()
                 .source(OrderState.PENDING).target(OrderState.CANCELLED)
                 .event(OrderEvent.CANCEL_ORDER)
-                .and()
+            .and()
             .withExternal()
                 .source(OrderState.PAYMENT_APPROVED).target(OrderState.CANCELLED)
                 .event(OrderEvent.CANCEL_ORDER)
-
             .and()
-            // Cancelamento do pedido
             .withExternal()
                 .source(OrderState.INVENTORY_RESERVED).target(OrderState.CANCELLED)
                 .event(OrderEvent.CANCEL_ORDER)
-                .action(releaseInventoryAction())  // ← liberar estoque
+                .action(releaseInventoryAction())
             .and()
-            // reembolso
+
+            // 6. Reembolso
             .withExternal()
                 .source(OrderState.PAYMENT_APPROVED).target(OrderState.REFUNDING)
-                .event(OrderEvent.INITIATE_REFUND);
+                .event(OrderEvent.INITIATE_REFUND)
+            .and()
+            .withExternal()
+                .source(OrderState.REFUNDING).target(OrderState.CANCELLED)
+                .event(OrderEvent.REFUND_COMPLETED);
     }
 }

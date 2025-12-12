@@ -7,6 +7,11 @@ import (
 	"log"
 )
 
+type reservedItem struct {
+    productID string
+    quantity  int
+}
+
 type InventoryService interface {
     GetInventory(productID string) (*models.Inventory, error)
     UpdateInventory(productID string, quantity int) error
@@ -71,16 +76,30 @@ func (s *inventoryService) ReleaseStock(command *models.ReleaseStockCommand) err
 }
 
 func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (*models.StockReservedEvent, []*models.StockInsufficientEvent) {
+    log.Printf("🔄 Starting stock reservation for order: %s", command.OrderID)
+    
     var insufficientEvents []*models.StockInsufficientEvent
-    var reservedItems []string
+    var reservedItems []reservedItem
 
     // Try to reserve stock for each item
     for _, item := range command.Items {
+        log.Printf("  📦 Attempting to reserve %d units of product %s", 
+            item.Quantity, item.ProductID)
+        
         err := s.repo.ReserveStock(item.ProductID, item.Quantity)
         if err != nil {
-            // If any item fails, release all previously reserved items
-            for _, reservedProductID := range reservedItems {
-                s.repo.ReleaseStock(reservedProductID, item.Quantity)
+            log.Printf("  ❌ Failed to reserve product %s: %v", item.ProductID, err)
+            
+            // ❌ FAZER ROLLBACK: liberar tudo que já foi reservado
+            if len(reservedItems) > 0 {
+                log.Printf("  🔄 Rolling back previously reserved items...")
+                for _, reserved := range reservedItems {
+                    releaseErr := s.repo.ReleaseStock(reserved.productID, reserved.quantity)
+                    if releaseErr != nil {
+                        log.Printf("  ⚠️ Failed to rollback product %s: %v", 
+                            reserved.productID, releaseErr)
+                    }
+                }
             }
             
             // Create insufficient event
@@ -101,14 +120,24 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (*m
             return &models.StockReservedEvent{
                 OrderID:   command.OrderID,
                 Success:   false,
-                Message:   fmt.Sprintf("Failed to reserve stock for product %s", item.ProductID),
+                Message:   fmt.Sprintf("Failed to reserve stock for product %s: %v", item.ProductID, err),
                 Timestamp: command.Timestamp,
             }, insufficientEvents
         }
-        reservedItems = append(reservedItems, item.ProductID)
+        
+        // ✅ Guardar produto E quantidade para possível rollback
+        reservedItems = append(reservedItems, reservedItem{
+            productID: item.ProductID,
+            quantity:  item.Quantity,
+        })
+        
+        log.Printf("  ✅ Successfully reserved %d units of product %s", 
+            item.Quantity, item.ProductID)
     }
 
     // All items reserved successfully
+    log.Printf("✅ All stock reserved successfully for order: %s", command.OrderID)
+    
     return &models.StockReservedEvent{
         OrderID:   command.OrderID,
         Success:   true,

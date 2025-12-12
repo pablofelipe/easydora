@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"encoding/json"
 	"inventory-service/internal/models"
 	"inventory-service/pkg/config"
 	"log"
@@ -11,67 +12,99 @@ import (
 )
 
 type KafkaProducer struct {
-    writer *kafka.Writer
+    writerReserved    *kafka.Writer
+    writerInsufficient *kafka.Writer
 }
 
 func NewKafkaProducer() (*KafkaProducer, error) {
     cfg := config.Load()
     
-    writer := &kafka.Writer{
-        Addr:         kafka.TCP(cfg.KafkaBrokers),
-        Balancer:     &kafka.LeastBytes{},
-        BatchTimeout: 10 * time.Millisecond,
-        RequiredAcks: kafka.RequireOne,
+    // ✅ Criar writers SEPARADOS para cada tópico
+    createWriter := func() *kafka.Writer {
+        return &kafka.Writer{
+            Addr:         kafka.TCP(cfg.KafkaBrokers),
+            Balancer:     &kafka.LeastBytes{},
+            BatchTimeout: 10 * time.Millisecond,
+            RequiredAcks: kafka.RequireOne,
+            Async:        false, // Importante: síncrono para garantir entrega
+        }
     }
 
-    return &KafkaProducer{writer: writer}, nil
+    return &KafkaProducer{
+        writerReserved:    createWriter(),
+        writerInsufficient: createWriter(),
+    }, nil
 }
 
 func (k *KafkaProducer) PublishStockReserved(event *models.StockReservedEvent) error {
-    topic := "stock-reserved"
+    // Pequeno delay para garantir ordem (opcional)
+    time.Sleep(100 * time.Millisecond)
     
+    // Serializar para JSON
+    jsonData, err := json.Marshal(event)
+    if err != nil {
+        log.Printf("❌ Failed to marshal StockReservedEvent: %v", err)
+        return err
+    }
+    
+    log.Printf("📤 Publishing StockReservedEvent: %s", string(jsonData))
+    
+    // Criar mensagem SEM tópico (o writer já sabe o tópico)
     message := kafka.Message{
-        Topic: topic,
-        Value: []byte(event.OrderID),
+        Value: jsonData, // ✅ Apenas o valor
         Time:  time.Now(),
     }
 
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
     defer cancel()
 
-    err := k.writer.WriteMessages(ctx, message)
+    // ✅ Publicar no tópico reservado
+    err = k.writerReserved.WriteMessages(ctx, message)
     if err != nil {
+        log.Printf("❌ Failed to publish StockReservedEvent: %v", err)
         return err
     }
 
-    log.Printf("Published StockReservedEvent for order: %s", event.OrderID)
+    log.Printf("✅ Published StockReservedEvent for order: %s (Success: %v)", 
+        event.OrderID, event.Success)
     return nil
 }
 
 func (k *KafkaProducer) PublishStockInsufficient(event *models.StockInsufficientEvent) error {
-    topic := "stock-insufficient"
-
-    message := kafka.Message{
-        Topic: topic,
-        Value: []byte(event.OrderID),
-        Time:  time.Now(),
-    }
-
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-
-    err := k.writer.WriteMessages(ctx, message)
+    // Serializar para JSON
+    jsonData, err := json.Marshal(event)
     if err != nil {
+        log.Printf("❌ Failed to marshal StockInsufficientEvent: %v", err)
         return err
     }
 
-    log.Printf("Published StockInsufficientEvent for order: %s, product: %s", 
+    log.Printf("📤 Publishing StockInsufficientEvent: %s", string(jsonData))
+    
+    message := kafka.Message{
+        Value: jsonData, // ✅ Apenas o valor
+        Time:  time.Now(),
+    }
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    // ✅ Publicar no tópico de insuficiência
+    err = k.writerInsufficient.WriteMessages(ctx, message)
+    if err != nil {
+        log.Printf("❌ Failed to publish StockInsufficientEvent: %v", err)
+        return err
+    }
+
+    log.Printf("✅ Published StockInsufficientEvent for order: %s, product: %s", 
         event.OrderID, event.ProductID)
     return nil
 }
 
 func (k *KafkaProducer) Close() {
-    if k.writer != nil {
-        k.writer.Close()
+    if k.writerReserved != nil {
+        k.writerReserved.Close()
+    }
+    if k.writerInsufficient != nil {
+        k.writerInsufficient.Close()
     }
 }

@@ -21,7 +21,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -37,8 +41,7 @@ public class OrderService {
     private final RabbitTemplate rabbitTemplate;
     
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
-    private static final String ORDER_CREATED_TOPIC = "order-created";
-    private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
+        private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
 
     public OrderService(BuyerRepository buyerRepository, 
                         OrderRepository orderRepository, 
@@ -82,6 +85,8 @@ public class OrderService {
         // Salvar ordem
         Order savedOrder = orderRepository.save(order);
         
+        orderRepository.flush();
+
         // Iniciar state machine
         stateMachineService.createStateMachine(savedOrder.getId());
         
@@ -123,25 +128,76 @@ public class OrderService {
             .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
         
         // Verificar se pode cancelar
-        if (order.getState() != OrderState.PENDING && order.getState() != OrderState.PAYMENT_APPROVED) {
+        if (!canCancel(order)) {
+            logger.error("❌ Pedido {} não pode ser cancelado no estado: {}", orderId, order.getState());
             throw new RuntimeException("Cannot cancel order in state: " + order.getState());
         }
         
         // Enviar evento de cancelamento
         boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.CANCEL_ORDER);
-        
+            
         if (eventSent) {
-            // Atualizar estado localmente
-            order.setState(OrderState.CANCELLED);
+            // IMPORTANTE: Obter o estado atualizado da State Machine
+            OrderState newState = stateMachineService.getCurrentState(orderId);
+            logger.info("✅ Evento CANCEL_ORDER aceito. Novo estado: {}", newState);
+            
+            // Validar que realmente foi para CANCELLED
+            if (newState != OrderState.CANCELLED) {
+                logger.error("⚠️ Estado inesperado após cancelamento: {}", newState);
+                throw new RuntimeException("Order not cancelled - unexpected state: " + newState);
+            }
+            
+            // Atualizar estado no banco (apenas se a State Machine aceitou)
+            OrderState previousState = order.getState();
+            order.setState(newState);
+            order.setUpdatedAt(Instant.now());
             Order updatedOrder = orderRepository.save(order);
+            logger.info("💾 Pedido atualizado no banco: {} -> {}", previousState, newState);
             
             // Publicar evento de mudança de estado
-            publishOrderStatusChanged(orderId, order.getState(), OrderState.CANCELLED);
+            publishOrderStatusChanged(orderId, previousState, newState);
+            
+            // Se estava em INVENTORY_RESERVED, publicar evento específico
+            if (previousState == OrderState.INVENTORY_RESERVED) {
+                publishInventoryRelease(orderId);
+            }
             
             return mapToOrderResponse(updatedOrder);
         } else {
-            throw new RuntimeException("Failed to cancel order");
+            logger.error("❌ Evento CANCEL_ORDER não aceito pela State Machine");
+            
+            // Verificar qual é o estado atual
+            OrderState currentState = stateMachineService.getCurrentState(orderId);
+            logger.info("📌 Estado atual na State Machine: {}", currentState);
+            
+            throw new RuntimeException("Failed to cancel order - event not accepted. Current state: " + currentState);
         }
+    }
+        
+    private void publishInventoryRelease(String orderId) {
+        try {
+            // Publicar evento para liberar estoque
+            Map<String, Object> releaseEvent = new HashMap<>();
+            releaseEvent.put("orderId", orderId);
+            releaseEvent.put("eventType", "INVENTORY_RELEASE");
+            releaseEvent.put("timestamp", LocalDateTime.now());
+            
+            rabbitTemplate.convertAndSend(
+                "order.exchange",
+                "inventory.release",
+                releaseEvent
+            );
+            logger.info("📤 Evento de liberação de estoque publicado para pedido: {}", orderId);
+        } catch (Exception e) {
+            logger.error("❌ Erro ao publicar evento de liberação de estoque: {}", e.getMessage(), e);
+        }
+    }
+
+    private boolean canCancel(Order order) {
+        return order.getState() == OrderState.PENDING || 
+            order.getState() == OrderState.PAYMENT_APPROVED ||
+            order.getState() == OrderState.PROCESSING ||
+            order.getState() == OrderState.INVENTORY_RESERVED;
     }
     
     public void handlePaymentReceived(String orderId) {
