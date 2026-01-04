@@ -21,4 +21,7 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     List<Order> findByState(@Param("state") OrderState state);
     
     long countByUserId(Long userId);
+
+    @Query("UPDATE Order o SET o.state = :state WHERE o.id = :id")
+    void updateState(@Param("id") String id, @Param("state") OrderState state);
 }

@@ -90,8 +90,8 @@ services:
     depends_on:
       - auth-service
       - products-service
-      - inventory-service
       - orders-service
+      - inventory-service
     networks:
       - easydora-network
 
@@ -148,35 +148,6 @@ services:
     networks:
       - easydora-network
 
-  # Inventory Service
-  inventory-service:
-    build: ./inventory-service
-    container_name: inventory-service
-    ports:
-      - "8083:8083"
-    environment:
-      - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
-      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
-      - KAFKA_BROKERS=kafka:9092
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=admin
-      - DB_PASSWORD=69Nxa3dfk2M%40
-      - DB_NAME=easydora
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=admin
-      - RABBITMQ_PASSWORD=87j9d]#2@5B5
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - easydora-network
-
   # Orders Service
   orders-service:
     build: ./orders-service
@@ -204,6 +175,47 @@ services:
         condition: service_healthy
     networks:
       - easydora-network
+    healthcheck:
+      test: >
+        bash -c '
+        # Verifica se aplicação Spring está respondendo
+        curl -f http://localhost:8084/actuator/health || exit 1
+        '
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s  # Tempo para aplicação iniciar
+      
+  # Inventory Service
+  inventory-service:
+    build: ./inventory-service
+    container_name: inventory-service
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
+      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+      - KAFKA_BROKERS=kafka:9092
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=69Nxa3dfk2M%40
+      - DB_NAME=easydora
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=87j9d]#2@5B5
+    depends_on:
+        orders-service:
+          condition: service_healthy
+        postgres:
+          condition: service_healthy
+        rabbitmq:
+          condition: service_healthy
+        kafka:
+          condition: service_healthy
+    networks:
+      - easydora-network
 
   # Billing Service
   billing-service:
@@ -222,10 +234,13 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - easydora-network

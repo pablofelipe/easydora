@@ -41,7 +41,7 @@ public class OrderService {
     private final RabbitTemplate rabbitTemplate;
     
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
-        private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
+    private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
 
     public OrderService(BuyerRepository buyerRepository, 
                         OrderRepository orderRepository, 
@@ -84,18 +84,38 @@ public class OrderService {
         
         // Salvar ordem
         Order savedOrder = orderRepository.save(order);
-        
-        orderRepository.flush();
 
         // Iniciar state machine
         stateMachineService.createStateMachine(savedOrder.getId());
         
+        boolean processingStarted = stateMachineService.sendEvent(
+            savedOrder.getId(), 
+            OrderEvent.START_PROCESSING);
+
+        if (!processingStarted) {
+            // Fallback: atualizar manualmente
+            savedOrder.setState(OrderState.PROCESSING);
+            orderRepository.save(savedOrder);
+            logger.warn("⚠️ State machine não aceitou START_PROCESSING, usando fallback");
+        } else {
+            // Estado será atualizado pela state machine
+            OrderState currentState = stateMachineService.getCurrentState(savedOrder.getId());
+            savedOrder.setState(currentState);
+            orderRepository.save(savedOrder);
+        }
+
+        orderRepository.flush();
+        
         // Publicar evento de ordem criada
         publishOrderCreatedEvent(savedOrder);
+        if (savedOrder.getState() == OrderState.PROCESSING) {
+            sendReserveStockCommand(savedOrder);
+        } else {
+            logger.error("❌ Não foi possível iniciar reserva de estoque. Estado: {}", 
+                savedOrder.getState());
+        }
         
-        // Enviar comando para reservar estoque
-        sendReserveStockCommand(savedOrder);
-        
+
         return mapToOrderResponse(savedOrder);
     }
     
@@ -200,6 +220,7 @@ public class OrderService {
             order.getState() == OrderState.INVENTORY_RESERVED;
     }
     
+    @Transactional
     public void handlePaymentReceived(String orderId) {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
@@ -215,6 +236,7 @@ public class OrderService {
         }
     }
     
+    @Transactional
     public void handlePaymentFailed(String orderId) {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
@@ -231,32 +253,51 @@ public class OrderService {
     }
     
     public void handleInventoryReserved(String orderId) {
-        Order order = orderRepository.findById(orderId)
-            .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        
-        boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.INVENTORY_RESERVED);
-        
-        if (eventSent) {
-            OrderState newState = stateMachineService.getCurrentState(orderId);
-            order.setState(newState);
-            orderRepository.save(order);
+        try {
+            logger.info("🔄 [SERVICE] Processando inventory reserved para order: {}", orderId);
+            Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
             
-            publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
+            boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.INVENTORY_RESERVED);
+            
+            if (eventSent) {
+                OrderState newState = stateMachineService.getCurrentState(orderId);
+                order.setState(newState);
+                orderRepository.save(order);
+                
+                publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
+            }
+        } catch (Exception e) {
+            logger.error("❌ [SERVICE] Erro em handleInventoryReserved para order {}: {}", orderId, e.getMessage());
+            e.printStackTrace();
+            throw e;
         }
     }
     
     public void handleInventoryFailed(String orderId) {
-        Order order = orderRepository.findById(orderId)
-            .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        
-        boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.INVENTORY_FAILED);
-        
-        if (eventSent) {
-            OrderState newState = stateMachineService.getCurrentState(orderId);
-            order.setState(newState);
-            orderRepository.save(order);
+        try {
+            logger.info("🔄 [SERVICE] Processando inventory failed para order: {}", orderId);
+
+            Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
             
-            publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
+            boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.INVENTORY_FAILED);
+            
+            logger.info("🎯 [SERVICE] Evento INVENTORY_FAILED enviado? {}", eventSent);
+
+            if (eventSent) {
+                OrderState newState = stateMachineService.getCurrentState(orderId);
+                order.setState(newState);
+                orderRepository.save(order);
+                
+                logger.info("💾 [SERVICE] Order {} atualizada para estado: {}", orderId, newState);
+
+                publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
+            }
+        } catch (Exception e) {
+            logger.error("❌ [SERVICE] Erro em handleInventoryFailed para order {}: {}", orderId, e.getMessage());
+            e.printStackTrace();
+            throw e;
         }
     }
     
@@ -301,27 +342,40 @@ public class OrderService {
     }
     
     private void sendReserveStockCommand(Order order) {
-        ReserveStockCommand command = new ReserveStockCommand();
-        command.setOrderId(order.getId());
-        
-        List<ReserveStockCommand.OrderItemDTO> items = order.getItems().stream()
-                .map(item -> {
+        try
+        {
+
+            ReserveStockCommand command = new ReserveStockCommand();
+            command.setOrderId(order.getId());
+            
+            List<ReserveStockCommand.OrderItemDTO> items = order.getItems().stream()
+            .map(item -> {
                     ReserveStockCommand.OrderItemDTO dto = new ReserveStockCommand.OrderItemDTO();
                     dto.setProductId(item.getProductId());
                     dto.setQuantity(item.getQuantity());
                     return dto;
                 })
                 .collect(Collectors.toList());
-        
-        command.setItems(items);
-        
-        rabbitTemplate.convertAndSend(
-            "order.exchange",
-            "stock.reserve",
-            command
-        );
+                    
+            command.setItems(items);
+            
+            rabbitTemplate.convertAndSend(
+                "order.exchange",
+                "stock.reserve",
+                command,
+                message -> {
+                    message.getMessageProperties().setContentType("application/json");
+                    message.getMessageProperties().setPriority(0);
+                    return message;
+                }
+            );
+            logger.info("✅ ReserveStockCommand enviado para order: {}", order.getId());
+            
+        } catch (Exception e) {
+            logger.error("❌ Erro ao enviar ReserveStockCommand: {}", e.getMessage(), e);
+        }
     }
-    
+
     private OrderResponse mapToOrderResponse(Order order) {
         OrderResponse response = new OrderResponse();
         response.setId(order.getId());
