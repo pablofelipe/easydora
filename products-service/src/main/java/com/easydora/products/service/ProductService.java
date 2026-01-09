@@ -30,7 +30,7 @@ public class ProductService {
     private final SellerRepository sellerRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     
-    private static final String PRODUCT_CREATED_TOPIC = "product-created";
+    private static final String PRODUCT_CREATED_TOPIC = "product.created";
     private static final String PRODUCT_UPDATED_TOPIC = "product.updated";
     private static final String PRODUCT_DELETED_TOPIC = "product.deleted";
 
