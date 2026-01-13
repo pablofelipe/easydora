@@ -14,6 +14,7 @@ type reservedItem struct {
 }
 
 type InventoryService interface {
+    CreateInventory(productID string, quantity int) error
     GetInventory(productID string) (*models.Inventory, error)
     UpdateInventory(productID string, quantity int) error
     ReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error)
@@ -24,6 +25,13 @@ type InventoryService interface {
 
 type inventoryService struct {
     repo repository.InventoryRepository
+}
+
+func (s *inventoryService) CreateInventory(productID string, quantity int) error {
+    log.Printf("📝 Criando inventário para produto: %s, quantidade: %d", productID, quantity)
+    
+    // Chame um método do repository para criar
+    return s.repo.CreateInventory(productID, quantity)
 }
 
 func NewInventoryService(repo repository.InventoryRepository) *inventoryService {

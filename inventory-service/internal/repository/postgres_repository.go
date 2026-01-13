@@ -1,21 +1,24 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"inventory-service/internal/models"
 	"log"
+	"time"
 )
 
 type InventoryRepository interface {
     GetByProductID(productID string) (*models.Inventory, error)
-    GetAvailableByProductID(productID string) (*models.Inventory, error) // ✅ NOVO
+    GetAvailableByProductID(productID string) (*models.Inventory, error)
     UpdateQuantity(productID string, newQuantity int) error
     ReserveStock(productID string, quantity int) error
     ReleaseStock(productID string, quantity int) error
     DeactivateProduct(productID string) error
     DeleteProduct(productID string) error
-    IsProductAvailable(productID string) (bool, error) // ✅ NOVO
+    IsProductAvailable(productID string) (bool, error)
+    CreateInventory(productID string, quantity int) error
 }
 
 type PostgresRepository struct {
@@ -260,4 +263,25 @@ func (r *PostgresRepository) GetAvailableProducts() ([]models.Inventory, error) 
     }
     
     return inventories, nil
+}
+
+func (r *PostgresRepository) CreateInventory(productID string, quantity int) error {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    
+    query := `
+        INSERT INTO inventory (product_id, quantity, reserved, is_active, created_at, updated_at)
+        VALUES ($1, $2, 0, true, NOW(), NOW())
+        RETURNING id
+    `
+    
+    var id string
+    err := r.db.QueryRowContext(ctx, query, productID, quantity).Scan(&id)
+    if err != nil {
+        return fmt.Errorf("failed to create inventory: %w", err)
+    }
+    
+    log.Printf("✅ Inventory criado - product: %s, quantity: %d, id: %s", 
+        productID, quantity, id)
+    return nil
 }

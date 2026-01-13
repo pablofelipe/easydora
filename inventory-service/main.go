@@ -41,7 +41,7 @@ func main() {
     if err != nil {
         log.Fatal("Failed to create Kafka consumer:", err)
     }
-    defer kafkaConsumer.Close()
+    defer kafkaConsumer.Stop()
     
     // Executar consumer em goroutine separada
     go kafkaConsumer.StartConsuming(inventoryService)
