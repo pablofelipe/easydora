@@ -50,7 +50,7 @@ each service independently deployable via Docker Compose.
 | Products | Spring Boot + PostgreSQL | 8082 | **Implemented & tested** |
 | Inventory | Go + PostgreSQL | 8083 | **Implemented & tested** |
 | Orders | Spring Boot + RabbitMQ | 8084 | **Implemented & tested** |
-| Billing | Spring Boot | 8085 | **Implemented ** |
+| Billing | Spring Boot | 8085 | Implemented |
 | Notification | FastAPI + RabbitMQ | 8086 | Planned |
 | Frontend | SvelteKit | 3000 | Planned |
 
