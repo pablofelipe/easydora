@@ -1,100 +1,63 @@
 package com.easydora.billing.messaging.consumer;
 
-import com.easydora.billing.messaging.events.OrderCreatedEvent;
-import com.easydora.billing.messaging.events.PaymentProcessedEvent;
 import com.easydora.billing.service.PaymentService;
-import com.easydora.billing.service.PaymentResult;
+import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
-
-import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Component
 public class OrderCreatedConsumer {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderCreatedConsumer.class);
+    private static final Logger logger = LoggerFactory.getLogger(OrderCreatedConsumer.class);
     
     private final PaymentService paymentService;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     
-    // Construtor com injeção de dependências
-    public OrderCreatedConsumer(PaymentService paymentService, 
-                                KafkaTemplate<String, Object> kafkaTemplate) {
+    public OrderCreatedConsumer(PaymentService paymentService) {
         this.paymentService = paymentService;
-        this.kafkaTemplate = kafkaTemplate;
     }
-
+    
     @KafkaListener(
-        topics = "order.created", 
+        topics = "order.created.topic",
         groupId = "billing-service-group",
         containerFactory = "kafkaListenerContainerFactory"
     )
-    public void handleOrderCreated(OrderCreatedEvent event) {
-        log.info("📥 Recebido OrderCreatedEvent - Pedido: {}, Usuário: {}, Valor: {}", 
-            event.getOrderId(), event.getUserId(), event.getTotalAmount());
+    public void handleOrderCreated(
+            @Payload OrderCreatedEvent event,
+            @Header(KafkaHeaders.RECEIVED_KEY) String key,
+            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
+            @Header(KafkaHeaders.OFFSET) long offset,
+            Acknowledgment ack) {
         
         try {
-            // Processar pagamento
-            PaymentResult result = paymentService.processPayment(
-                event.getOrderId().toString(),
-                event.getUserId().toString(),
-                event.getTotalAmount()
-            );
+            logger.info("📥 [BILLING] Recebido OrderCreatedEvent - Order: {}, User: {}, Total: {}",
+                event.getOrderId(), event.getUserId(), event.getTotalAmount());
+            logger.info("   📍 Partition: {}, Offset: {}, Key: {}", partition, offset, key);
             
-            // Criar evento de pagamento processado
-            PaymentProcessedEvent paymentEvent = createPaymentProcessedEvent(event, result);
+            // Verificar se já existe pagamento para esta ordem
+            boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
             
-            // Publicar no Kafka
-            kafkaTemplate.send("payment.processed", paymentEvent);
-            
-            if (result.isSuccess()) {
-                log.info("✅ Pagamento APROVADO para pedido {} - Transação: {}", 
-                    event.getOrderId(), result.getTransactionId());
+            if (paymentExists) {
+                logger.warn("⚠️ [BILLING] Pagamento já existe para order: {}", event.getOrderId());
             } else {
-                log.warn("⚠️ Pagamento REPROVADO para pedido {} - Motivo: {}", 
-                    event.getOrderId(), result.getErrorMessage());
+                // Criar registro de pagamento pendente
+                paymentService.createPendingPayment(event);
+                logger.info("✅ [BILLING] Pagamento pendente criado para order: {}", event.getOrderId());
             }
             
-        } catch (Exception e) {
-            log.error("❌ ERRO ao processar pagamento para pedido {}: {}", 
-                event.getOrderId(), e.getMessage(), e);
+            // Confirmar processamento
+            ack.acknowledge();
+            logger.info("✅ [BILLING] Offset commitado para order: {}", event.getOrderId());
             
-            // Publicar evento de falha
-            PaymentProcessedEvent failureEvent = createFailureEvent(event, e);
-            kafkaTemplate.send("payment.processed", failureEvent);
+        } catch (Exception e) {
+            logger.error("❌ [BILLING] Erro ao processar OrderCreatedEvent para order {}: {}",
+                event.getOrderId(), e.getMessage(), e);
+            // Não fazemos ack para tentar novamente
         }
-    }
-    
-    private PaymentProcessedEvent createPaymentProcessedEvent(
-            OrderCreatedEvent orderEvent, PaymentResult result) {
-        
-        PaymentProcessedEvent event = new PaymentProcessedEvent();
-        event.setPaymentId(UUID.randomUUID().toString());
-        event.setOrderId(orderEvent.getOrderId());
-        event.setAmount(orderEvent.getTotalAmount());
-        event.setStatus(result.isSuccess() ? 
-            PaymentProcessedEvent.PaymentStatus.APPROVED : 
-            PaymentProcessedEvent.PaymentStatus.FAILED);
-        event.setTransactionId(result.getTransactionId());
-        event.setFailureReason(result.getErrorMessage());
-        event.setProcessedAt(LocalDateTime.now());
-        
-        return event;
-    }
-    
-    private PaymentProcessedEvent createFailureEvent(OrderCreatedEvent orderEvent, Exception e) {
-        PaymentProcessedEvent event = new PaymentProcessedEvent();
-        event.setPaymentId(UUID.randomUUID().toString());
-        event.setOrderId(orderEvent.getOrderId());
-        event.setAmount(orderEvent.getTotalAmount());
-        event.setStatus(PaymentProcessedEvent.PaymentStatus.FAILED);
-        event.setFailureReason("Erro interno: " + e.getMessage());
-        event.setProcessedAt(LocalDateTime.now());
-        
-        return event;
     }
 }

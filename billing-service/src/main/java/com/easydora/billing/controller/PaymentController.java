@@ -1,8 +1,9 @@
 package com.easydora.billing.controller;
 
-import com.easydora.billing.model.Payment;
+import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.service.PaymentService;
-import org.springframework.beans.factory.annotation.Autowired;
+
+import org.apache.kafka.common.protocol.types.Field.Str;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,59 +13,71 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {
-
-    @Autowired
-    private PaymentService paymentService;
-
+    
+    private final PaymentService paymentService;
+    
+    public PaymentController(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+    
     @GetMapping("/{id}")
-    public ResponseEntity<Payment> getPayment(@PathVariable Long id) {
-        return paymentService.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @GetMapping("/order/{orderId}")
-    public ResponseEntity<Payment> getPaymentByOrderId(@PathVariable Long orderId) {
-        Payment payment = paymentService.findByOrderId(orderId);
-        return payment != null ? ResponseEntity.ok(payment) : ResponseEntity.notFound().build();
-    }
-
-    @GetMapping
-    public List<Payment> getAllPayments() {
-        return paymentService.findAll();
-    }
-
-    @PostMapping("/process")
-    public ResponseEntity<Payment> processPayment(
-            @RequestParam Long orderId,
-            @RequestParam BigDecimal amount) {
-        
+    public ResponseEntity<PaymentDTO> getPaymentById(@PathVariable Long id) {
         try {
-            Payment payment = paymentService.processPayment(orderId, amount);
+            PaymentDTO payment = paymentService.findById(id);
             return ResponseEntity.ok(payment);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @PostMapping("/{id}/retry")
-    public ResponseEntity<Payment> retryPayment(@PathVariable Long id) {
-        try {
-            Payment retriedPayment = paymentService.retryPayment(id);
-            return ResponseEntity.ok(retriedPayment);
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
     
-    // Métodos para testes
-    @PostMapping("/create-pending")
-    public ResponseEntity<Payment> createPendingPayment(
-            @RequestParam Long orderId,
+    @GetMapping("/order/{orderId}")
+    public ResponseEntity<PaymentDTO> getPaymentByOrderId(@PathVariable String orderId) {
+        try {
+            PaymentDTO payment = paymentService.findByOrderId(orderId);
+            return ResponseEntity.ok(payment);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+    
+    @GetMapping
+    public ResponseEntity<List<PaymentDTO>> getAllPayments() {
+        List<PaymentDTO> payments = paymentService.findAll();
+        return ResponseEntity.ok(payments);
+    }
+    
+    @PostMapping("/process")
+    public ResponseEntity<PaymentDTO> processPayment(
+            @RequestParam String orderId,
             @RequestParam BigDecimal amount) {
         
         try {
-            Payment payment = paymentService.createPendingPayment(orderId, amount);
+            PaymentDTO payment = paymentService.processPayment(orderId, amount);
+            return ResponseEntity.ok(payment);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+    
+    @PostMapping("/{orderId}/retry")
+    public ResponseEntity<PaymentDTO> retryPayment(@PathVariable String orderId) {
+        try {
+            PaymentDTO payment = paymentService.retryPayment(orderId);
+            return ResponseEntity.ok(payment);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+    
+    @PostMapping("/pending")
+    public ResponseEntity<PaymentDTO> createPendingPayment(
+            @RequestParam String orderId,
+            @RequestParam BigDecimal amount) {
+        
+        try {
+            // Para API REST, primeiro criamos o pagamento pendente
+            // e depois processamos (isso poderia ser melhorado)
+            PaymentDTO payment = paymentService.processPayment(orderId, amount);
             return ResponseEntity.ok(payment);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();

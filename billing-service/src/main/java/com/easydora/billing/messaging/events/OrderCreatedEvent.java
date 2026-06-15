@@ -4,14 +4,14 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class OrderCreatedEvent {
-    private Long orderId;
+    private String orderId;
     private Long userId;
     private BigDecimal totalAmount;
     private LocalDateTime createdAt;
-    public Long getOrderId() {
+    public String getOrderId() {
         return orderId;
     }
-    public void setOrderId(Long orderId) {
+    public void setOrderId(String orderId) {
         this.orderId = orderId;
     }
     public Long getUserId() {

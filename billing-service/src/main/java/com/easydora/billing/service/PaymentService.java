@@ -1,11 +1,12 @@
 package com.easydora.billing.service;
 
+import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
+import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,243 +14,185 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
-@Transactional
 public class PaymentService {
     
-    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+    private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
     
-    @Autowired
-    private PaymentRepository paymentRepository;
+    private final PaymentRepository paymentRepository;
     
-    // ========== MÉTODOS PARA O CONTROLLER ==========
-    
-    public Optional<Payment> findById(Long id) {
-        log.debug("Buscando pagamento por ID: {}", id);
-        return paymentRepository.findById(id);
+    public PaymentService(PaymentRepository paymentRepository) {
+        this.paymentRepository = paymentRepository;
     }
     
-    public Payment findByOrderId(Long orderId) {
-        log.debug("Buscando pagamento por Order ID: {}", orderId);
-        // Retorna null se não encontrar, para compatibilidade com seu controller
-        return paymentRepository.findByOrderId(orderId).orElse(null);
-    }
+    // ========== MÉTODOS PARA EVENTOS KAFKA ==========
     
-    public List<Payment> findAll() {
-        return paymentRepository.findAll();
-    }
-    
-    public Payment save(Payment payment) {
-        return paymentRepository.save(payment);
-    }
-    
-    // ========== VERSÕES DE PROCESSAMENTO DE PAGAMENTO ==========
-    
-    /**
-     * Versão usada pelo Controller (API REST) - processa e salva no banco
-     */
-    public Payment processPayment(Long orderId, BigDecimal amount) {
-        log.info("💳 Processando pagamento via API - Pedido: {}, Valor: {}", orderId, amount);
-        
-        // Verifica se já existe pagamento para este pedido
-        Optional<Payment> existingPayment = paymentRepository.findByOrderId(orderId);
-        if (existingPayment.isPresent()) {
-            log.warn("⚠️ Pagamento já existe para pedido {}", orderId);
-            return existingPayment.get();
-        }
-        
-        // Cria novo pagamento
-        Payment payment = new Payment(orderId, amount);
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setCreatedAt(LocalDateTime.now());
-        
-        // Simula processamento
-        PaymentResult result = processPayment(orderId.toString(), "API-CLIENT", amount);
-        
-        // Atualiza status com base no resultado
-        if (result.isSuccess()) {
-            payment.setStatus(PaymentStatus.APPROVED);
-            payment.setTransactionId(result.getTransactionId());
-            payment.setProcessedAt(LocalDateTime.now());
-            log.info("✅ Pagamento APROVADO para pedido {}", orderId);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason(result.getErrorMessage());
-            payment.setProcessedAt(LocalDateTime.now());
-            log.warn("❌ Pagamento FALHOU para pedido {}", orderId);
-        }
-        
-        // Salva no banco
-        return paymentRepository.save(payment);
-    }
-    
-    /**
-     * Versão usada pelo Kafka Consumer - apenas processa e retorna resultado
-     */
-    public PaymentResult processPayment(String orderId, String customerId, BigDecimal amount) {
-        log.info("💳 Processando pagamento - Pedido: {}, Cliente: {}, Valor: {}", 
-            orderId, customerId, amount);
-        
-        PaymentResult result = new PaymentResult();
-        
+    @Transactional
+    public void createPendingPayment(OrderCreatedEvent event) {
         try {
-            // Verifica se já existe pagamento no banco
-            Long orderIdLong = Long.parseLong(orderId);
-            Optional<Payment> existingPayment = paymentRepository.findByOrderId(orderIdLong);
+
+            String orderId = event.getOrderId();
+            
+            logger.info("💰 Criando pagamento pendente para order: {}", orderId);
+            
+            // Verificar se já existe
+            Optional<Payment> existingPayment = paymentRepository.findByOrderId(orderId);
             if (existingPayment.isPresent()) {
-                log.warn("⚠️ Pagamento já processado para pedido {}", orderId);
-                
-                Payment payment = existingPayment.get();
-                result.setSuccess(payment.getStatus() == PaymentStatus.APPROVED);
-                result.setTransactionId(payment.getTransactionId());
-                result.setErrorMessage("Payment already exists with status: " + payment.getStatus());
-                return result;
+                logger.warn("⚠️ Pagamento já existe para order: {}", orderId);
+                return;
             }
             
-            // Simulação de gateway de pagamento
-            boolean paymentApproved = simulatePaymentGateway(customerId, amount);
+            // Criar novo pagamento
+            Payment payment = new Payment();
+            payment.setOrderId(orderId);
+            payment.setUserId(event.getUserId());
+            payment.setAmount(event.getTotalAmount());
+            payment.setStatus(PaymentStatus.PENDING);
+            payment.setCreatedAt(LocalDateTime.now());
+            payment.setTransactionId(UUID.randomUUID().toString());
             
-            if (paymentApproved) {
-                result.setSuccess(true);
-                result.setTransactionId(generateTransactionId(orderId));
-                log.info("🎉 Pagamento APROVADO para pedido {}", orderId);
+            paymentRepository.save(payment);
+            
+            logger.info("✅ Pagamento pendente criado: order={}, amount={}, transactionId={}",
+                payment.getOrderId(), payment.getAmount(), payment.getTransactionId());
                 
-                // Salva no banco
-                Payment payment = new Payment(orderIdLong, amount);
+        } catch (Exception e) {
+            logger.error("❌ Erro ao criar pagamento pendente para order {}: {}",
+                event.getOrderId(), e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    public boolean checkIfPaymentExists(String orderId) {
+        return paymentRepository.findByOrderId(orderId).isPresent();
+    }
+    
+    // ========== MÉTODOS PARA API REST ==========
+    
+    public PaymentDTO findById(Long id) {
+        return paymentRepository.findById(id)
+            .map(this::convertToDTO)
+            .orElseThrow(() -> new RuntimeException("Payment not found with id: " + id));
+    }
+    
+    public PaymentDTO findByOrderId(String orderId) {
+        return paymentRepository.findByOrderId(orderId)
+            .map(this::convertToDTO)
+            .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
+    }
+    
+    public List<PaymentDTO> findAll() {
+        return paymentRepository.findAll().stream()
+            .map(this::convertToDTO)
+            .collect(Collectors.toList());
+    }
+    
+    @Transactional
+    public PaymentDTO processPayment(String orderId, BigDecimal amount) {
+        logger.info("💳 Processando pagamento via API - Order: {}, Valor: {}", orderId, amount);
+        
+        // Buscar pagamento existente
+        Optional<Payment> paymentOpt = paymentRepository.findByOrderId(orderId);
+        Payment payment;
+        
+        if (paymentOpt.isPresent()) {
+            payment = paymentOpt.get();
+            logger.info("📄 Pagamento encontrado: {}", payment.getStatus());
+            
+            // Se já está aprovado, retornar
+            if (payment.getStatus() == PaymentStatus.APPROVED) {
+                logger.warn("⚠️ Pagamento já APROVADO para order {}", orderId);
+                return convertToDTO(payment);
+            }
+        } else {
+            // Criar novo pagamento (fallback para chamada direta da API)
+            logger.info("📝 Criando novo pagamento (fallback API)");
+            payment = new Payment();
+            payment.setOrderId(orderId);
+            payment.setAmount(amount);
+            payment.setStatus(PaymentStatus.PENDING);
+            payment.setCreatedAt(LocalDateTime.now());
+            payment.setTransactionId(UUID.randomUUID().toString());
+        }
+        
+        // Simular processamento de pagamento
+        try {
+            Thread.sleep(1000); // Simula processamento
+            
+            // Simulação: 90% de chance de aprovação
+            boolean approved = Math.random() < 0.9;
+            
+            if (approved) {
                 payment.setStatus(PaymentStatus.APPROVED);
-                payment.setTransactionId(result.getTransactionId());
                 payment.setProcessedAt(LocalDateTime.now());
-                paymentRepository.save(payment);
-                
+                logger.info("✅ Pagamento APROVADO para order {}", orderId);
             } else {
-                result.setSuccess(false);
-                result.setErrorMessage("Fundos insuficientes ou cartão recusado");
-                log.warn("💔 Pagamento RECUSADO para pedido {}", orderId);
-                
-                // Salva falha no banco
-                Payment payment = new Payment(orderIdLong, amount);
                 payment.setStatus(PaymentStatus.FAILED);
-                payment.setFailureReason(result.getErrorMessage());
+                payment.setFailureReason("Pagamento recusado pelo processador");
                 payment.setProcessedAt(LocalDateTime.now());
-                paymentRepository.save(payment);
+                logger.warn("❌ Pagamento FALHOU para order {}", orderId);
             }
+            
+            Payment savedPayment = paymentRepository.save(payment);
+            return convertToDTO(savedPayment);
             
         } catch (Exception e) {
-            log.error("🔥 Erro no processamento do pagamento para pedido {}: {}", 
-                orderId, e.getMessage(), e);
-            result.setSuccess(false);
-            result.setErrorMessage("Erro no gateway de pagamento: " + e.getMessage());
+            logger.error("❌ Erro ao processar pagamento para order {}: {}", orderId, e.getMessage());
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setFailureReason("Erro interno: " + e.getMessage());
+            payment.setProcessedAt(LocalDateTime.now());
+            Payment savedPayment = paymentRepository.save(payment);
+            return convertToDTO(savedPayment);
+        }
+    }
+    
+    @Transactional
+    public PaymentDTO retryPayment(String orderId) {
+        logger.info("🔄 Retentando pagamento para order: {}", orderId);
+        
+        Payment payment = paymentRepository.findByOrderId(orderId)
+            .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
+        
+        // Só pode retentar se falhou anteriormente
+        if (payment.getStatus() != PaymentStatus.FAILED) {
+            throw new RuntimeException("Cannot retry payment with status: " + payment.getStatus());
         }
         
-        return result;
+        // Resetar para PENDING e tentar novamente
+        payment.setStatus(PaymentStatus.PENDING);
+        payment.setFailureReason(null);
+        
+        Payment savedPayment = paymentRepository.save(payment);
+        
+        // Processar pagamento
+        return processPayment(orderId, payment.getAmount());
+    }
+    
+    @Transactional
+    public void deletePayment(Long id) {
+        if (!paymentRepository.existsById(id)) {
+            throw new RuntimeException("Payment not found with id: " + id);
+        }
+        paymentRepository.deleteById(id);
+        logger.info("🗑️ Payment deleted: {}", id);
     }
     
     // ========== MÉTODOS AUXILIARES ==========
     
-    private String generateTransactionId(String orderId) {
-        return "TX-" + System.currentTimeMillis() + "-" + orderId;
-    }
-    
-    private boolean simulatePaymentGateway(String customerId, BigDecimal amount) {
-        // Lógica simulada de pagamento
-        double approvalRate = 0.85; // 85% de aprovação
-        
-        // Ajustes baseados no valor
-        if (amount.compareTo(new BigDecimal("5000")) > 0) {
-            approvalRate = 0.60; // Valores altos: 60% de aprovação
-        } else if (amount.compareTo(new BigDecimal("1000")) > 0) {
-            approvalRate = 0.75; // Valores médios: 75% de aprovação
-        }
-        
-        // Clientes VIP têm maior chance
-        if (customerId.contains("777") || customerId.contains("888") || 
-            customerId.contains("999") || customerId.endsWith("1")) {
-            approvalRate += 0.15; // +15% para clientes especiais
-        }
-        
-        boolean approved = Math.random() < approvalRate;
-        
-        log.debug("Simulação gateway: customer={}, amount={}, rate={}, approved={}",
-            customerId, amount, approvalRate, approved);
-        
-        return approved;
-    }
-    
-    // ========== MÉTODOS ADICIONAIS PARA O CONTROLLER ==========
-    
-    /**
-     * Retry payment - método usado pelo controller
-     */
-    public Payment retryPayment(Long paymentId) {
-        log.info("🔄 Tentando reprocessar pagamento ID: {}", paymentId);
-        
-        Optional<Payment> paymentOpt = paymentRepository.findById(paymentId);
-        if (paymentOpt.isEmpty()) {
-            throw new RuntimeException("Pagamento não encontrado com ID: " + paymentId);
-        }
-        
-        Payment payment = paymentOpt.get();
-        
-        // Cria novo resultado de pagamento
-        PaymentResult result = processPayment(
-            payment.getOrderId().toString(),
-            "RETRY-CLIENT-" + payment.getId(),
-            payment.getAmount()
-        );
-        
-        // Atualiza o pagamento existente
-        if (result.isSuccess()) {
-            payment.setStatus(PaymentStatus.APPROVED);
-            payment.setTransactionId(result.getTransactionId());
-            payment.setFailureReason(null);
-            payment.setProcessedAt(LocalDateTime.now());
-            log.info("✅ Retry bem-sucedido para pagamento ID: {}", paymentId);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason(result.getErrorMessage());
-            payment.setProcessedAt(LocalDateTime.now());
-            log.warn("❌ Retry falhou para pagamento ID: {}", paymentId);
-        }
-        
-        return paymentRepository.save(payment);
-    }
-    
-    /**
-     * Cria pagamento pendente (para testes)
-     */
-    public Payment createPendingPayment(Long orderId, BigDecimal amount) {
-        Payment payment = new Payment(orderId, amount);
-        payment.setStatus(PaymentStatus.PENDING);
-        return paymentRepository.save(payment);
-    }
-    
-    /**
-     * Atualiza status do pagamento
-     */
-    public Payment updatePaymentStatus(Long paymentId, PaymentStatus status, String transactionId) {
-        Optional<Payment> paymentOpt = paymentRepository.findById(paymentId);
-        if (paymentOpt.isEmpty()) {
-            throw new RuntimeException("Pagamento não encontrado");
-        }
-        
-        Payment payment = paymentOpt.get();
-        payment.setStatus(status);
-        payment.setTransactionId(transactionId);
-        payment.setProcessedAt(LocalDateTime.now());
-        
-        return paymentRepository.save(payment);
-    }
-    
-    /**
-     * Deleta pagamento (apenas para admin/testes)
-     */
-    public void deletePayment(Long paymentId) {
-        if (paymentRepository.existsById(paymentId)) {
-            paymentRepository.deleteById(paymentId);
-            log.info("🗑️ Pagamento deletado: {}", paymentId);
-        } else {
-            log.warn("⚠️ Pagamento não encontrado para deleção: {}", paymentId);
-        }
+    private PaymentDTO convertToDTO(Payment payment) {
+        PaymentDTO dto = new PaymentDTO();
+        dto.setId(payment.getId());
+        dto.setOrderId(payment.getOrderId());
+        dto.setUserId(payment.getUserId());
+        dto.setAmount(payment.getAmount());
+        dto.setStatus(payment.getStatus().name());
+        dto.setTransactionId(payment.getTransactionId());
+        dto.setFailureReason(payment.getFailureReason());
+        dto.setCreatedAt(payment.getCreatedAt());
+        dto.setProcessedAt(payment.getProcessedAt());
+        return dto;
     }
 }
