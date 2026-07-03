@@ -51,11 +51,11 @@ each service independently deployable via Docker Compose.
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (no automated tests) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (no automated tests) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (no automated tests) |
-| Billing | Spring Boot | 8085 | Implemented (1 test, package fixed — full pass unconfirmed, local infra unavailable) |
+| Billing | Spring Boot | 8085 | Implemented (tests: 1/1 passing — context smoke test only, no business-logic coverage) |
 | Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
-"Implemented" means the service builds and runs; it does not imply test coverage. Only billing-service has any test source (`BillingServiceApplicationTests`, a Spring Initializr default). It previously failed on a package mismatch between the test class and `@SpringBootApplication`, which has been fixed; the test now correctly loads Spring context configuration but requires a running Postgres/RabbitMQ to fully pass (`mvn test`), so a green run has not yet been confirmed. No service has CI configured.
+"Implemented" means the service builds and runs; it does not imply test coverage. Only billing-service has any test source (`BillingServiceApplicationTests`, a Spring Initializr default), and its `mvn test` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. No service has CI configured.
 
 Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 

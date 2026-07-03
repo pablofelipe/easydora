@@ -71,8 +71,8 @@ public class KafkaConfig {
         configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         configProps.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "java.util.Map");
-        configProps.put(JsonDeserializer.TYPE_MAPPINGS, 
-            "orderCreatedEvent:com.easydora.orders.event.OrderCreatedEvent");
+        configProps.put(JsonDeserializer.TYPE_MAPPINGS,
+            "orderCreatedEvent:com.easydora.billing.messaging.events.OrderCreatedEvent");
         
         return new DefaultKafkaConsumerFactory<>(configProps, 
             new StringDeserializer(),
