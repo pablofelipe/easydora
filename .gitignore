@@ -39,3 +39,7 @@ target/
 # Database
 *.db
 *.sqlite
+
+# AI
+CLAUDE.md
+.claude/

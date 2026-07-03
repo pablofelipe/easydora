@@ -6,10 +6,11 @@ suited to its workload, not for convenience — Go for performance-sensitive
 gateway/inventory paths, Spring Boot for domain-rich business logic,
 FastAPI for async notification processing.
 
-**Status: in active development.** Four of seven services are implemented
-and tested; the remaining three (billing, notification, frontend) are
-scaffolded but not yet functional. See [Service Status](#service-status)
-below for the current breakdown.
+**Status: in active development.** Five of seven services are implemented and
+building (auth, products, inventory, orders, billing); none has meaningful
+automated test coverage yet. Notification and frontend are empty scaffolds,
+not yet functional. See [Service Status](#service-status) below for the
+current breakdown.
 
 ## Architecture
 
@@ -45,14 +46,16 @@ each service independently deployable via Docker Compose.
 
 | Service | Stack | Port | Status |
 |---|---|---|---|
-| API Gateway | Go + Gin | 8080 | Implemented |
-| Auth | Spring Boot + JWT | 8081 | **Implemented & tested** |
-| Products | Spring Boot + PostgreSQL | 8082 | **Implemented & tested** |
-| Inventory | Go + PostgreSQL | 8083 | **Implemented & tested** |
-| Orders | Spring Boot + RabbitMQ | 8084 | **Implemented & tested** |
-| Billing | Spring Boot | 8085 | Implemented |
-| Notification | FastAPI + RabbitMQ | 8086 | Planned |
-| Frontend | SvelteKit | 3000 | Planned |
+| API Gateway | Go + Gin | 8080 | Implemented (no automated tests) |
+| Auth | Spring Boot + JWT | 8081 | Implemented (no automated tests) |
+| Products | Spring Boot + PostgreSQL | 8082 | Implemented (no automated tests) |
+| Inventory | Go + PostgreSQL | 8083 | Implemented (no automated tests) |
+| Orders | Spring Boot + RabbitMQ | 8084 | Implemented (no automated tests) |
+| Billing | Spring Boot | 8085 | Implemented (1 test, package fixed — full pass unconfirmed, local infra unavailable) |
+| Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
+| Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
+
+"Implemented" means the service builds and runs; it does not imply test coverage. Only billing-service has any test source (`BillingServiceApplicationTests`, a Spring Initializr default). It previously failed on a package mismatch between the test class and `@SpringBootApplication`, which has been fixed; the test now correctly loads Spring context configuration but requires a running Postgres/RabbitMQ to fully pass (`mvn test`), so a green run has not yet been confirmed. No service has CI configured.
 
 Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 

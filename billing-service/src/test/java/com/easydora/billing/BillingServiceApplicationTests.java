@@ -1,4 +1,4 @@
-package com.easydora.billing_service;
+package com.easydora.billing;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
