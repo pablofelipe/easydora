@@ -7,10 +7,12 @@ gateway/inventory paths, Spring Boot for domain-rich business logic,
 FastAPI for async notification processing.
 
 **Status: in active development.** Five of seven services are implemented and
-building (auth, products, inventory, orders, billing); none has meaningful
-automated test coverage yet. Notification and frontend are empty scaffolds,
-not yet functional. See [Service Status](#service-status) below for the
-current breakdown.
+building (auth, products, inventory, orders, billing); only billing-service
+and inventory-service have any automated tests. billing-service's is a
+single context smoke test; inventory-service has four, covering its
+stock-reservation idempotency logic specifically, not the service broadly.
+Notification and frontend are empty scaffolds, not yet functional. See
+[Service Status](#service-status) below for the current breakdown.
 
 ## Architecture
 
@@ -49,13 +51,13 @@ each service independently deployable via Docker Compose.
 | API Gateway | Go + Gin | 8080 | Implemented (no automated tests) |
 | Auth | Spring Boot + JWT | 8081 | Implemented (no automated tests) |
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (no automated tests) |
-| Inventory | Go + PostgreSQL | 8083 | Implemented (no automated tests) |
+| Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (no automated tests) |
 | Billing | Spring Boot | 8085 | Implemented (tests: 1/1 passing — context smoke test only, no business-logic coverage) |
 | Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
-"Implemented" means the service builds and runs; it does not imply test coverage. Only billing-service has any test source (`BillingServiceApplicationTests`, a Spring Initializr default), and its `mvn test` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type. No service has CI configured.
+"Implemented" means the service builds and runs; it does not imply full test coverage. Two services have real test source so far. billing-service has `BillingServiceApplicationTests` (a Spring Initializr default), and its `mvn test` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type. inventory-service has four unit tests covering `ReserveStock`'s idempotency, and two known duplication scenarios around it. A redelivered `ReserveStockCommand` for the same order (the retry scenario that follows a Kafka publish failure after the Postgres commit) previously reserved stock a second time; the service now caches the outcome per `OrderID` for 10 minutes and returns it on retry instead of reserving again, with a background sweep so the cache doesn't grow unbounded with order volume. That 10-minute window covers short-lived retries — an immediate RabbitMQ requeue, or the consumer's own reconnect loop, which backs off for at most 30s — with margin for a full container restart during a redeploy. Two truly concurrent redeliveries of the same order (not sequential retries — actual simultaneous calls) used to both slip past the cache check before either had written its result back, double-reserving; that race is now closed by serializing `ReserveStock` per `OrderID` (a fixed-size striped mutex, not a second unbounded map), verified by a 50-goroutine concurrency test and by `go test -race` (run in a Linux container, since this environment's native Windows Go toolchain has no cgo/gcc for the race detector) reporting no data races. What remains open, deliberately not fixed here: a redelivery that arrives *after* the 10-minute cache entry has expired — e.g. a message reprocessed late from a dead-letter queue — is indistinguishable from a first delivery and will still duplicate the reservation (verified by a test, not assumed). The cache is also in-memory and per-process, so a service restart clears it outright. Closing that residual gap for good needs the outbox-pattern work already catalogued as technical debt, not a bigger TTL. No service has CI configured.
 
 Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 
