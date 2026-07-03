@@ -38,10 +38,10 @@ public class UserEventConsumer {
                 return;
             }
             
-            Seller seller = sellerRepository.findById(userEvent.getUserId())
+            Seller seller = sellerRepository.findById(userEvent.getUserId().toString())
                 .orElse(new Seller());
-                
-            seller.setUserId(userEvent.getUserId());
+
+            seller.setUserId(userEvent.getUserId().toString());
             seller.setEmail(userEvent.getEmail());
             seller.setName(userEvent.getFullName());
             seller.setRole(UserRole.SELLER);
@@ -79,7 +79,7 @@ public class UserEventConsumer {
 
             addValidToken(userEvent);
 
-            sellerRepository.findById(userEvent.getUserId()).ifPresentOrElse(
+            sellerRepository.findById(userEvent.getUserId().toString()).ifPresentOrElse(
                 seller -> {
                     updateSellerFromJwtEvent(seller, userEvent);
                     sellerRepository.save(seller);
@@ -102,7 +102,7 @@ public class UserEventConsumer {
         logger.info("Evento: {}", event.toString());
         
         String token = event.getToken();
-        Long userId = Long.valueOf(event.getUserId());
+        Long userId = event.getUserId();
         String email = event.getEmail();
         String firstName = event.getFirstName();
         String lastName = event.getLastName();
@@ -163,7 +163,7 @@ public class UserEventConsumer {
     
     private void createSellerFromJwtEvent(UserEvent userEvent) {
         Seller seller = new Seller();
-        seller.setUserId(userEvent.getUserId());
+        seller.setUserId(userEvent.getUserId().toString());
         seller.setEmail(userEvent.getEmail());
         seller.setName(userEvent.getFullName());
         seller.setRole(UserRole.SELLER);

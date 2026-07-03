@@ -2,7 +2,9 @@ package messaging
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"inventory-service/internal/models"
 	"inventory-service/pkg/config"
 	"log"
 	"time"
@@ -38,35 +40,43 @@ func NewKafkaProducer() (*KafkaProducer, error) {
 	}, nil
 }
 
-func (p *KafkaProducer) PublishStockReservedOrder(orderId string) error {
-	message := kafka.Message{
-		Value: []byte(orderId),
+func (p *KafkaProducer) PublishStockReservedOrder(event *models.StockReservedEvent) error {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to serialize StockReservedEvent: %w", err)
 	}
-	
+
+	message := kafka.Message{
+		Value: body,
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
-	err := p.writerReserved.WriteMessages(ctx, message)
-	if err != nil {
+
+	if err := p.writerReserved.WriteMessages(ctx, message); err != nil {
 		return fmt.Errorf("failed to reserved publish orderId: %w", err)
 	}
-	
+
 	return nil
 }
 
-func (p *KafkaProducer) PublishStockInsufficientOrder(orderId string) error {
-	message := kafka.Message{
-		Value: []byte(orderId),
+func (p *KafkaProducer) PublishStockInsufficientOrder(event *models.StockInsufficientEvent) error {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to serialize StockInsufficientEvent: %w", err)
 	}
-	
+
+	message := kafka.Message{
+		Value: body,
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
-	err := p.writerInsufficient.WriteMessages(ctx, message)
-	if err != nil {
+
+	if err := p.writerInsufficient.WriteMessages(ctx, message); err != nil {
 		return fmt.Errorf("failed to insufficient publish orderId: %w", err)
 	}
-	
+
 	return nil
 }
 

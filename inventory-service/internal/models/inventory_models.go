@@ -14,7 +14,7 @@ type Inventory struct {
 }
 
 type ReleaseStockCommand struct {
-    OrderID   string               `json:"order_id"`
+    OrderID   string               `json:"orderId"`
     Items     []ReleaseStockItem   `json:"items"`
     Timestamp time.Time            `json:"timestamp"`
 }

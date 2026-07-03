@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/UserRegisteredEvent.schema.json",
+  "title": "UserRegisteredEvent",
+  "description": "Published by auth-service (RabbitMQ auth.exchange, routing key user.registered) after user signup. Consumed by orders-service and products-service.",
+  "type": "object",
+  "properties": {
+    "userId": { "type": "integer" },
+    "email": { "type": "string" },
+    "firstName": { "type": "string" },
+    "lastName": { "type": "string" },
+    "role": { "type": "string" },
+    "verificationToken": { "type": "string" },
+    "createdAt": { "type": "string" }
+  },
+  "required": ["userId", "email", "firstName", "lastName", "role", "createdAt"]
+}

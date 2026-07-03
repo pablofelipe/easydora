@@ -10,7 +10,7 @@ public class UserEvent {
     @JsonProperty("eventType")
     private String eventType; // "USER_REGISTERED" ou "JWT_CREATED"
     @JsonProperty("userId")
-    private String userId;
+    private Long userId;
     @JsonProperty("email")
     private String email;
     @JsonProperty("firstName")
@@ -37,8 +37,8 @@ public class UserEvent {
     public String getEventType() { return eventType; }
     public void setEventType(String eventType) { this.eventType = eventType; }
     
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
     
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }

@@ -73,7 +73,7 @@ public class UserEventsConsumer {
         }
     }
     
-    @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
+    @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_PROFILE_QUEUE)
     public void handleJwtCreated(UserEvent userEvent) {
         logger.info("Received JWT_CREATED event for user: {}", userEvent.getUserId());
         

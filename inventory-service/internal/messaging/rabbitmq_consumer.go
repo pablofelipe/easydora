@@ -195,7 +195,13 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
         if success {
             log.Printf("✅ [RESERVE] Estoque reservado para order: %s", orderId)
             
-            if err := kafkaProducer.PublishStockReservedOrder(orderId); err != nil {
+            reservedEvent := &models.StockReservedEvent{
+                OrderID:   orderId,
+                Success:   true,
+                Message:   "stock reserved",
+                Timestamp: time.Now(),
+            }
+            if err := kafkaProducer.PublishStockReservedOrder(reservedEvent); err != nil {
                 log.Printf("❌ [RESERVE] Falha ao publicar StockReservedEvent: %v", err)
                 d.Nack(false, true) // Requeue para tentar novamente
                 continue
@@ -209,7 +215,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
                 log.Printf("📤 [RESERVE] Publicando StockInsufficientEvent para order: %s, product: %s", 
                     insufficientEvent.OrderID, insufficientEvent.ProductID)
                 
-                if err := kafkaProducer.PublishStockInsufficientOrder(orderId); err != nil {
+                if err := kafkaProducer.PublishStockInsufficientOrder(insufficientEvent); err != nil {
                     log.Printf("❌ [RESERVE] Falha ao publicar StockInsufficientEvent: %v", err)
                 } else {
                     log.Printf("✅ [RESERVE] StockInsufficientEvent publicado para order: %s", 

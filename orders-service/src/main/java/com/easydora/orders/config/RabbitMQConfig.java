@@ -26,16 +26,19 @@ public class RabbitMQConfig {
     public static final String USER_REGISTERED_KEY = "user.registered";
     public static final String USER_VERIFIED_KEY = "user.verified";
 
-    public static final String PAYMENT_APPROVED_KEY = "payment.approved";
-    public static final String PAYMENT_FAILED_KEY = "payment.failed";
-
     // Queues específicas do orders-service
     public static final String USER_VERIFIED_QUEUE = "orders.user.verified.queue";
     public static final String USER_REGISTERED_QUEUE = "orders.user.registered.queue";
     public static final String JWT_CREATED_QUEUE = "orders.jwt.created.queue";
-
-    public static final String PAYMENT_APPROVED_QUEUE = "orders.payment.approved";
-    public static final String PAYMENT_FAILED_QUEUE = "orders.payment.failed";
+    // Separate queue for UserEventsConsumer's profile-update handling of the
+    // same jwt.created event. JwtConsumer (session/auth) and
+    // UserEventsConsumer (profile update) used to share JWT_CREATED_QUEUE,
+    // so RabbitMQ round-robinned each individual message to only one of the
+    // two competing consumers, silently dropping ~50% of deliveries for
+    // each. Both queues bind to the same routing key below, so the topic
+    // exchange fans out a copy of every jwt.created message to each queue
+    // independently — the publisher (auth-service) is unchanged.
+    public static final String JWT_CREATED_PROFILE_QUEUE = "orders.jwt.created.profile.queue";
 
     // Exchange/Queues para comandos do orders-service
     public static final String ORDER_EXCHANGE = "order.exchange";
@@ -68,18 +71,13 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue jwtCreatedProfileQueue() {
+        return new Queue(JWT_CREATED_PROFILE_QUEUE, true);
+    }
+
+    @Bean
     public Queue inventoryReserveQueue() {
         return new Queue(INVENTORY_RESERVE_QUEUE, true);
-    }
-
-    @Bean
-    public Queue ordersPaymentApprovedQueue() {
-        return new Queue(PAYMENT_APPROVED_QUEUE, true);
-    }
-
-    @Bean
-    public Queue ordersPaymentFailedQueue() {
-        return new Queue(PAYMENT_FAILED_QUEUE, true);
     }
 
     @Bean
@@ -104,24 +102,17 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Binding jwtCreatedProfileBinding(Queue jwtCreatedProfileQueue, TopicExchange authExchange) {
+        return BindingBuilder.bind(jwtCreatedProfileQueue)
+                .to(authExchange)
+                .with(JWT_ROUTING_KEY);
+    }
+
+    @Bean
     public Binding inventoryReserveBinding(Queue inventoryReserveQueue, TopicExchange orderExchange) {
         return BindingBuilder.bind(inventoryReserveQueue)
                 .to(orderExchange)
                 .with(RESERVE_STOCK_ROUTING_KEY);
-    }
-
-    @Bean
-    public Binding paymentApprovedBinding(Queue ordersPaymentApprovedQueue, TopicExchange orderExchange) {
-        return BindingBuilder.bind(ordersPaymentApprovedQueue)
-                .to(orderExchange)
-                .with(PAYMENT_APPROVED_KEY);
-    }
-
-    @Bean
-    public Binding paymentFailedBinding(Queue ordersPaymentFailedQueue, TopicExchange orderExchange) {
-        return BindingBuilder.bind(ordersPaymentFailedQueue)
-                .to(orderExchange)
-                .with(PAYMENT_FAILED_KEY);
     }
 
     @Bean

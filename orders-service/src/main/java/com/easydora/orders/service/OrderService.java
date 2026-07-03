@@ -22,10 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -176,12 +173,11 @@ public class OrderService {
             
             // Publicar evento de mudança de estado
             publishOrderStatusChanged(orderId, previousState, newState);
-            
-            // Se estava em INVENTORY_RESERVED, publicar evento específico
-            if (previousState == OrderState.INVENTORY_RESERVED) {
-                publishInventoryRelease(orderId);
-            }
-            
+            // Note: inventory release for the INVENTORY_RESERVED case is
+            // handled by ReleaseInventoryAction, triggered by the state
+            // machine itself on this same CANCEL_ORDER transition — not
+            // duplicated here.
+
             return mapToOrderResponse(updatedOrder);
         } else {
             logger.error("❌ Evento CANCEL_ORDER não aceito pela State Machine");
@@ -191,25 +187,6 @@ public class OrderService {
             logger.info("📌 Estado atual na State Machine: {}", currentState);
             
             throw new RuntimeException("Failed to cancel order - event not accepted. Current state: " + currentState);
-        }
-    }
-        
-    private void publishInventoryRelease(String orderId) {
-        try {
-            // Publicar evento para liberar estoque
-            Map<String, Object> releaseEvent = new HashMap<>();
-            releaseEvent.put("orderId", orderId);
-            releaseEvent.put("eventType", "INVENTORY_RELEASE");
-            releaseEvent.put("timestamp", LocalDateTime.now());
-            
-            rabbitTemplate.convertAndSend(
-                "order.exchange",
-                "inventory.release",
-                releaseEvent
-            );
-            logger.info("📤 Evento de liberação de estoque publicado para pedido: {}", orderId);
-        } catch (Exception e) {
-            logger.error("❌ Erro ao publicar evento de liberação de estoque: {}", e.getMessage(), e);
         }
     }
 

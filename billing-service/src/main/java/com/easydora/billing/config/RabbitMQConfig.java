@@ -22,10 +22,6 @@ public class RabbitMQConfig {
     
     // Routing keys para consumir
     public static final String ORDER_CREATED_KEY = "order.created";
-    
-    // Routing keys para publicar
-    public static final String PAYMENT_APPROVED_KEY = "payment.approved";
-    public static final String PAYMENT_FAILED_KEY = "payment.failed";
 
     // Queues do billing-service
     public static final String ORDER_CREATED_QUEUE = "billing.order.created.queue";
