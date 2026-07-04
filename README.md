@@ -128,15 +128,21 @@ The stack split is deliberate:
       10-minute idempotency cache TTL. See ADR-0003 (auth-service) for the
       reference pattern. Blocked by: no technical dependency, prioritization
       only.
-- [ ] auth/products/orders/billing (Spring): no circuit breaker/retry
-      configured (no Resilience4j or equivalent in any of the four poms).
-      Verified this is preventive, not active, debt: none of the four
-      services calls another synchronously today (no RestTemplate/WebClient/
-      FeignClient anywhere in their source) — all direct communication
-      between them is via Kafka/RabbitMQ. Worth having in place before any
-      synchronous inter-service call is introduced, so a downstream failure
-      doesn't propagate uncontrolled from day one. Candidate: Resilience4j.
-      Blocked by prioritization, not a technical dependency.
+- [ ] auth/products/orders/billing (Spring): no retry limit/backoff/DLQ on
+      RabbitMQ message consumption. Verified there's no synchronous
+      inter-service HTTP call anywhere (no RestTemplate/WebClient/
+      FeignClient in any of the four services) — the real gap isn't a
+      circuit breaker for calls that don't exist, it's on the consumer
+      side: `SimpleRabbitListenerContainerFactory` in products-service,
+      orders-service, and billing-service is built with no
+      `AcknowledgeMode`, `MessageRecoverer`, or requeue policy set, so it
+      runs on Spring AMQP's defaults — a listener exception nacks and
+      requeues the message indefinitely (`defaultRequeueRejected=true`),
+      with no dead-letter queue and no backoff. A poison message (one that
+      always throws) loops forever instead of landing somewhere for
+      inspection. Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or
+      a dead-letter exchange with limited retries. Blocked by
+      prioritization, not a technical dependency.
 
 ## Docker Troubleshooting (Windows)
 
