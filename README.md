@@ -96,6 +96,18 @@ come up and respond on their ports above. Notification and the frontend are
 commented out in `docker-compose.yml` — no Dockerfile or source exists for
 either yet, unlike Billing, which is a real, working service.
 
+**Before running `mvn verify` locally**: run `docker compose down` first.
+`orders-service`'s `JwtCreatedFanoutIT` (see ADR-0008) drains the real
+production queue `orders.jwt.created.queue` to prove the fan-out fix works —
+if a container from an earlier `docker compose up` session (especially
+`orders-service` itself) is still running and consuming from that same
+queue, it competes with the test for the same messages and the test fails
+intermittently, not because of a code regression. Confirmed via grep: this
+is the only integration test in the repository touching that queue, so a
+single running `orders-service` container is the whole exposure — this
+doesn't apply once CI (Phase 2, not yet implemented) gives each Spring
+job its own isolated RabbitMQ.
+
 ## Prerequisites
 
 - Docker Desktop (Windows/Mac) or Docker Engine (Linux)
