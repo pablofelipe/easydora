@@ -35,6 +35,7 @@ target/
 *.jar
 *.war
 *.ear
+*.exe
 
 # Database
 *.db

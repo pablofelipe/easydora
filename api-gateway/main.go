@@ -41,6 +41,11 @@ var (
 			Name:        "orders-service",
 			Implemented: true,
 		},
+		"billing": {
+			URL:         getEnv("BILLING_SERVICE_URL", "http://billing-service:8085"),
+			Name:        "billing-service",
+			Implemented: true,
+		},
 	}
 )
 
