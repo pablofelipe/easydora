@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
  * null) after a failed send, and the next poll retries the same row and
  * succeeds once the broker is back. Both collaborators are mocked here —
  * this is about the poller's own retry logic, not broker/DB wiring, which
- * VerifyEmailOutboxIntegrationTest and VerifyEmailOutboxHappyPathIntegrationTest
+ * VerifyEmailOutboxIT and VerifyEmailOutboxHappyPathIT
  * already cover against a real RabbitMQ.
  */
 class OutboxPublisherRetryTest {

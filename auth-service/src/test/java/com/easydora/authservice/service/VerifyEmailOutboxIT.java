@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
  * (verifyEmail never reaches it, since save() throws first) — nothing here
  * asserts on it directly, the real proof is that no message arrives.
  */
-class VerifyEmailOutboxIntegrationTest {
+class VerifyEmailOutboxIT {
 
     private static final String TEST_QUEUE = "test.user.verified.outbox.queue";
 

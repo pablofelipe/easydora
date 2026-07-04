@@ -30,14 +30,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Happy-path counterpart to VerifyEmailOutboxIntegrationTest: when save
+ * Happy-path counterpart to VerifyEmailOutboxIT: when save
  * succeeds, verifyEmail no longer publishes directly — it writes an
  * OutboxEvent row (captured here in place of a real Postgres insert) which
  * OutboxPublisher.publishPendingEvents then turns into a real message on
  * a real RabbitMQ. Proves the event still reaches a consumer, just one hop
  * later than before.
  */
-class VerifyEmailOutboxHappyPathIntegrationTest {
+class VerifyEmailOutboxHappyPathIT {
 
     private static final String TEST_QUEUE = "test.user.verified.outbox.happy.queue";
 

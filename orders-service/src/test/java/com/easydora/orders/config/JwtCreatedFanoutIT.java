@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * (docker-compose) and drives the actual @Configuration bean declarations
  * in RabbitMQConfig, not a re-declared topology.
  */
-class JwtCreatedFanoutIntegrationTest {
+class JwtCreatedFanoutIT {
 
     @Test
     void oneJwtCreatedPublishIsDeliveredToBothQueuesIndependently() throws Exception {
