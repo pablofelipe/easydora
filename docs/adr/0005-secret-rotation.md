@@ -38,7 +38,7 @@ Separately, the plain `jwt.secret=${JWT_SECRET:default-secret-key}` property (di
 
 - `docker compose config --quiet` — validates `docker-compose.yml`'s syntax and `${VAR}` substitution against `.env` without errors.
 - Real credential rotation confirmed against the live containers: `SELECT 1` via `psql` with the new Postgres password, and `rabbitmqctl authenticate_user` with the new RabbitMQ password, both succeeded.
-- Full test suite re-run per service after rotation: auth-service 4/4, orders-service 5/5, products-service 1/1, billing-service 2/2 — all passing, including billing-service's `BillingServiceApplicationIT` (renamed from `BillingServiceApplicationTests` under ADR-0007's Surefire/Failsafe split), a real `@SpringBootTest` that boots a full Spring context against live Postgres/RabbitMQ, confirmed both failing (without the new env vars set) and passing (with `.env` sourced) — proving the fallback-to-placeholder behavior works as intended rather than silently succeeding with stale credentials.
+- Full test suite re-run per service after rotation: auth-service 4/4, orders-service 5/5, products-service 1/1, billing-service 2/2 — all passing, including billing-service's `BillingServiceApplicationIT` (renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), a real `@SpringBootTest` that boots a full Spring context against live Postgres/RabbitMQ, confirmed both failing (without the new env vars set) and passing (with `.env` sourced) — proving the fallback-to-placeholder behavior works as intended rather than silently succeeding with stale credentials.
 
 ## Consequences
 

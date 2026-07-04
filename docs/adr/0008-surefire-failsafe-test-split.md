@@ -1,4 +1,4 @@
-# ADR-0007: Separate unit and integration tests via Surefire/Failsafe
+# ADR-0008: Separate unit and integration tests via Surefire/Failsafe
 
 ## Status
 
