@@ -122,6 +122,12 @@ The stack split is deliberate:
 - [ ] SvelteKit frontend
 - [ ] End-to-end integration tests across the five implemented services
 - [ ] CI pipeline (no service has one configured yet)
+- [ ] inventory-service (Go): outbox pattern still not implemented. Publish
+      happens directly post-commit (no outbox table); a reservation can
+      duplicate on redelivery in a late dead-letter scenario past the
+      10-minute idempotency cache TTL. See ADR-0003 (auth-service) for the
+      reference pattern. Blocked by: no technical dependency, prioritization
+      only.
 
 ## Docker Troubleshooting (Windows)
 
