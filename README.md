@@ -150,6 +150,13 @@ The stack split is deliberate:
       map exposed without that protection between this delivery and the
       next. See ADR-0006. Candidate: the same structure ADR-0006 already
       uses, applied to the billing entry once it's migrated.
+- [ ] No shared parent POM across the four Spring services (auth,
+      products, orders, billing). Not a deliberate decoupling decision —
+      it happened by omission during the project's initial setup.
+      Consequence: any plugin or dependency common to all four (Failsafe
+      today, a future Resilience4j) has to be replicated by hand in all
+      four `pom.xml` files, with no automatic detection if one of them
+      drifts to a different version.
 
 ## Docker Troubleshooting (Windows)
 
