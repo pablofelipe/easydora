@@ -128,6 +128,15 @@ The stack split is deliberate:
       10-minute idempotency cache TTL. See ADR-0003 (auth-service) for the
       reference pattern. Blocked by: no technical dependency, prioritization
       only.
+- [ ] auth/products/orders/billing (Spring): no circuit breaker/retry
+      configured (no Resilience4j or equivalent in any of the four poms).
+      Verified this is preventive, not active, debt: none of the four
+      services calls another synchronously today (no RestTemplate/WebClient/
+      FeignClient anywhere in their source) — all direct communication
+      between them is via Kafka/RabbitMQ. Worth having in place before any
+      synchronous inter-service call is introduced, so a downstream failure
+      doesn't propagate uncontrolled from day one. Candidate: Resilience4j.
+      Blocked by prioritization, not a technical dependency.
 
 ## Docker Troubleshooting (Windows)
 
