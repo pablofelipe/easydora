@@ -75,6 +75,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go, Kafka) left as separate future work; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
 | [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. |
 | [0005](docs/adr/0005-secret-rotation.md) | Secret rotation and removal of hardcoded credentials | Accepted | Three credentials hardcoded in `docker-compose.yml` since the project's first commit (public repo) rotated for real against the live Postgres/RabbitMQ, replaced with `${VAR}`/`.env`; orphaned JWT config removed from three services that never consumed it. History not rewritten — old values are treated as permanently compromised. |
+| [0006](docs/adr/0006-gateway-circuit-breaker.md) | Circuit breaker in the API Gateway | Accepted | `sony/gobreaker` added, one breaker per service (`auth`, `products`, `inventory`, `orders`; billing excluded, see Roadmap), 5 consecutive failures to open / 30s cooldown. Verified against real containers: stopping inventory-service made it fail fast while the other three kept responding normally. |
 
 ## Quick Start
 
@@ -143,6 +144,11 @@ The stack split is deliberate:
       inspection. Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or
       a dead-letter exchange with limited retries. Blocked by
       prioritization, not a technical dependency.
+- [ ] api-gateway: billing-service is routable (since the prior gateway
+      update) but has no circuit breaker — the only entry in the services
+      map exposed without that protection between this delivery and the
+      next. See ADR-0006. Candidate: the same structure ADR-0006 already
+      uses, applied to the billing entry once it's migrated.
 
 ## Docker Troubleshooting (Windows)
 

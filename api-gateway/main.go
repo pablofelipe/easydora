@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/sony/gobreaker"
 	"log"
 	"net"
 	"net/http"
@@ -9,8 +12,22 @@ import (
 	"net/url"
 	"os"
 	"time"
-	"encoding/json"
 )
+
+// circuitBreakerSettings applies the same thresholds to every service:
+// 5 consecutive downstream-unreachable failures opens the breaker, and it
+// stays open for 30s before allowing a single trial request through
+// (half-open). See docs/adr/0006-gateway-circuit-breaker.md for why these
+// values and not something else.
+func circuitBreakerSettings(serviceName string) gobreaker.Settings {
+	return gobreaker.Settings{
+		Name: serviceName,
+		Timeout: 30 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 5
+		},
+	}
+}
 
 // Configuração dos serviços
 type ServiceConfig struct {
@@ -71,8 +88,14 @@ func setupServiceRoutes(router *gin.Engine) {
 		serviceGroup := router.Group("/" + path)
 		
 		if config.Implemented && config.URL != "" {
-			// Serviço implementado - usar reverse proxy
-			serviceGroup.Any("/*proxyPath", createReverseProxy(config.URL, config.Name))
+			// Serviço implementado - usar reverse proxy.
+			// billing ainda não tem circuit breaker (ver README Roadmap) -
+			// mantém o proxy simples até essa entrada ser migrada.
+			if path == "billing" {
+				serviceGroup.Any("/*proxyPath", createReverseProxy(config.URL, config.Name))
+			} else {
+				serviceGroup.Any("/*proxyPath", createReverseProxyWithBreaker(config.URL, config.Name))
+			}
 			log.Printf("%s proxy configured: %s", config.Name, config.URL)
 		} else {
 			// Serviço não implementado - usar mock
@@ -112,7 +135,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		
+
 		// Configurar error handler para debug
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("Proxy error for %s: %v", serviceName, err)
@@ -134,9 +157,9 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 
 		originalPath := c.Request.URL.Path
 		proxyPath := c.Param("proxyPath")
-		
+
 		// Log detalhado
-		log.Printf("Proxying %s %s → %s%s", 
+		log.Printf("Proxying %s %s → %s%s",
 			c.Request.Method, originalPath, targetURL.Host, proxyPath)
 
 		c.Request.URL.Scheme = targetURL.Scheme
@@ -150,6 +173,44 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		c.Request.Header.Set("X-Gateway-Service", "api-gateway")
 
 		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+// createReverseProxyWithBreaker wraps createReverseProxy with a per-service
+// gobreaker.CircuitBreaker (see circuitBreakerSettings: 5 consecutive
+// failures to open, 30s cooldown before a half-open trial). It's a thin
+// wrapper rather than a change to createReverseProxy itself so that
+// services not yet migrated to this (currently: billing-service, see
+// README Roadmap) keep using the plain proxy unchanged.
+//
+// Failure is detected by checking the response status createReverseProxy
+// actually wrote: proxy.ErrorHandler (inside createReverseProxy) only
+// writes 502 when httputil.ReverseProxy's transport fails outright —
+// connection refused, dial timeout, broken pipe — never for a valid HTTP
+// response from the backend, even a 4xx/5xx one. So the breaker trips on
+// "downstream unreachable", not "downstream returned an error status".
+func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
+	// Built once here and shared across every request this handler serves —
+	// createReverseProxyWithBreaker itself only runs once per service, at
+	// route-registration time in setupServiceRoutes.
+	breaker := gobreaker.NewCircuitBreaker(circuitBreakerSettings(serviceName))
+	plainProxy := createReverseProxy(target, serviceName)
+
+	return func(c *gin.Context) {
+		_, err := breaker.Execute(func() (interface{}, error) {
+			plainProxy(c)
+			if c.Writer.Status() == http.StatusBadGateway {
+				return nil, fmt.Errorf("%s unreachable", serviceName)
+			}
+			return nil, nil
+		})
+
+		if err == gobreaker.ErrOpenState || err == gobreaker.ErrTooManyRequests {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   "Circuit breaker open — service temporarily unavailable",
+				"service": serviceName,
+			})
+		}
 	}
 }
 
