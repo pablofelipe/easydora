@@ -50,7 +50,7 @@ each service independently deployable via Docker Compose.
 | Service | Stack | Port | Status |
 |---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented (no automated tests) |
-| Auth | Spring Boot + JWT | 8081 | Implemented (tests: 1/1 passing — contract test) |
+| Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 passing — contract test + outbox pattern) |
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 1/1 passing — contract test) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 5/5 passing — contract + messaging-wiring tests) |
@@ -72,6 +72,8 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 |---|---|---|---|
 | [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent` left as an open design decision. |
 | [0002](docs/adr/0002-json-schema-contract-testing.md) | JSON Schema contract testing | Accepted | JSON Schema (draft 2020-12) adopted for event contracts, versioned in `/schemas/json/`; two catalogued DTO drifts fixed; `price` type drift (BigDecimal vs float64) documented as a known gap schema validation can't catch. |
+| [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go, Kafka) left as separate future work; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
+| [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. |
 
 ## Quick Start
 

@@ -1,10 +1,13 @@
 package com.easydora.authservice.service;
 
+import com.easydora.authservice.config.RabbitMQConfig;
 import com.easydora.authservice.dto.SignupRequest;
 import com.easydora.authservice.dto.SignupResponse;
+import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserRole;
 import com.easydora.authservice.entity.UserStatus;
+import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,13 +28,15 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final RabbitMQProducerService rabbitMQProducerService;
     private final VerificationTokenService verificationTokenService;
+    private final OutboxEventRepository outboxEventRepository;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, RabbitMQProducerService rabbitMQProducerService, VerificationTokenService verificationTokenService) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, RabbitMQProducerService rabbitMQProducerService, VerificationTokenService verificationTokenService, OutboxEventRepository outboxEventRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rabbitMQProducerService = rabbitMQProducerService;
         this.verificationTokenService = verificationTokenService;
+        this.outboxEventRepository = outboxEventRepository;
     }
     
     public SignupResponse registerUser(SignupRequest signupRequest) {
@@ -142,10 +147,12 @@ public class UserService {
         user.setEmailVerificationToken(null); // Remove o token após uso
         user.setUpdatedAt(LocalDateTime.now());
 
-        rabbitMQProducerService.sendUserVerifiedEvent(
-            user.getId()
-        );
-
         userRepository.save(user);
+
+        outboxEventRepository.save(new OutboxEvent(
+            RabbitMQConfig.EXCHANGE_NAME,
+            RabbitMQConfig.USER_VERIFIED_KEY,
+            String.valueOf(user.getId())
+        ));
     }
 }
