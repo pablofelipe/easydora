@@ -1,5 +1,7 @@
 # EasyDora
 
+[![CI](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml/badge.svg)](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml)
+
 A polyglot, event-driven e-commerce system built as a microservices
 architecture exercise: each service is implemented in the language/stack
 suited to its workload, not for convenience — Go for performance-sensitive
@@ -49,7 +51,7 @@ each service independently deployable via Docker Compose.
 
 | Service | Stack | Port | Status |
 |---|---|---|---|
-| API Gateway | Go + Gin | 8080 | Implemented (no automated tests) |
+| API Gateway | Go + Gin | 8080 | Implemented (tests: 4 test functions covering the circuit breaker, see ADR-0006) |
 | Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 — `mvn test` 2/2 unit, `mvn verify` adds 2 `*IT` against real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 1/1 passing — contract test, `mvn test` only, no `*IT` yet) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
@@ -62,7 +64,7 @@ each service independently deployable via Docker Compose.
 
 Event contracts validated via JSON Schema — see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md) for the two schemas migrated, the drifts fixed, and the known `price` type gap that schema validation can't catch. Messaging layer audited for wiring bugs (routing keys, field names, a competing-consumer incident) — see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md) for all six findings and what's still open.
 
-inventory-service has four unit tests covering `ReserveStock`'s idempotency, and two known duplication scenarios around it. A redelivered `ReserveStockCommand` for the same order (the retry scenario that follows a Kafka publish failure after the Postgres commit) previously reserved stock a second time; the service now caches the outcome per `OrderID` for 10 minutes and returns it on retry instead of reserving again, with a background sweep so the cache doesn't grow unbounded with order volume. That 10-minute window covers short-lived retries — an immediate RabbitMQ requeue, or the consumer's own reconnect loop, which backs off for at most 30s — with margin for a full container restart during a redeploy. Two truly concurrent redeliveries of the same order (not sequential retries — actual simultaneous calls) used to both slip past the cache check before either had written its result back, double-reserving; that race is now closed by serializing `ReserveStock` per `OrderID` (a fixed-size striped mutex, not a second unbounded map), verified by a 50-goroutine concurrency test and by `go test -race` (run in a Linux container, since this environment's native Windows Go toolchain has no cgo/gcc for the race detector) reporting no data races. What remains open, deliberately not fixed here: a redelivery that arrives *after* the 10-minute cache entry has expired — e.g. a message reprocessed late from a dead-letter queue — is indistinguishable from a first delivery and will still duplicate the reservation (verified by a test, not assumed). The cache is also in-memory and per-process, so a service restart clears it outright. Closing that residual gap for good needs the outbox-pattern work already catalogued as technical debt, not a bigger TTL. No service has CI configured.
+inventory-service has four unit tests covering `ReserveStock`'s idempotency, and two known duplication scenarios around it. A redelivered `ReserveStockCommand` for the same order (the retry scenario that follows a Kafka publish failure after the Postgres commit) previously reserved stock a second time; the service now caches the outcome per `OrderID` for 10 minutes and returns it on retry instead of reserving again, with a background sweep so the cache doesn't grow unbounded with order volume. That 10-minute window covers short-lived retries — an immediate RabbitMQ requeue, or the consumer's own reconnect loop, which backs off for at most 30s — with margin for a full container restart during a redeploy. Two truly concurrent redeliveries of the same order (not sequential retries — actual simultaneous calls) used to both slip past the cache check before either had written its result back, double-reserving; that race is now closed by serializing `ReserveStock` per `OrderID` (a fixed-size striped mutex, not a second unbounded map), verified by a 50-goroutine concurrency test and by `go test -race` (run in a Linux container, since this environment's native Windows Go toolchain has no cgo/gcc for the race detector) reporting no data races. What remains open, deliberately not fixed here: a redelivery that arrives *after* the 10-minute cache entry has expired — e.g. a message reprocessed late from a dead-letter queue — is indistinguishable from a first delivery and will still duplicate the reservation (verified by a test, not assumed). The cache is also in-memory and per-process, so a service restart clears it outright. Closing that residual gap for good needs the outbox-pattern work already catalogued as technical debt, not a bigger TTL. CI (Phase 1: build/vet/unit-test only, no service containers) is configured — see the badge above and `.github/workflows/ci.yml`; Phase 2 (contract/wiring tests against real brokers) is future work.
 
 Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 
@@ -136,7 +138,8 @@ The stack split is deliberate:
 - [ ] Notification service (FastAPI + RabbitMQ consumer)
 - [ ] SvelteKit frontend
 - [ ] End-to-end integration tests across the five implemented services
-- [ ] CI pipeline (no service has one configured yet)
+- [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all six services, no service containers
+- [ ] CI pipeline, Phase 2: contract and messaging-wiring tests against real brokers/Postgres (Etapa 8, not yet implemented)
 - [ ] inventory-service (Go): outbox pattern still not implemented. Publish
       happens directly post-commit (no outbox table); a reservation can
       duplicate on redelivery in a late dead-letter scenario past the

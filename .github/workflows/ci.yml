@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gateway:
+    name: api-gateway (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: api-gateway/go.sum
+      - name: go vet
+        working-directory: api-gateway
+        run: go vet ./...
+      - name: go build
+        working-directory: api-gateway
+        run: go build ./...
+      - name: go test -race
+        working-directory: api-gateway
+        run: go test -race ./...
+
+  inventory:
+    name: inventory-service (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: inventory-service/go.sum
+      - name: go vet
+        working-directory: inventory-service
+        run: go vet ./...
+      - name: go build
+        working-directory: inventory-service
+        run: go build ./...
+      - name: go test -race
+        working-directory: inventory-service
+        run: go test -race ./...
+
+  spring-build:
+    name: ${{ matrix.service }} (mvn test)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth-service, products-service, orders-service, billing-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: mvn test
+        working-directory: ${{ matrix.service }}
+        run: mvn test
