@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: easydora
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: 69Nxa3dfk2M%40
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -24,7 +24,7 @@ services:
     image: rabbitmq:3-management-alpine
     environment:
       RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: 87j9d]#2@5B5
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -104,14 +104,15 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
-      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - JWT_SECRET=14aa6d3a76d7a21f3395d59ae3f01d57997dfa03c20b5ecd9d6525d8278cf926
+      - JWT_SECRET=${JWT_SECRET}
+      - APP_JWT_SECRET=${APP_JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
-      - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,14 +130,14 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
-      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - JWT_SECRET=14aa6d3a76d7a21f3395d59ae3f01d57997dfa03c20b5ecd9d6525d8278cf926
+      - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
-      - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       postgres:
@@ -157,14 +158,14 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
-      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - JWT_SECRET=14aa6d3a76d7a21f3395d59ae3f01d57997dfa03c20b5ecd9d6525d8278cf926
+      - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
-      - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       postgres:
@@ -193,18 +194,18 @@ services:
     ports:
       - "8083:8083"
     environment:
-      - DATABASE_URL=postgresql://admin:69Nxa3dfk2M%40@postgres:5432/easydora
-      - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+      - DATABASE_URL=postgresql://admin:${DB_PASSWORD}@postgres:5432/easydora
+      - RABBITMQ_URL=amqp://admin:${RABBITMQ_PASSWORD}@rabbitmq:5672
       - KAFKA_BROKERS=kafka:9092
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=admin
-      - DB_PASSWORD=69Nxa3dfk2M%40
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=easydora
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=admin
-      - RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
         orders-service:
           condition: service_healthy
@@ -226,14 +227,14 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
-      - SPRING_DATASOURCE_PASSWORD=69Nxa3dfk2M%40
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - JWT_SECRET=14aa6d3a76d7a21f3395d59ae3f01d57997dfa03c20b5ecd9d6525d8278cf926
+      - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
-      - SPRING_RABBITMQ_PASSWORD=87j9d]#2@5B5
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       postgres:
@@ -252,7 +253,7 @@ services:
   #  ports:
   #    - "8086:8086"
   #  environment:
-  #    - RABBITMQ_URL=amqp://admin:87j9d]#2@5B5@rabbitmq:5672
+  #    - RABBITMQ_URL=amqp://admin:${RABBITMQ_PASSWORD}@rabbitmq:5672
   #  depends_on:
   #    - rabbitmq
   #  networks:

@@ -29,7 +29,8 @@ class JwtCreatedFanoutIntegrationTest {
     void oneJwtCreatedPublishIsDeliveredToBothQueuesIndependently() throws Exception {
         ConnectionFactory connectionFactory = new CachingConnectionFactory("localhost", 5672);
         ((CachingConnectionFactory) connectionFactory).setUsername("admin");
-        ((CachingConnectionFactory) connectionFactory).setPassword("87j9d]#2@5B5");
+        ((CachingConnectionFactory) connectionFactory).setPassword(
+                System.getenv().getOrDefault("RABBITMQ_PASSWORD", "local_dev_placeholder"));
 
         RabbitAdmin admin = new RabbitAdmin(connectionFactory);
         RabbitMQConfig config = new RabbitMQConfig();
