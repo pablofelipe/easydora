@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-type reservedItem struct {
-    productID string
-    quantity  int
-}
-
 const (
     // reservationCacheTTL bounds how long a processed order's outcome is
     // kept for idempotent retry detection. The RabbitMQ reserve-stock
