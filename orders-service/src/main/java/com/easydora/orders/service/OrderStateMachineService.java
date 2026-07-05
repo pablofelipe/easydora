@@ -32,51 +32,51 @@ public class OrderStateMachineService {
     
     @Transactional
     public boolean sendEvent(String orderId, OrderEvent event) {
-        logger.info("🤖 [STATE MACHINE] Iniciando processamento do evento {} para pedido {}", event, orderId);
-        
+        logger.info("[STATE MACHINE] Iniciando processamento do evento {} para pedido {}", event, orderId);
+
         try {
             // 1. Buscar pedido
             Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> {
-                    logger.error("❌ Pedido não encontrado: {}", orderId);
+                    logger.error("Pedido não encontrado: {}", orderId);
                     return new OrderNotFoundException(orderId);
                 });
-            
-            logger.info("📊 Estado atual do pedido no banco: {}", order.getState());
-            
+
+            logger.info("Estado atual do pedido no banco: {}", order.getState());
+
             // 2. Criar State Machine com estado atual
             StateMachine<OrderState, OrderEvent> stateMachine = createStateMachineWithCurrentState(orderId, order.getState());
-            
+
             if (stateMachine == null) {
-                logger.error("💥 Falha ao criar State Machine para pedido {}", orderId);
+                logger.error("Falha ao criar State Machine para pedido {}", orderId);
                 return false;
             }
-            
+
             // 3. Log do estado ANTES do evento
             logCurrentState(stateMachine, "ANTES do evento");
-            
+
             // 4. Enviar evento
             boolean eventAccepted = stateMachine.sendEvent(event);
-            logger.info("📤 Evento {} enviado. Aceito? {}", event, eventAccepted);
-            
+            logger.info("Evento {} enviado. Aceito? {}", event, eventAccepted);
+
             // 5. Log do estado DEPOIS do evento
             logCurrentState(stateMachine, "DEPOIS do evento");
-            
+
             // 6. Se evento foi aceito, atualizar banco
             if (eventAccepted) {
                 updateOrderStateFromStateMachine(order, stateMachine);
             } else {
-                logger.warn("⚠️ Evento {} não foi aceito pelo pedido {} no estado {}", 
+                logger.warn("Evento {} não foi aceito pelo pedido {} no estado {}",
                     event, orderId, order.getState());
             }
-            
+
             // 7. Parar State Machine para liberar recursos
             stateMachine.stop();
-            
+
             return eventAccepted;
 
         } catch (Exception e) {
-            logger.error("💥 Erro crítico ao processar evento {} para pedido {}", event, orderId, e);
+            logger.error("Erro crítico ao processar evento {} para pedido {}", event, orderId, e);
             return false;
         }
     }
@@ -86,13 +86,13 @@ public class OrderStateMachineService {
         OrderState currentState
     ) {
         try {
-            logger.debug("🔨 Criando State Machine para pedido {} com estado {}", orderId, currentState);
-            
+            logger.debug("Criando State Machine para pedido {} com estado {}", orderId, currentState);
+
             // Obter State Machine do factory
             StateMachine<OrderState, OrderEvent> stateMachine = stateMachineFactory.getStateMachine(orderId);
-            
+
             if (stateMachine == null) {
-                logger.error("❌ Factory retornou State Machine nula para pedido {}", orderId);
+                logger.error("Factory retornou State Machine nula para pedido {}", orderId);
                 return null;
             }
             
@@ -121,7 +121,7 @@ public class OrderStateMachineService {
             
             // Verificar se o estado foi configurado corretamente
             if (stateMachine.getState() == null) {
-                logger.error("❌ State Machine criada mas estado é NULL para pedido {}", orderId);
+                logger.error("State Machine criada mas estado é NULL para pedido {}", orderId);
                 // Tentar forçar o estado
                 try {
                     Thread.sleep(50); // Pequena pausa
@@ -131,11 +131,11 @@ public class OrderStateMachineService {
                 }
             }
             
-            logger.debug("✅ State Machine criada com sucesso para pedido {}", orderId);
+            logger.debug("State Machine criada com sucesso para pedido {}", orderId);
             return stateMachine;
-            
+
         } catch (Exception e) {
-            logger.error("💥 Erro ao criar State Machine para pedido {}", orderId, e);
+            logger.error("Erro ao criar State Machine para pedido {}", orderId, e);
             return null;
         }
     }
@@ -143,9 +143,9 @@ public class OrderStateMachineService {
     private void logCurrentState(StateMachine<OrderState, OrderEvent> stateMachine, String momento) {
         try {
             if (stateMachine.getState() != null && stateMachine.getState().getId() != null) {
-                logger.info("📍 Estado {}: {}", momento, stateMachine.getState().getId());
+                logger.info("Estado {}: {}", momento, stateMachine.getState().getId());
             } else {
-                logger.warn("⚠️ Estado {}: NULL (State Machine pode não estar inicializada)", momento);
+                logger.warn("Estado {}: NULL (State Machine pode não estar inicializada)", momento);
                 logger.debug("Detalhes da State Machine - ID: {}, UUID: {}, Completa: {}", 
                     stateMachine.getId(), stateMachine.getUuid(), stateMachine.isComplete());
             }
@@ -166,13 +166,13 @@ public class OrderStateMachineService {
                 orderFromDb.setState(newState);
                 orderRepository.save(orderFromDb);
                 
-                logger.info("💾 Estado salvo no banco: {}", newState);
-                
+                logger.info("Estado salvo no banco: {}", newState);
+
             } else {
-                logger.error("❌ Não foi possível atualizar estado: State Machine retornou estado NULL");
+                logger.error("Não foi possível atualizar estado: State Machine retornou estado NULL");
             }
         } catch (Exception e) {
-            logger.error("💥 Erro ao atualizar estado no banco", e);
+            logger.error("Erro ao atualizar estado no banco", e);
             throw e;
         }
     }

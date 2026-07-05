@@ -73,7 +73,7 @@ func (r *PostgresRepository) GetAvailableByProductID(productID string) (*models.
 }
 
 func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) error {
-    log.Printf("✏️ Tentando UPSERT inventory - product_id: %s, quantity: %d", productID, newQuantity)
+    log.Printf("Tentando UPSERT inventory - product_id: %s, quantity: %d", productID, newQuantity)
     
     query := `
         INSERT INTO inventory_schema.inventory (product_id, quantity, available, deleted) 
@@ -89,7 +89,7 @@ func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) e
     
     result, err := r.db.Exec(query, productID, newQuantity)
     if err != nil {
-        log.Printf("❌ Erro no UPSERT: %v", err)
+        log.Printf("Erro no UPSERT: %v", err)
         return fmt.Errorf("failed to upsert inventory: %v", err)
     }
     
@@ -98,7 +98,7 @@ func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) e
         return fmt.Errorf("failed to get rows affected: %v", err)
     }
     
-    log.Printf("✅ UPSERT realizado - Rows affected: %d", rows)
+    log.Printf("UPSERT realizado - Rows affected: %d", rows)
     return nil
 }
 
@@ -189,7 +189,7 @@ func (r *PostgresRepository) DeactivateProduct(productID string) error {
         return nil // Não é erro se já estiver deletado
     }
     
-    log.Printf("✅ Product deactivated in inventory: %s", productID)
+    log.Printf("Product deactivated in inventory: %s", productID)
     return nil
 }
 
@@ -214,7 +214,7 @@ func (r *PostgresRepository) DeleteProduct(productID string) error {
         return nil // Não é erro se não existir
     }
     
-    log.Printf("✅ Product marked as deleted in inventory: %s", productID)
+    log.Printf("Product marked as deleted in inventory: %s", productID)
     return nil
 }
 
@@ -281,7 +281,7 @@ func (r *PostgresRepository) CreateInventory(productID string, quantity int) err
         return fmt.Errorf("failed to create inventory: %w", err)
     }
     
-    log.Printf("✅ Inventory criado - product: %s, quantity: %d, id: %s", 
+    log.Printf("Inventory criado - product: %s, quantity: %d, id: %s",
         productID, quantity, id)
     return nil
 }

@@ -35,27 +35,27 @@ public class OrderCreatedConsumer {
             Acknowledgment ack) {
         
         try {
-            logger.info("📥 [BILLING] Recebido OrderCreatedEvent - Order: {}, User: {}, Total: {}",
+            logger.info("[BILLING] Recebido OrderCreatedEvent - Order: {}, User: {}, Total: {}",
                 event.getOrderId(), event.getUserId(), event.getTotalAmount());
-            logger.info("   📍 Partition: {}, Offset: {}, Key: {}", partition, offset, key);
-            
+            logger.info("   Partition: {}, Offset: {}, Key: {}", partition, offset, key);
+
             // Verificar se já existe pagamento para esta ordem
             boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
-            
+
             if (paymentExists) {
-                logger.warn("⚠️ [BILLING] Pagamento já existe para order: {}", event.getOrderId());
+                logger.warn("[BILLING] Pagamento já existe para order: {}", event.getOrderId());
             } else {
                 // Criar registro de pagamento pendente
                 paymentService.createPendingPayment(event);
-                logger.info("✅ [BILLING] Pagamento pendente criado para order: {}", event.getOrderId());
+                logger.info("[BILLING] Pagamento pendente criado para order: {}", event.getOrderId());
             }
-            
+
             // Confirmar processamento
             ack.acknowledge();
-            logger.info("✅ [BILLING] Offset commitado para order: {}", event.getOrderId());
-            
+            logger.info("[BILLING] Offset commitado para order: {}", event.getOrderId());
+
         } catch (Exception e) {
-            logger.error("❌ [BILLING] Erro ao processar OrderCreatedEvent para order {}: {}",
+            logger.error("[BILLING] Erro ao processar OrderCreatedEvent para order {}: {}",
                 event.getOrderId(), e.getMessage(), e);
             // Não fazemos ack para tentar novamente
         }

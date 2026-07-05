@@ -76,7 +76,7 @@ func main() {
 	setupServiceRoutes(router)
 
 	port := getEnv("PORT", "8080")
-	log.Printf("🚀 API Gateway starting on port %s", port)
+	log.Printf("API Gateway starting on port %s", port)
 	
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

@@ -20,7 +20,7 @@ type KafkaProducer struct {
 func NewKafkaProducer() (*KafkaProducer, error) {
 	cfg := config.Load()
 	
-	log.Printf("🔧 Inicializando KafkaProducer para: %s", cfg.KafkaBrokers)
+	log.Printf("Inicializando KafkaProducer para: %s", cfg.KafkaBrokers)
 	
 	// Configuração MÍNIMA que funciona
 	createWriter := func(topic string) *kafka.Writer {

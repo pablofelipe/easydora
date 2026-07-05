@@ -93,7 +93,7 @@ public class OrderService {
             // Fallback: atualizar manualmente
             savedOrder.setState(OrderState.PROCESSING);
             orderRepository.save(savedOrder);
-            logger.warn("⚠️ State machine não aceitou START_PROCESSING, usando fallback");
+            logger.warn("State machine não aceitou START_PROCESSING, usando fallback");
         } else {
             // Estado será atualizado pela state machine
             OrderState currentState = stateMachineService.getCurrentState(savedOrder.getId());
@@ -108,7 +108,7 @@ public class OrderService {
         if (savedOrder.getState() == OrderState.PROCESSING) {
             sendReserveStockCommand(savedOrder);
         } else {
-            logger.error("❌ Não foi possível iniciar reserva de estoque. Estado: {}", 
+            logger.error("Não foi possível iniciar reserva de estoque. Estado: {}",
                 savedOrder.getState());
         }
         
@@ -146,7 +146,7 @@ public class OrderService {
         
         // Verificar se pode cancelar
         if (!canCancel(order)) {
-            logger.error("❌ Pedido {} não pode ser cancelado no estado: {}", orderId, order.getState());
+            logger.error("Pedido {} não pode ser cancelado no estado: {}", orderId, order.getState());
             throw new RuntimeException("Cannot cancel order in state: " + order.getState());
         }
         
@@ -156,11 +156,11 @@ public class OrderService {
         if (eventSent) {
             // IMPORTANTE: Obter o estado atualizado da State Machine
             OrderState newState = stateMachineService.getCurrentState(orderId);
-            logger.info("✅ Evento CANCEL_ORDER aceito. Novo estado: {}", newState);
-            
+            logger.info("Evento CANCEL_ORDER aceito. Novo estado: {}", newState);
+
             // Validar que realmente foi para CANCELLED
             if (newState != OrderState.CANCELLED) {
-                logger.error("⚠️ Estado inesperado após cancelamento: {}", newState);
+                logger.error("Estado inesperado após cancelamento: {}", newState);
                 throw new RuntimeException("Order not cancelled - unexpected state: " + newState);
             }
             
@@ -169,7 +169,7 @@ public class OrderService {
             order.setState(newState);
             order.setUpdatedAt(Instant.now());
             Order updatedOrder = orderRepository.save(order);
-            logger.info("💾 Pedido atualizado no banco: {} -> {}", previousState, newState);
+            logger.info("Pedido atualizado no banco: {} -> {}", previousState, newState);
             
             // Publicar evento de mudança de estado
             publishOrderStatusChanged(orderId, previousState, newState);
@@ -180,11 +180,11 @@ public class OrderService {
 
             return mapToOrderResponse(updatedOrder);
         } else {
-            logger.error("❌ Evento CANCEL_ORDER não aceito pela State Machine");
-            
+            logger.error("Evento CANCEL_ORDER não aceito pela State Machine");
+
             // Verificar qual é o estado atual
             OrderState currentState = stateMachineService.getCurrentState(orderId);
-            logger.info("📌 Estado atual na State Machine: {}", currentState);
+            logger.info("Estado atual na State Machine: {}", currentState);
             
             throw new RuntimeException("Failed to cancel order - event not accepted. Current state: " + currentState);
         }
@@ -231,7 +231,7 @@ public class OrderService {
     
     public void handleInventoryReserved(String orderId) {
         try {
-            logger.info("🔄 [SERVICE] Processando inventory reserved para order: {}", orderId);
+            logger.info("[SERVICE] Processando inventory reserved para order: {}", orderId);
             Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
             
@@ -245,7 +245,7 @@ public class OrderService {
                 publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
             }
         } catch (Exception e) {
-            logger.error("❌ [SERVICE] Erro em handleInventoryReserved para order {}: {}", orderId, e.getMessage());
+            logger.error("[SERVICE] Erro em handleInventoryReserved para order {}: {}", orderId, e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -253,26 +253,26 @@ public class OrderService {
     
     public void handleInventoryFailed(String orderId) {
         try {
-            logger.info("🔄 [SERVICE] Processando inventory failed para order: {}", orderId);
+            logger.info("[SERVICE] Processando inventory failed para order: {}", orderId);
 
             Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
             
             boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.INVENTORY_FAILED);
             
-            logger.info("🎯 [SERVICE] Evento INVENTORY_FAILED enviado? {}", eventSent);
+            logger.info("[SERVICE] Evento INVENTORY_FAILED enviado? {}", eventSent);
 
             if (eventSent) {
                 OrderState newState = stateMachineService.getCurrentState(orderId);
                 order.setState(newState);
                 orderRepository.save(order);
                 
-                logger.info("💾 [SERVICE] Order {} atualizada para estado: {}", orderId, newState);
+                logger.info("[SERVICE] Order {} atualizada para estado: {}", orderId, newState);
 
                 publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
             }
         } catch (Exception e) {
-            logger.error("❌ [SERVICE] Erro em handleInventoryFailed para order {}: {}", orderId, e.getMessage());
+            logger.error("[SERVICE] Erro em handleInventoryFailed para order {}: {}", orderId, e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -291,10 +291,10 @@ public class OrderService {
             
             // Publicar no Kafka
             kafkaTemplate.send("order.created.topic", event);
-            logger.info("✅ OrderCreatedEvent publicado: {}", order.getId());
-            
+            logger.info("OrderCreatedEvent publicado: {}", order.getId());
+
         } catch (Exception e) {
-            logger.error("❌ Erro ao publicar OrderCreatedEvent: {}", e.getMessage(), e);
+            logger.error("Erro ao publicar OrderCreatedEvent: {}", e.getMessage(), e);
             // Não lançar exceção para não quebrar o fluxo principal
         }
     }
@@ -346,10 +346,10 @@ public class OrderService {
                     return message;
                 }
             );
-            logger.info("✅ ReserveStockCommand enviado para order: {}", order.getId());
-            
+            logger.info("ReserveStockCommand enviado para order: {}", order.getId());
+
         } catch (Exception e) {
-            logger.error("❌ Erro ao enviar ReserveStockCommand: {}", e.getMessage(), e);
+            logger.error("Erro ao enviar ReserveStockCommand: {}", e.getMessage(), e);
         }
     }
 

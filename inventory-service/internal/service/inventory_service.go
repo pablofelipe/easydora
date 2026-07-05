@@ -88,7 +88,7 @@ func (s *inventoryService) lockForOrder(orderID string) *sync.Mutex {
 }
 
 func (s *inventoryService) CreateInventory(productID string, quantity int) error {
-    log.Printf("📝 Criando inventário para produto: %s, quantidade: %d", productID, quantity)
+    log.Printf("Criando inventário para produto: %s, quantidade: %d", productID, quantity)
     
     // Chame um método do repository para criar
     return s.repo.CreateInventory(productID, quantity)
@@ -170,20 +170,20 @@ func (s *inventoryService) DeleteProduct(productID string) error {
 
 
 func (s *inventoryService) ReleaseStock(command *models.ReleaseStockCommand) error {
-    log.Printf("🔄 Releasing stock for order: %s", command.OrderID)
+    log.Printf("Releasing stock for order: %s", command.OrderID)
     
     var errors []string
     
     for _, item := range command.Items {
         err := s.repo.ReleaseStock(item.ProductID, item.Quantity)
         if err != nil {
-            log.Printf("❌ Failed to release %d units of product %s: %v", 
+            log.Printf("Failed to release %d units of product %s: %v",
                 item.Quantity, item.ProductID, err)
             errors = append(errors, 
                 fmt.Sprintf("product %s: %v", item.ProductID, err))
             continue // Tenta liberar os outros itens mesmo se um falhar
         }
-        log.Printf("✅ Released %d units of product %s", 
+        log.Printf("Released %d units of product %s",
             item.Quantity, item.ProductID)
     }
     
@@ -212,7 +212,7 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (or
     s.mu.Unlock()
 
     if cacheHit {
-        log.Printf("↩️ [IDEMPOTENT] Order %s already processed, returning cached result instead of reserving again", command.OrderID)
+        log.Printf("[IDEMPOTENT] Order %s already processed, returning cached result instead of reserving again", command.OrderID)
         return outcome.orderId, outcome.success, outcome.insufficientEvent, nil
     }
     // seen && !cacheHit means the entry expired: treated as a fresh
@@ -239,16 +239,16 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (or
 }
 
 func (s *inventoryService) doReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
-    log.Printf("🔄 Starting stock reservation for order: %s", command.OrderID)
+    log.Printf("Starting stock reservation for order: %s", command.OrderID)
 
     // Try to reserve stock for each item
     for _, item := range command.Items {
-        log.Printf("  📦 Attempting to reserve %d units of product %s", 
+        log.Printf("  Attempting to reserve %d units of product %s",
             item.Quantity, item.ProductID)
         
         err = s.repo.ReserveStock(item.ProductID, item.Quantity)
         if err != nil {
-            log.Printf("  ❌ Failed to reserve product %s: %v", item.ProductID, err)
+            log.Printf("  Failed to reserve product %s: %v", item.ProductID, err)
             
             // Get available stock for reporting
             inventory, _ := s.repo.GetByProductID(item.ProductID)
@@ -269,12 +269,12 @@ func (s *inventoryService) doReserveStock(command *models.ReserveStockCommand) (
             return command.OrderID, false, insufficientEvent, nil
         }
         
-        log.Printf("  ✅ Successfully reserved %d units of product %s", 
+        log.Printf("  Successfully reserved %d units of product %s",
             item.Quantity, item.ProductID)
     }
 
     // All items reserved successfully
-    log.Printf("✅ All stock reserved successfully for order: %s", command.OrderID)
+    log.Printf("All stock reserved successfully for order: %s", command.OrderID)
     
     return command.OrderID, true, nil, nil
 }

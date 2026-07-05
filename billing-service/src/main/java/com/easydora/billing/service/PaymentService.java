@@ -36,12 +36,12 @@ public class PaymentService {
 
             String orderId = event.getOrderId();
             
-            logger.info("💰 Criando pagamento pendente para order: {}", orderId);
-            
+            logger.info("Criando pagamento pendente para order: {}", orderId);
+
             // Verificar se já existe
             Optional<Payment> existingPayment = paymentRepository.findByOrderId(orderId);
             if (existingPayment.isPresent()) {
-                logger.warn("⚠️ Pagamento já existe para order: {}", orderId);
+                logger.warn("Pagamento já existe para order: {}", orderId);
                 return;
             }
             
@@ -56,11 +56,11 @@ public class PaymentService {
             
             paymentRepository.save(payment);
             
-            logger.info("✅ Pagamento pendente criado: order={}, amount={}, transactionId={}",
+            logger.info("Pagamento pendente criado: order={}, amount={}, transactionId={}",
                 payment.getOrderId(), payment.getAmount(), payment.getTransactionId());
-                
+
         } catch (Exception e) {
-            logger.error("❌ Erro ao criar pagamento pendente para order {}: {}",
+            logger.error("Erro ao criar pagamento pendente para order {}: {}",
                 event.getOrderId(), e.getMessage(), e);
             throw e;
         }
@@ -92,7 +92,7 @@ public class PaymentService {
     
     @Transactional
     public PaymentDTO processPayment(String orderId, BigDecimal amount) {
-        logger.info("💳 Processando pagamento via API - Order: {}, Valor: {}", orderId, amount);
+        logger.info("Processando pagamento via API - Order: {}, Valor: {}", orderId, amount);
         
         // Buscar pagamento existente
         Optional<Payment> paymentOpt = paymentRepository.findByOrderId(orderId);
@@ -100,16 +100,16 @@ public class PaymentService {
         
         if (paymentOpt.isPresent()) {
             payment = paymentOpt.get();
-            logger.info("📄 Pagamento encontrado: {}", payment.getStatus());
-            
+            logger.info("Pagamento encontrado: {}", payment.getStatus());
+
             // Se já está aprovado, retornar
             if (payment.getStatus() == PaymentStatus.APPROVED) {
-                logger.warn("⚠️ Pagamento já APROVADO para order {}", orderId);
+                logger.warn("Pagamento já APROVADO para order {}", orderId);
                 return convertToDTO(payment);
             }
         } else {
             // Criar novo pagamento (fallback para chamada direta da API)
-            logger.info("📝 Criando novo pagamento (fallback API)");
+            logger.info("Criando novo pagamento (fallback API)");
             payment = new Payment();
             payment.setOrderId(orderId);
             payment.setAmount(amount);
@@ -128,19 +128,19 @@ public class PaymentService {
             if (approved) {
                 payment.setStatus(PaymentStatus.APPROVED);
                 payment.setProcessedAt(LocalDateTime.now());
-                logger.info("✅ Pagamento APROVADO para order {}", orderId);
+                logger.info("Pagamento APROVADO para order {}", orderId);
             } else {
                 payment.setStatus(PaymentStatus.FAILED);
                 payment.setFailureReason("Pagamento recusado pelo processador");
                 payment.setProcessedAt(LocalDateTime.now());
-                logger.warn("❌ Pagamento FALHOU para order {}", orderId);
+                logger.warn("Pagamento FALHOU para order {}", orderId);
             }
             
             Payment savedPayment = paymentRepository.save(payment);
             return convertToDTO(savedPayment);
             
         } catch (Exception e) {
-            logger.error("❌ Erro ao processar pagamento para order {}: {}", orderId, e.getMessage());
+            logger.error("Erro ao processar pagamento para order {}: {}", orderId, e.getMessage());
             payment.setStatus(PaymentStatus.FAILED);
             payment.setFailureReason("Erro interno: " + e.getMessage());
             payment.setProcessedAt(LocalDateTime.now());
@@ -151,7 +151,7 @@ public class PaymentService {
     
     @Transactional
     public PaymentDTO retryPayment(String orderId) {
-        logger.info("🔄 Retentando pagamento para order: {}", orderId);
+        logger.info("Retentando pagamento para order: {}", orderId);
         
         Payment payment = paymentRepository.findByOrderId(orderId)
             .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
@@ -177,7 +177,7 @@ public class PaymentService {
             throw new RuntimeException("Payment not found with id: " + id);
         }
         paymentRepository.deleteById(id);
-        logger.info("🗑️ Payment deleted: {}", id);
+        logger.info("Payment deleted: {}", id);
     }
     
     // ========== MÉTODOS AUXILIARES ==========

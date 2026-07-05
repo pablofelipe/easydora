@@ -20,11 +20,11 @@ public class UserRegisteredEventListener {
         );
         
         logger.info("\n" +
-            "=== 🎉 NOVO USUÁRIO REGISTRADO ===\n" +
-            "👤 Usuário: {} {} ({})\n" +
-            "🆔 User ID: {}\n" +
-            "🔗 Link de Verificação: {}\n" +
-            "⏰ Token criado em: {}\n" +
+            "=== NOVO USUÁRIO REGISTRADO ===\n" +
+            "Usuário: {} {} ({})\n" +
+            "User ID: {}\n" +
+            "Link de Verificação: {}\n" +
+            "Token criado em: {}\n" +
             "===================================",
             event.getFirstName(),
             event.getLastName(), 
@@ -44,7 +44,7 @@ public class UserRegisteredEventListener {
         );
         
         logger.info("\n" +
-            "💡 COMANDO CURL PARA TESTE:\n" +
+            "COMANDO CURL PARA TESTE:\n" +
             "{}\n" +
             "-----------------------------",
             curlCommand
