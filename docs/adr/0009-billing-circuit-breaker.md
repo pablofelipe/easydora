@@ -73,11 +73,20 @@ Note: while verifying, `billing-service` was observed reporting "unhealthy"
 in `docker compose ps` even though the process and the gateway route both
 work correctly (confirmed by hitting `/actuator/health` directly on 8085
 and through the gateway, both returning `401` as expected pre-stop). Cause:
-`billing-service/Dockerfile:38` hard-codes its `HEALTHCHECK` against
+`billing-service/Dockerfile:38` hard-coded its `HEALTHCHECK` against
 `http://localhost:8082/actuator/health` — port 8082 is products-service's
-port, not billing-service's own 8085. This is a pre-existing bug (likely a
-copy-paste from products-service's Dockerfile), unrelated to this ADR's
-scope — left unfixed and reported separately, not corrected here.
+port, not billing-service's own 8085 (the `EXPOSE` line had the same
+copy-paste artifact). Unrelated to this ADR's scope, so left unfixed and
+reported separately at the time — since authorized and the port itself
+fixed as a follow-up (both `EXPOSE` and `HEALTHCHECK` corrected to 8085).
+Verifying that fix surfaced a second, independent issue: `wget` now reaches
+billing-service (getting `401` instead of connection-refused), but the
+container still never reports "healthy" because `billing-service` has
+`spring-boot-starter-security` with no `SecurityConfig`, so Spring
+Security's default deny-all covers `/actuator/health` too. That second
+issue is not fixed — see README Roadmap. A copy of the same wrong-port
+pattern was also found in `orders-service/Dockerfile` while comparing the
+three services' Dockerfiles; also not fixed, also tracked in the Roadmap.
 
 ## Consequences
 

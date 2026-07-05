@@ -165,13 +165,32 @@ The stack split is deliberate:
 - [x] api-gateway: billing-service now has a circuit breaker like every
       other implemented entry — see ADR-0009 (closes the gap ADR-0006 left
       open).
-- [ ] billing-service (`billing-service/Dockerfile:38`): the `HEALTHCHECK`
-      hard-codes `http://localhost:8082/actuator/health` — 8082 is
-      products-service's port, not billing-service's own 8085. `docker
-      compose ps` reports the container "unhealthy" even though the process
-      and every route to it work correctly; found while live-verifying
-      ADR-0009. Candidate fix: change the port to 8085. Blocked by
-      prioritization, not a technical dependency.
+- [x] billing-service (`billing-service/Dockerfile`): `EXPOSE` and
+      `HEALTHCHECK` hard-coded port 8082 (products-service's port) instead
+      of billing-service's own 8085 — a copy-paste artifact from
+      products-service's Dockerfile, found while live-verifying ADR-0009.
+      Both fixed to 8085 and verified: the healthcheck's `wget` now reaches
+      the app (`401`) instead of failing to connect at all. The container
+      still reports "unhealthy" after this fix, for a separate reason — see
+      the next item.
+- [ ] billing-service has `spring-boot-starter-security` on its classpath
+      with no `SecurityConfig` class, so Spring Security's default (deny
+      all, HTTP Basic challenge) applies to every endpoint, including
+      `/actuator/health` — the Docker `HEALTHCHECK`'s unauthenticated
+      `wget` gets `401` and the container never reports "healthy". Found
+      while verifying the port fix above; independent of it (fixing the
+      port alone cannot make this pass). Candidate fix: a `SecurityConfig`
+      permitting `/actuator/health` unauthenticated, matching the pattern
+      the other three Spring services presumably need too (not yet
+      checked). Blocked by prioritization/authorization, not a technical
+      dependency.
+- [ ] orders-service (`orders-service/Dockerfile`): same copy-paste pattern
+      as billing-service's — `EXPOSE`/`HEALTHCHECK` hard-code port 8082
+      (products-service's port), but orders-service's own
+      `server.port` is 8084. Found via a comparison sweep while fixing
+      billing-service's equivalent bug; not verified live and not fixed
+      here — same class of bug, different file, needs its own
+      authorization.
 - [ ] No shared parent POM across the four Spring services (auth,
       products, orders, billing). Not a deliberate decoupling decision —
       it happened by omission during the project's initial setup.
