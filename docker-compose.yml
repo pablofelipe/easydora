@@ -178,17 +178,7 @@ services:
         condition: service_healthy
     networks:
       - easydora-network
-    healthcheck:
-      test: >
-        bash -c '
-        # Verifica se aplicação Spring está respondendo
-        curl -f http://localhost:8084/actuator/health || exit 1
-        '
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s  # Tempo para aplicação iniciar
-      
+
   # Inventory Service
   inventory-service:
     build: ./inventory-service

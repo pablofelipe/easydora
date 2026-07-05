@@ -56,7 +56,7 @@ each service independently deployable via Docker Compose.
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 1/1 passing — contract test, `mvn test` only, no `*IT` yet) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 5/5 — `mvn test` 4/4 unit, `mvn verify` adds 1 `*IT` against real RabbitMQ) |
-| Billing | Spring Boot | 8085 | Implemented (tests: 2/2 — `mvn test` 1/1 unit (contract test), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
+| Billing | Spring Boot | 8085 | Implemented (tests: 3/3 — `mvn test` 2/2 unit (contract test + `HealthControllerTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
 | Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
@@ -81,6 +81,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0007](docs/adr/0007-remove-kafka-broker.md) | Remove Kafka broker (migrate to RabbitMQ) | Proposed (planning) | Stub — full decision and consequences to be written as part of Etapa 4 (Kafka → RabbitMQ migration). |
 | [0008](docs/adr/0008-surefire-failsafe-test-split.md) | Separate unit and integration tests via Surefire/Failsafe | Accepted | The four test classes that touch real Postgres/RabbitMQ renamed to the `*IT` suffix and moved to `maven-failsafe-plugin` (`mvn verify`) across all four Spring services; `mvn test` is now unit-only and needs no live infrastructure. |
 | [0009](docs/adr/0009-billing-circuit-breaker.md) | Extend the API Gateway circuit breaker to billing-service | Accepted | Same structure as ADR-0006 (`sony/gobreaker`, 5 failures / 30s cooldown), applied to the one remaining entry left on the plain proxy. Closes ADR-0006's open Roadmap item. |
+| [0010](docs/adr/0010-uniform-service-healthchecks.md) | Uniform health checks across all six services | Accepted | Every Docker `HEALTHCHECK` now targets each service's own unauthenticated `/health` endpoint instead of `/actuator/health`; billing-service gained a `HealthController`/`SecurityConfig`; orders-service's broken `docker-compose.yml` override removed; auth-service/inventory-service/api-gateway gained a `HEALTHCHECK` they never had. All six services verified `healthy` simultaneously for the first time. |
 
 ## Quick Start
 
@@ -165,62 +166,28 @@ The stack split is deliberate:
 - [x] api-gateway: billing-service now has a circuit breaker like every
       other implemented entry — see ADR-0009 (closes the gap ADR-0006 left
       open).
-- [x] billing-service (`billing-service/Dockerfile`): `EXPOSE` and
-      `HEALTHCHECK` hard-coded port 8082 (products-service's port) instead
-      of billing-service's own 8085 — a copy-paste artifact from
-      products-service's Dockerfile, found while live-verifying ADR-0009.
-      Both fixed to 8085 and verified: the healthcheck's `wget` now reaches
-      the app (`401`) instead of failing to connect at all. The container
-      still reports "unhealthy" after this fix, for a separate reason — see
-      the next item.
-- [ ] billing-service has `spring-boot-starter-security` on its classpath
-      with no `SecurityConfig` class, so Spring Security's default (deny
-      all, HTTP Basic challenge) applies to every endpoint, including
-      `/actuator/health` — the Docker `HEALTHCHECK`'s unauthenticated
-      `wget` gets `401` and the container never reports "healthy". Found
-      while verifying the port fix above; independent of it (fixing the
-      port alone cannot make this pass). Candidate fix: a `SecurityConfig`
-      permitting `/actuator/health` unauthenticated, matching the pattern
-      the other three Spring services presumably need too (not yet
-      checked). Blocked by prioritization/authorization, not a technical
-      dependency.
-- [x] orders-service (`orders-service/Dockerfile`): same copy-paste pattern
-      as billing-service's — `EXPOSE`/`HEALTHCHECK` hard-coded port 8082
-      (products-service's port) instead of orders-service's own 8084. Fixed
-      to 8084; a Dockerfile-level `docker exec ... wget`/`curl` against 8084
-      now reaches the app (`403`, see the next item) instead of failing to
-      connect. Live `docker compose ps` verification of this specific fix
-      was inconclusive, though, because of the next item — a separate,
-      unrelated bug that makes orders-service's reported health status not
-      reflect the app's real state either way.
-- [ ] **orders-service's `docker-compose.yml` healthcheck override
-      (lines 181-190) is a no-op — it always reports "healthy" regardless
-      of whether the app actually responds.** The `test: >` YAML folded
-      block joins all its lines (including the `# Verifica se aplicação
-      Spring está respondendo` comment) into one string with spaces instead
-      of newlines; once folded, that leading `#` turns everything after it
-      on the (now single) line into a shell comment — including the actual
-      `curl -f http://localhost:8084/actuator/health || exit 1` — so the
-      `bash -c '...'` the healthcheck runs has no real command in it and
-      always exits `0`. Confirmed by reproducing the exact folded string
-      Compose generates (`docker compose config`) inside the running
-      container: exits `0` unconditionally, even though `curl` isn't even
-      installed in the image (only `bash`/`postgresql-client`) and
-      `/actuator/health` itself returns `403` (see the next item) rather
-      than `200`. Practical impact: `inventory-service`'s
-      `depends_on: orders-service: condition: service_healthy` gate is
-      currently meaningless — it will proceed as soon as this always-green
-      healthcheck's `start_period` elapses, not when orders-service is
-      actually ready. Found as a side effect of live-verifying the port fix
-      above; not fixed here, needs its own authorization (likely fix: drop
-      the stray `#` comment line, or move the comment above the `healthcheck:`
-      key entirely, out of the folded block).
-- [ ] orders-service's own `SecurityConfig`
-      (`orders-service/src/main/java/com/easydora/orders/config/SecurityConfig.java`)
-      only `permitAll()`s `/ping`, `/health`, `/error`, and `/debug/**` —
-      not `/actuator/health` — so even a corrected healthcheck would see a
-      `403`, the same underlying gap already tracked above for
-      billing-service. Not fixed here.
+- [x] All six services' health checks fixed and unified — see
+      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md). Started
+      from billing-service's and orders-service's Dockerfiles hard-coding
+      port 8082 (products-service's port), which uncovered two deeper bugs
+      once the ports were corrected: every Spring service's `HEALTHCHECK`
+      targeted `/actuator/health` — a path that isn't uniformly exposed or
+      `permitAll()`-ed — instead of each service's own working `/health`
+      endpoint; and orders-service's `docker-compose.yml` healthcheck
+      override was a no-op (a YAML-folding bug swallowed the real `curl`
+      command in a shell comment, so it always reported "healthy"
+      regardless of the app's actual state). Also added: a
+      `HealthController`/`SecurityConfig` for billing-service (which had
+      neither), and a `HEALTHCHECK` for auth-service, inventory-service, and
+      api-gateway (which never had one). All six services now verified
+      `healthy` simultaneously.
+- [ ] billing-service's `/api/payments/**` API is still protected only by
+      Spring Boot's default auto-generated single-user Basic auth — unlike
+      its three sibling services, it never joined the cross-service JWT
+      broadcast cache (no `JwtConsumer`/`JwtAuthenticationFilter`). Noticed
+      while adding billing-service's `SecurityConfig` for the health-check
+      fix above; deliberately not addressed there (a real JWT integration
+      is a separate, larger task). See ADR-0010's Consequences.
 - [ ] No shared parent POM across the four Spring services (auth,
       products, orders, billing). Not a deliberate decoupling decision —
       it happened by omission during the project's initial setup.

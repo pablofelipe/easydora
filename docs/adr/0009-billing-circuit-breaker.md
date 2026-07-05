@@ -102,11 +102,18 @@ generates directly inside the container. Practical consequence:
 `inventory-service`'s `depends_on: orders-service: condition:
 service_healthy` never actually gates on orders-service being ready. Not
 fixed here — outside this task's authorized scope (a `docker-compose.yml`
-bug, not the Dockerfile copy-paste pattern this round covered) — see README
-Roadmap. Also, independent of that: orders-service's own `SecurityConfig`
-doesn't `permitAll()` `/actuator/health` either (only `/ping`, `/health`,
-`/error`, `/debug/**`), so a corrected healthcheck would still see `403` —
-the same class of gap already open for billing-service.
+bug, not the Dockerfile copy-paste pattern this round covered). Also,
+independent of that: orders-service's own `SecurityConfig` doesn't
+`permitAll()` `/actuator/health` either (only `/ping`, `/health`, `/error`,
+`/debug/**`), so a corrected healthcheck would still see `403` — the same
+class of gap already open for billing-service.
+
+**All three of these were subsequently authorized and resolved together —
+see [ADR-0010](0010-uniform-service-healthchecks.md)**: every service's
+healthcheck now targets its own already-`permitAll()`-ed `/health` endpoint
+instead of `/actuator/health`, orders-service's broken Compose override was
+deleted, and billing-service gained the `HealthController`/`SecurityConfig`
+it was missing.
 
 ## Consequences
 
