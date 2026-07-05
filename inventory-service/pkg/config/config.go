@@ -26,7 +26,7 @@ func getDatabaseURL() string {
     host := getEnv("DB_HOST", "localhost")
     port := getEnv("DB_PORT", "5432")
     user := getEnv("DB_USER", "admin")
-    password := getEnv("DB_PASSWORD", "SENHA")
+    password := getEnv("DB_PASSWORD", "PWD")
     dbName := getEnv("DB_NAME", "easydora")
     
     encodedPassword := url.QueryEscape(password)
@@ -39,7 +39,7 @@ func getRabbitMQURL() string {
     host := getEnv("RABBITMQ_HOST", "localhost")
     port := getEnv("RABBITMQ_PORT", "5672")
     user := getEnv("RABBITMQ_USER", "admin")
-    password := getEnv("RABBITMQ_PASSWORD", "SENHA")
+    password := getEnv("RABBITMQ_PASSWORD", "PWD")
     
     encodedPassword := url.QueryEscape(password)
 
