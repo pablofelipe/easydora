@@ -1,14 +1,14 @@
 package com.easydora.orders.statemachine;
 
 public enum OrderState {
-    PENDING,           // Pedido criado, aguardando pagamento
-    PAYMENT_APPROVED,  // Pagamento aprovado
-    PAYMENT_FAILED,    // Pagamento falhou
-    PROCESSING,        // Em processamento
-    INVENTORY_RESERVED,// Estoque reservado
-    INVENTORY_FAILED,  // Falha no estoque
-    SHIPPED,           // Enviado
-    DELIVERED,         // Entregue
-    CANCELLED,         // Cancelado
-    REFUNDING          // Reembolso
+    PENDING,           // Order created, awaiting payment
+    PAYMENT_APPROVED,  // Payment approved
+    PAYMENT_FAILED,    // Payment failed
+    PROCESSING,        // In processing
+    INVENTORY_RESERVED,// Stock reserved
+    INVENTORY_FAILED,  // Stock failure
+    SHIPPED,           // Shipped
+    DELIVERED,         // Delivered
+    CANCELLED,         // Cancelled
+    REFUNDING          // Refunding
 }

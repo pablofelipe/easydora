@@ -40,15 +40,15 @@ public class UserService {
     }
     
     public SignupResponse registerUser(SignupRequest signupRequest) {
-        // Verificar se email já existe
+        // Check whether the email already exists
         if (userRepository.existsByEmail(signupRequest.getEmail())) {
             throw new RuntimeException("Email already registered");
         }
-        
-        // Validar e converter role
+
+        // Validate and convert role
         UserRole role = validateAndConvertRole(signupRequest.getRole());
-        
-        // Criar e salvar usuário
+
+        // Create and save the user
         User user = createUserFromRequest(signupRequest, role);
 
         String verificationToken = verificationTokenService.generateEmailVerificationToken(user);
@@ -118,33 +118,33 @@ public class UserService {
     }
 
     public void verifyEmail(String token) {
-        // Validar o token JWT primeiro
+        // Validate the JWT token first
         if (!verificationTokenService.validateVerificationToken(token)) {
             throw new RuntimeException("Invalid or expired verification token");
         }
-        
-        // Extrair o email do token JWT
+
+        // Extract the email from the JWT token
         String email = verificationTokenService.getEmailFromToken(token);
-        
-        // Buscar usuário pelo email
+
+        // Look up the user by email
         User user = userRepository.findByEmail(email)
             .orElseThrow(() -> new RuntimeException("User not found"));
-        
-        // Verificar se o token armazenado no banco corresponde (opcional - camada extra de segurança)
-        if (user.getEmailVerificationToken() != null && 
+
+        // Check whether the token stored in the database matches (optional - extra security layer)
+        if (user.getEmailVerificationToken() != null &&
             !user.getEmailVerificationToken().equals(token)) {
             throw new RuntimeException("Token mismatch");
         }
-        
-        // Verificar se já não está ativo
+
+        // Check whether it's already active
         if (user.getStatus() == UserStatus.ACTIVE) {
             throw new RuntimeException("Email already verified");
         }
-        
-        // Ativar o usuário
+
+        // Activate the user
         user.setStatus(UserStatus.ACTIVE);
         user.setEmailVerified(true);
-        user.setEmailVerificationToken(null); // Remove o token após uso
+        user.setEmailVerificationToken(null); // Remove the token after use
         user.setUpdatedAt(LocalDateTime.now());
 
         userRepository.save(user);

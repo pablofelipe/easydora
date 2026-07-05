@@ -28,17 +28,17 @@ public class AuthService {
         User user = userService.findActiveUserByEmail(email)
             .orElseThrow(() -> new RuntimeException("Invalid email or password"));
         
-        // Validar senha
+        // Validate password
         if (!userService.validateUserCredentials(email, password)) {
             throw new RuntimeException("Invalid email or password");
         }
-        
-        // Validar status
+
+        // Validate status
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new RuntimeException("Account is not active");
         }
-        
-        // Gerar token e publicar evento
+
+        // Generate token and publish event
         String token = jwtService.generateToken(user);
         String userId = jwtService.extractUserId(token);
         String role = jwtService.extractRoles(token);
@@ -46,7 +46,7 @@ public class AuthService {
         
         rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), user.getFirstName(),user.getLastName(), role, expiresIn);
         
-        // Criar resposta
+        // Create response
         return new LoginResponse(
             token,
             user.getId(),

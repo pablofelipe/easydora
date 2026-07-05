@@ -8,10 +8,10 @@ import org.springframework.stereotype.Component;
 public class JwtProperties {
     
     private String secret;
-    private long expirationMs = 86400000; // 24 horas padrão
+    private long expirationMs = 86400000; // 24 hours by default
     private String issuer = "auth-service";
     
-    // Getters e Setters
+    // Getters and Setters
     public String getSecret() { return secret; }
     public void setSecret(String secret) { this.secret = secret; }
     

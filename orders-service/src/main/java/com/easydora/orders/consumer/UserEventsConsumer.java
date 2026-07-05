@@ -30,8 +30,8 @@ public class UserEventsConsumer {
         logger.info("Received USER_REGISTERED event for user: {}", userEvent.getUserId());
         
         try {
-            // Para orders-service, estamos interessados principalmente em BUYERS
-            // Mas também podemos ter SELLERS fazendo compras
+            // For orders-service, we're mainly interested in BUYERS
+            // But we may also have SELLERS making purchases
             if (!userEvent.isBuyer() && !userEvent.isSeller()) {
                 logger.info("User {} is not a BUYER or SELLER, skipping", userEvent.getUserId());
                 return;
@@ -46,8 +46,8 @@ public class UserEventsConsumer {
             
             String role = userEvent.getRole();
             if (role == null || role.trim().isEmpty()) {
-                logger.warn("Role não encontrado no evento USER_REGISTERED para user: {}", userEvent.getUserId());
-                role = "BUYER"; // Default para orders-service
+                logger.warn("Role not found in USER_REGISTERED event for user: {}", userEvent.getUserId());
+                role = "BUYER"; // Default for orders-service
             }
             
             try {
@@ -57,7 +57,7 @@ public class UserEventsConsumer {
                 buyer.setRole(UserRole.BUYER);
             }
             
-            buyer.setActive(false); // Inativo até ativar email
+            buyer.setActive(false); // Inactive until the email is activated
             
             if (buyer.getCreatedAt() == null) {
                 buyer.setCreatedAt(java.time.LocalDateTime.now());
@@ -78,14 +78,14 @@ public class UserEventsConsumer {
         logger.info("Received JWT_CREATED event for user: {}", userEvent.getUserId());
         
         try {
-            // Para orders-service, estamos interessados principalmente em BUYERS
+            // For orders-service, we're mainly interested in BUYERS
             if (!userEvent.isBuyer() && !userEvent.isSeller()) {
                 logger.info("User {} is not a BUYER or SELLER, skipping", userEvent.getUserId());
                 return;
             }
             boolean isUserActive = buyerRepository.findById(userEvent.getUserId())
                 .map(Buyer::isActive)
-                .orElse(false); // Se não encontrou, assume false
+                .orElse(false); // If not found, assume false
             
             buyerRepository.findById(userEvent.getUserId()).ifPresentOrElse(
                 buyer -> {
@@ -99,7 +99,7 @@ public class UserEventsConsumer {
                 }
             );
             
-            // Armazenar o token JWT para autenticação
+            // Store the JWT token for authentication
             if (userEvent.getToken() != null) {
                 JwtAuthenticationFilter.JwtUserInfo userInfo = new JwtAuthenticationFilter.JwtUserInfo(
                     userEvent.getUserId(),
@@ -127,7 +127,7 @@ public class UserEventsConsumer {
             Buyer buyer = buyerRepository.findById(userId)
                 .orElseThrow(() -> new Exception("Buyer not found: " + userId));
                 
-            buyer.setActive(true); // Ativa o usuário após verificação
+            buyer.setActive(true); // Activate the user after verification
             buyer.setUpdatedAt(java.time.LocalDateTime.now());
             
             buyerRepository.save(buyer);
@@ -140,7 +140,7 @@ public class UserEventsConsumer {
     }
 
     private void updateBuyerFromJwtEvent(Buyer buyer, UserEvent userEvent) {
-        // Atualiza role se fornecida (pode ser BUYER ou SELLER)
+        // Update role if provided (can be BUYER or SELLER)
         if (userEvent.getRole() != null) {
             try {
                 buyer.setRole(UserRole.valueOf(userEvent.getRole().toUpperCase()));
@@ -150,17 +150,17 @@ public class UserEventsConsumer {
             }
         }
         
-        // Atualiza email se necessário
+        // Update email if needed
         if (userEvent.getEmail() != null) {
             buyer.setEmail(userEvent.getEmail());
         }
-        
-        // Atualiza nome se necessário
+
+        // Update name if needed
         if (userEvent.hasNameInfo()) {
             buyer.setName(userEvent.getFullName());
         }
-        
-        // Ativa o usuário quando faz login
+
+        // Activate the user when they log in
         buyer.setActive(true);
         buyer.setUpdatedAt(java.time.LocalDateTime.now());
     }
@@ -171,7 +171,7 @@ public class UserEventsConsumer {
         buyer.setEmail(userEvent.getEmail());
         buyer.setName(userEvent.getFullName());
         
-        logger.info("Role do evento: {}", userEvent.getRole());
+        logger.info("Role from the event: {}", userEvent.getRole());
 
         if (userEvent.getRole() != null && !userEvent.getRole().isBlank()) {
             try {
@@ -181,10 +181,10 @@ public class UserEventsConsumer {
                 buyer.setRole(UserRole.BUYER);
             }
         } else {
-            buyer.setRole(UserRole.BUYER); // default para orders-service
+            buyer.setRole(UserRole.BUYER); // default for orders-service
         }
-        
-        buyer.setActive(true); // Ativo quando faz login
+
+        buyer.setActive(true); // Active when they log in
         buyer.setCreatedAt(java.time.LocalDateTime.now());
         buyer.setUpdatedAt(java.time.LocalDateTime.now());
         

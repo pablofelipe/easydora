@@ -20,19 +20,19 @@ public class OrderEventListener {
     
     @RabbitListener(queues = "${rabbitmq.queue.order-created}")
     public void handleOrderCreated(OrderCreatedEvent event) {
-        logger.info("[RabbitMQ] Recebido OrderCreatedEvent - Order: {}", event.getOrderId());
+        logger.info("[RabbitMQ] Received OrderCreatedEvent - Order: {}", event.getOrderId());
 
         try {
-            // Verificar se já existe pagamento
+            // Check whether a payment already exists
             boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
 
             if (!paymentExists) {
-                // Criar pagamento pendente
+                // Create the pending payment
                 paymentService.createPendingPayment(event);
-                logger.info("[RabbitMQ] Pagamento pendente criado para order: {}", event.getOrderId());
+                logger.info("[RabbitMQ] Pending payment created for order: {}", event.getOrderId());
             }
         } catch (Exception e) {
-            logger.error("[RabbitMQ] Erro ao processar OrderCreatedEvent: {}", e.getMessage(), e);
+            logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
         }
     }
 }

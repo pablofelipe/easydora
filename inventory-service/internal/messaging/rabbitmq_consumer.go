@@ -16,7 +16,7 @@ import (
 type RabbitMQConsumer struct {
     conn      *amqp.Connection
     cfg       *config.Config
-    channels  []*amqp.Channel // Múltiplos canais
+    channels  []*amqp.Channel // Multiple channels
     mu        sync.Mutex
     wg        sync.WaitGroup
 }
@@ -24,7 +24,7 @@ type RabbitMQConsumer struct {
 func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
     cfg := config.Load()
     
-    // Tentar conexão com retry
+    // Try to connect with retry
     var conn *amqp.Connection
     var err error
     
@@ -32,16 +32,16 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
     for i := 0; i < maxRetries; i++ {
         conn, err = amqp.Dial(cfg.RabbitMQURL)
         if err != nil {
-            log.Printf("Tentativa %d/%d - RabbitMQ não está pronto: %v", i+1, maxRetries, err)
+            log.Printf("Attempt %d/%d - RabbitMQ is not ready: %v", i+1, maxRetries, err)
             time.Sleep(3 * time.Second)
             continue
         }
-        log.Println("Conectado ao RabbitMQ")
+        log.Println("Connected to RabbitMQ")
         break
     }
     
     if err != nil {
-        return nil, fmt.Errorf("falha ao conectar ao RabbitMQ após %d tentativas: %w", maxRetries, err)
+        return nil, fmt.Errorf("failed to connect to RabbitMQ after %d attempts: %w", maxRetries, err)
     }
 
     return &RabbitMQConsumer{
@@ -50,17 +50,17 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
     }, nil
 }
 
-// createChannel cria um novo canal para uso exclusivo
+// createChannel creates a new channel for exclusive use
 func (r *RabbitMQConsumer) createChannel() (*amqp.Channel, error) {
     r.mu.Lock()
     defer r.mu.Unlock()
     
     channel, err := r.conn.Channel()
     if err != nil {
-        return nil, fmt.Errorf("falha ao criar canal: %w", err)
+        return nil, fmt.Errorf("failed to create channel: %w", err)
     }
     
-    // Configurar QoS
+    // Configure QoS
     err = channel.Qos(
         1,     // prefetch count
         0,     // prefetch size
@@ -68,14 +68,14 @@ func (r *RabbitMQConsumer) createChannel() (*amqp.Channel, error) {
     )
     if err != nil {
         channel.Close()
-        return nil, fmt.Errorf("falha ao configurar QoS: %w", err)
+        return nil, fmt.Errorf("failed to configure QoS: %w", err)
     }
     
     r.channels = append(r.channels, channel)
     return channel, nil
 }
 
-// setupExchange cria/verifica o exchange usando um canal dedicado
+// setupExchange creates/verifies the exchange using a dedicated channel
 func (r *RabbitMQConsumer) setupExchange() error {
     channel, err := r.createChannel()
     if err != nil {
@@ -83,7 +83,7 @@ func (r *RabbitMQConsumer) setupExchange() error {
     }
     defer channel.Close()
     
-    // Criar exchange
+    // Create exchange
     err = channel.ExchangeDeclare(
         "order.exchange", // name
         "topic",          // type
@@ -94,16 +94,16 @@ func (r *RabbitMQConsumer) setupExchange() error {
         nil,              // arguments
     )
     if err != nil {
-        return fmt.Errorf("falha ao criar exchange 'order.exchange': %w", err)
+        return fmt.Errorf("failed to create exchange 'order.exchange': %w", err)
     }
     
-    log.Println("Exchange 'order.exchange' (topic) criado/verificado")
+    log.Println("Exchange 'order.exchange' (topic) created/verified")
     return nil
 }
 
-// setupQueue cria uma fila usando um canal dedicado
+// setupQueue creates a queue using a dedicated channel
 func (r *RabbitMQConsumer) setupQueue(channel *amqp.Channel, queueName, routingKey string) (amqp.Queue, error) {
-    // Declarar a fila
+    // Declare the queue
     queue, err := channel.QueueDeclare(
         queueName, // name
         true,      // durable
@@ -113,11 +113,11 @@ func (r *RabbitMQConsumer) setupQueue(channel *amqp.Channel, queueName, routingK
         nil,       // arguments
     )
     if err != nil {
-        return amqp.Queue{}, fmt.Errorf("falha ao declarar fila '%s': %w", queueName, err)
+        return amqp.Queue{}, fmt.Errorf("failed to declare queue '%s': %w", queueName, err)
     }
-    log.Printf("Fila '%s' criada/verificada", queueName)
+    log.Printf("Queue '%s' created/verified", queueName)
 
-    // Bind da fila ao exchange
+    // Bind the queue to the exchange
     err = channel.QueueBind(
         queue.Name,      // queue name
         routingKey,      // routing key
@@ -126,10 +126,10 @@ func (r *RabbitMQConsumer) setupQueue(channel *amqp.Channel, queueName, routingK
         nil,             // arguments
     )
     if err != nil {
-        return amqp.Queue{}, fmt.Errorf("falha ao bindar fila '%s' com routing key '%s': %w", 
+        return amqp.Queue{}, fmt.Errorf("failed to bind queue '%s' with routing key '%s': %w",
             queueName, routingKey, err)
     }
-    log.Printf("Fila '%s' bindada com routing key '%s'", queueName, routingKey)
+    log.Printf("Queue '%s' bound with routing key '%s'", queueName, routingKey)
 
     return queue, nil
 }
@@ -141,20 +141,20 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
     r.wg.Add(1)
     defer r.wg.Done()
     
-    // Criar canal dedicado para este consumer
+    // Create a dedicated channel for this consumer
     channel, err := r.createChannel()
     if err != nil {
-        return fmt.Errorf("falha ao criar canal para reserve consumer: %w", err)
+        return fmt.Errorf("failed to create channel for reserve consumer: %w", err)
     }
     defer channel.Close()
     
-    // Configurar fila de reserva
+    // Configure the reserve queue
     queue, err := r.setupQueue(channel, "inventory.reserve.queue", "stock.reserve")
     if err != nil {
-        return fmt.Errorf("falha ao configurar fila de reserva: %w", err)
+        return fmt.Errorf("failed to configure reserve queue: %w", err)
     }
 
-    // Iniciar consumer
+    // Start consumer
     msgs, err := channel.Consume(
         queue.Name, // queue
         "",         // consumer
@@ -165,35 +165,35 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
         nil,        // args
     )
     if err != nil {
-        return fmt.Errorf("falha ao registrar consumer de reserva: %w", err)
+        return fmt.Errorf("failed to register reserve consumer: %w", err)
     }
 
-    log.Printf("Aguardando ReserveStockCommand na fila: %s (routing key: stock.reserve)", queue.Name)
+    log.Printf("Waiting for ReserveStockCommand on queue: %s (routing key: stock.reserve)", queue.Name)
 
-    // Processar mensagens
+    // Process messages
     for d := range msgs {
-        log.Printf("[RESERVE] Mensagem recebida: %s", string(d.Body))
+        log.Printf("[RESERVE] Message received: %s", string(d.Body))
 
         var command models.ReserveStockCommand
         if err := json.Unmarshal(d.Body, &command); err != nil {
-            log.Printf("[RESERVE] Erro ao decodificar mensagem: %v", err)
-            d.Nack(false, false) // Não requeue - mensagem inválida
+            log.Printf("[RESERVE] Error decoding message: %v", err)
+            d.Nack(false, false) // Do not requeue - invalid message
             continue
         }
 
-        log.Printf("[RESERVE] Processando ReserveStockCommand para order: %s", command.OrderID)
+        log.Printf("[RESERVE] Processing ReserveStockCommand for order: %s", command.OrderID)
 
         orderId, success, insufficientEvent, err := inventoryService.ReserveStock(&command)
 
         if err != nil {
-            log.Printf("[RESERVE] Erro ao processar reserva para order %s: %v", command.OrderID, err)
-            d.Nack(false, true) // Requeue para tentar novamente
+            log.Printf("[RESERVE] Error processing reservation for order %s: %v", command.OrderID, err)
+            d.Nack(false, true) // Requeue to try again
             continue
         }
 
-        // Publicar resultado no Kafka
+        // Publish result to Kafka
         if success {
-            log.Printf("[RESERVE] Estoque reservado para order: %s", orderId)
+            log.Printf("[RESERVE] Stock reserved for order: %s", orderId)
 
             reservedEvent := &models.StockReservedEvent{
                 OrderID:   orderId,
@@ -202,31 +202,31 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
                 Timestamp: time.Now(),
             }
             if err := kafkaProducer.PublishStockReservedOrder(reservedEvent); err != nil {
-                log.Printf("[RESERVE] Falha ao publicar StockReservedEvent: %v", err)
-                d.Nack(false, true) // Requeue para tentar novamente
+                log.Printf("[RESERVE] Failed to publish StockReservedEvent: %v", err)
+                d.Nack(false, true) // Requeue to try again
                 continue
             }
-            log.Printf("[RESERVE] StockReservedEvent publicado para order: %s", orderId)
+            log.Printf("[RESERVE] StockReservedEvent published for order: %s", orderId)
         } else {
-            log.Printf("[RESERVE] Falha na reserva de estoque para order: %s", orderId)
+            log.Printf("[RESERVE] Stock reservation failed for order: %s", orderId)
 
-            // Publicar evento de estoque insuficiente
+            // Publish insufficient-stock event
             if insufficientEvent != nil {
-                log.Printf("[RESERVE] Publicando StockInsufficientEvent para order: %s, product: %s",
+                log.Printf("[RESERVE] Publishing StockInsufficientEvent for order: %s, product: %s",
                     insufficientEvent.OrderID, insufficientEvent.ProductID)
 
                 if err := kafkaProducer.PublishStockInsufficientOrder(insufficientEvent); err != nil {
-                    log.Printf("[RESERVE] Falha ao publicar StockInsufficientEvent: %v", err)
+                    log.Printf("[RESERVE] Failed to publish StockInsufficientEvent: %v", err)
                 } else {
-                    log.Printf("[RESERVE] StockInsufficientEvent publicado para order: %s",
+                    log.Printf("[RESERVE] StockInsufficientEvent published for order: %s",
                         insufficientEvent.OrderID)
                 }
             }
         }
 
-        // Confirmar processamento
+        // Confirm processing
         d.Ack(false)
-        log.Printf("[RESERVE] Mensagem processada para order: %s", command.OrderID)
+        log.Printf("[RESERVE] Message processed for order: %s", command.OrderID)
     }
     
     return nil
@@ -236,20 +236,20 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
     r.wg.Add(1)
     defer r.wg.Done()
     
-    // Criar canal dedicado para este consumer
+    // Create a dedicated channel for this consumer
     channel, err := r.createChannel()
     if err != nil {
-        return fmt.Errorf("falha ao criar canal para release consumer: %w", err)
+        return fmt.Errorf("failed to create channel for release consumer: %w", err)
     }
     defer channel.Close()
     
-    // Configurar fila de liberação
+    // Configure the release queue
     queue, err := r.setupQueue(channel, "inventory.release.queue", "stock.release")
     if err != nil {
-        return fmt.Errorf("falha ao configurar fila de liberação: %w", err)
+        return fmt.Errorf("failed to configure release queue: %w", err)
     }
 
-    // Iniciar consumer
+    // Start consumer
     msgs, err := channel.Consume(
         queue.Name, // queue
         "",         // consumer
@@ -260,66 +260,66 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
         nil,        // args
     )
     if err != nil {
-        return fmt.Errorf("falha ao registrar consumer de liberação: %w", err)
+        return fmt.Errorf("failed to register release consumer: %w", err)
     }
 
-    log.Printf("Aguardando ReleaseStockCommand na fila: %s (routing key: stock.release)", queue.Name)
+    log.Printf("Waiting for ReleaseStockCommand on queue: %s (routing key: stock.release)", queue.Name)
 
-    // Processar mensagens
+    // Process messages
     for d := range msgs {
-        log.Printf("[RELEASE] Mensagem recebida: %s", string(d.Body))
+        log.Printf("[RELEASE] Message received: %s", string(d.Body))
 
         var command models.ReleaseStockCommand
         if err := json.Unmarshal(d.Body, &command); err != nil {
-            log.Printf("[RELEASE] Erro ao decodificar comando de liberação: %v", err)
-            d.Nack(false, false) // Não requeue - mensagem inválida
+            log.Printf("[RELEASE] Error decoding release command: %v", err)
+            d.Nack(false, false) // Do not requeue - invalid message
             continue
         }
 
-        log.Printf("[RELEASE] Processando ReleaseStockCommand para order: %s", command.OrderID)
+        log.Printf("[RELEASE] Processing ReleaseStockCommand for order: %s", command.OrderID)
 
         if err := inventoryService.ReleaseStock(&command); err != nil {
-            log.Printf("[RELEASE] Falha ao processar comando de liberação: %v", err)
-            d.Nack(false, true) // Requeue para tentar novamente
+            log.Printf("[RELEASE] Failed to process release command: %v", err)
+            d.Nack(false, true) // Requeue to try again
             continue
         }
 
         d.Ack(false)
-        log.Printf("[RELEASE] Estoque liberado para order: %s", command.OrderID)
+        log.Printf("[RELEASE] Stock released for order: %s", command.OrderID)
     }
     
     return nil
 }
 
-// Start inicia todos os consumers em goroutines separadas
+// Start starts all consumers in separate goroutines
 func (r *RabbitMQConsumer) Start(
     inventoryService service.InventoryService,
     kafkaProducer *KafkaProducer,
 ) {
-    log.Println("Iniciando RabbitMQ consumers...")
+    log.Println("Starting RabbitMQ consumers...")
 
-    // Primeiro, criar o exchange
+    // First, create the exchange
     if err := r.setupExchange(); err != nil {
-        log.Fatalf("Falha ao criar exchange: %v", err)
+        log.Fatalf("Failed to create exchange: %v", err)
     }
 
-    // Iniciar consumer de reserva em goroutine separada
+    // Start the reserve consumer in a separate goroutine
     go func() {
         if err := r.ConsumeReserveStockCommands(inventoryService, kafkaProducer); err != nil {
-            log.Printf("Erro no consumer de reserva: %v", err)
+            log.Printf("Error in reserve consumer: %v", err)
         }
     }()
 
-    // Iniciar consumer de liberação em goroutine separada
+    // Start the release consumer in a separate goroutine
     go func() {
         if err := r.ConsumeReleaseStockCommands(inventoryService); err != nil {
-            log.Printf("Erro no consumer de liberação: %v", err)
+            log.Printf("Error in release consumer: %v", err)
         }
     }()
 
-    log.Println("Todos os consumers RabbitMQ foram iniciados")
+    log.Println("All RabbitMQ consumers have been started")
     
-    // Aguardar goroutines (manter o serviço rodando)
+    // Wait for goroutines (keep the service running)
     r.wg.Wait()
 }
 
@@ -327,17 +327,17 @@ func (r *RabbitMQConsumer) Close() {
     r.mu.Lock()
     defer r.mu.Unlock()
     
-    // Fechar todos os canais
+    // Close all channels
     for _, channel := range r.channels {
         if channel != nil {
             channel.Close()
         }
     }
     
-    // Fechar conexão
+    // Close connection
     if r.conn != nil {
         r.conn.Close()
     }
     
-    log.Println("Conexão RabbitMQ fechada")
+    log.Println("RabbitMQ connection closed")
 }

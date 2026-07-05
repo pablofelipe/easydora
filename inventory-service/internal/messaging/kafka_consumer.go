@@ -28,20 +28,20 @@ type KafkaConsumer struct {
 func NewKafkaConsumer() (*KafkaConsumer, error) {
     cfg := config.Load()
     
-    // Validar configuração
+    // Validate configuration
     if cfg.KafkaBrokers == "" {
-        return nil, fmt.Errorf("KafkaBrokers não configurado")
+        return nil, fmt.Errorf("KafkaBrokers not configured")
     }
     
-    log.Printf("Configurando Kafka Consumer para: %s", cfg.KafkaBrokers)
+    log.Printf("Configuring Kafka Consumer for: %s", cfg.KafkaBrokers)
     
     k := &KafkaConsumer{
         cfg: cfg,
     }
     
-    // Inicializar readers
+    // Initialize readers
     if err := k.initializeReaders(); err != nil {
-        return nil, fmt.Errorf("falha ao inicializar readers: %w", err)
+        return nil, fmt.Errorf("failed to initialize readers: %w", err)
     }
     
     return k, nil
@@ -78,11 +78,11 @@ func (k *KafkaConsumer) initializeReaders() error {
     var lastErr error
     
     for i := 0; i < maxRetries; i++ {
-        log.Printf("Tentativa %d/%d de conectar ao Kafka...", i+1, maxRetries)
+        log.Printf("Attempt %d/%d to connect to Kafka...", i+1, maxRetries)
 
         if err := k.testKafkaConnection(); err != nil {
             lastErr = err
-            log.Printf("Falha na conexão com Kafka: %v", err)
+            log.Printf("Failed to connect to Kafka: %v", err)
             time.Sleep(2 * time.Second)
             continue
         }
@@ -91,36 +91,36 @@ func (k *KafkaConsumer) initializeReaders() error {
         k.readerUpdated = k.createReader("product.updated")
         k.readerDeleted = k.createReader("product.deleted")
         
-        log.Println("Todos os Kafka readers criados com sucesso")
+        log.Println("All Kafka readers created successfully")
         return nil
     }
     
-    return fmt.Errorf("falha ao conectar ao Kafka após %d tentativas: %v", maxRetries, lastErr)
+    return fmt.Errorf("failed to connect to Kafka after %d attempts: %v", maxRetries, lastErr)
 }
 
 func (k *KafkaConsumer) testKafkaConnection() error {
     conn, err := kafka.Dial("tcp", k.cfg.KafkaBrokers)
     if err != nil {
-        return fmt.Errorf("falha ao conectar ao Kafka: %w", err)
+        return fmt.Errorf("failed to connect to Kafka: %w", err)
     }
     defer conn.Close()
     
     _, err = conn.ReadPartitions()
     if err != nil {
-        return fmt.Errorf("falha ao ler partições: %w", err)
+        return fmt.Errorf("failed to read partitions: %w", err)
     }
     
     return nil
 }
 
 func (k *KafkaConsumer) StartConsuming(inventoryService service.InventoryService) {
-    log.Println("Iniciando Kafka consumers...")
+    log.Println("Starting Kafka consumers...")
     
     k.mu.Lock()
     k.running = true
     k.mu.Unlock()
     
-    // Consumir eventos de criação
+    // Consume creation events
     k.wg.Add(1)
     go func() {
         defer k.wg.Done()
@@ -128,7 +128,7 @@ func (k *KafkaConsumer) StartConsuming(inventoryService service.InventoryService
             k.handleProductCreated, inventoryService)
     }()
     
-    // Consumir eventos de atualização
+    // Consume update events
     k.wg.Add(1)
     go func() {
         defer k.wg.Done()
@@ -136,7 +136,7 @@ func (k *KafkaConsumer) StartConsuming(inventoryService service.InventoryService
             k.handleProductUpdated, inventoryService)
     }()
     
-    // Consumir eventos de deleção
+    // Consume deletion events
     k.wg.Add(1)
     go func() {
         defer k.wg.Done()
@@ -144,7 +144,7 @@ func (k *KafkaConsumer) StartConsuming(inventoryService service.InventoryService
             k.handleProductDeleted, inventoryService)
     }()
     
-    log.Println("Todos os Kafka consumers iniciados")
+    log.Println("All Kafka consumers started")
 }
 
 func (k *KafkaConsumer) consumeWithRetry(
@@ -157,7 +157,7 @@ func (k *KafkaConsumer) consumeWithRetry(
     retryDelay := 2 * time.Second
     
     for retry := 0; retry < maxRetries; retry++ {
-        log.Printf("[%s] Iniciando consumer (tentativa %d/%d)...",
+        log.Printf("[%s] Starting consumer (attempt %d/%d)...",
             topic, retry+1, maxRetries)
         
         ctx, cancel := context.WithCancel(context.Background())
@@ -169,23 +169,23 @@ func (k *KafkaConsumer) consumeWithRetry(
             return
         }
         
-        // Log do erro
+        // Log the error
         if strings.Contains(err.Error(), "context canceled") {
-            log.Printf("[%s] Consumer cancelado", topic)
+            log.Printf("[%s] Consumer canceled", topic)
             return
         }
 
-        log.Printf("[%s] Erro no consumer: %v", topic, err)
+        log.Printf("[%s] Consumer error: %v", topic, err)
 
-        // Verificar se deve continuar tentando
+        // Check whether to keep retrying
         if retry < maxRetries-1 {
-            log.Printf("[%s] Aguardando %v antes de retry...", topic, retryDelay)
+            log.Printf("[%s] Waiting %v before retry...", topic, retryDelay)
             time.Sleep(retryDelay)
             retryDelay *= 2 // Exponential backoff
         }
     }
 
-    log.Printf("[%s] Máximo de retries excedido", topic)
+    log.Printf("[%s] Maximum retries exceeded", topic)
 }
 
 func (k *KafkaConsumer) isRunning() bool {
@@ -195,78 +195,78 @@ func (k *KafkaConsumer) isRunning() bool {
 }
 
 func (k *KafkaConsumer) handleProductCreated(ctx context.Context, reader *kafka.Reader, inventoryService service.InventoryService) error {
-    log.Println("Consumindo ProductCreatedEvents...")
+    log.Println("Consuming ProductCreatedEvents...")
     
     for {
-        // Verificar se deve continuar
+        // Check whether to continue
         if !k.isRunning() {
             return nil
         }
         
-        // Usar contexto com timeout para evitar bloqueios eternos
+        // Use a context with timeout to avoid blocking forever
         readCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
         msg, err := reader.ReadMessage(readCtx)
         cancel()
         
         if err != nil {
             if err == context.DeadlineExceeded {
-                // Timeout é esperado, continuar
-                log.Printf("[product.created] Timeout - continuando...")
+                // Timeout is expected, continue
+                log.Printf("[product.created] Timeout - continuing...")
                 continue
             }
             if err == context.Canceled {
                 return nil
             }
-            return fmt.Errorf("erro ao ler mensagem: %w", err)
+            return fmt.Errorf("error reading message: %w", err)
         }
-        
-        log.Printf("[product.created] Mensagem recebida - offset: %d, partition: %d",
+
+        log.Printf("[product.created] Message received - offset: %d, partition: %d",
             msg.Offset, msg.Partition)
 
         var event models.ProductCreatedEvent
         if err := json.Unmarshal(msg.Value, &event); err != nil {
-            log.Printf("Erro ao decodificar ProductCreatedEvent: %v", err)
-            log.Printf("   Mensagem raw: %s", string(msg.Value))
-            // Não retornar erro para não parar o consumer
+            log.Printf("Error decoding ProductCreatedEvent: %v", err)
+            log.Printf("   Raw message: %s", string(msg.Value))
+            // Do not return an error, to avoid stopping the consumer
             continue
         }
 
         log.Printf("Received ProductCreatedEvent - Product: %s, Initial Stock: %d",
             event.ProductID, event.InitialStock)
 
-        // Tentar criar/atualizar o inventário
-        // Primeiro, verificar se já existe
+        // Try to create/update the inventory
+        // First, check whether it already exists
         inventory, _ := inventoryService.GetInventory(event.ProductID)
         if inventory == nil {
-            log.Printf("Criando novo inventory para product: %s", event.ProductID)
-            // Implemente um método CreateInventory no service
+            log.Printf("Creating new inventory for product: %s", event.ProductID)
+            // Implement a CreateInventory method in the service
             if err := inventoryService.CreateInventory(event.ProductID, event.InitialStock); err != nil {
                 log.Printf("Failed to create inventory for product %s: %v",
                     event.ProductID, err)
             } else {
-                log.Printf("Inventory criado para product: %s", event.ProductID)
+                log.Printf("Inventory created for product: %s", event.ProductID)
             }
         } else {
-            log.Printf("Atualizando inventory existente para product: %s", event.ProductID)
+            log.Printf("Updating existing inventory for product: %s", event.ProductID)
             if err := inventoryService.UpdateInventory(event.ProductID, event.InitialStock); err != nil {
                 log.Printf("Failed to update inventory for product %s: %v",
                     event.ProductID, err)
             } else {
-                log.Printf("Inventory atualizado para product: %s", event.ProductID)
+                log.Printf("Inventory updated for product: %s", event.ProductID)
             }
         }
 
-        // Commit manual do offset
+        // Manually commit the offset
         if err := reader.CommitMessages(context.Background(), msg); err != nil {
-            log.Printf("Erro ao commitar offset: %v", err)
+            log.Printf("Error committing offset: %v", err)
         } else {
-            log.Printf("Offset commitado para product.created - offset: %d", msg.Offset)
+            log.Printf("Offset committed for product.created - offset: %d", msg.Offset)
         }
     }
 }
 
 func (k *KafkaConsumer) handleProductUpdated(ctx context.Context, reader *kafka.Reader, inventoryService service.InventoryService) error {
-    log.Println("Consumindo ProductUpdatedEvents...")
+    log.Println("Consuming ProductUpdatedEvents...")
     
     for {
         if !k.isRunning() {
@@ -279,20 +279,20 @@ func (k *KafkaConsumer) handleProductUpdated(ctx context.Context, reader *kafka.
         
         if err != nil {
             if err == context.DeadlineExceeded {
-                log.Printf("[product.updated] Timeout - continuando...")
+                log.Printf("[product.updated] Timeout - continuing...")
                 continue
             }
             if err == context.Canceled {
                 return nil
             }
-            return fmt.Errorf("erro ao ler mensagem: %w", err)
+            return fmt.Errorf("error reading message: %w", err)
         }
         
-        log.Printf("[product.updated] Mensagem recebida - offset: %d", msg.Offset)
+        log.Printf("[product.updated] Message received - offset: %d", msg.Offset)
         
         var event models.ProductUpdatedEvent
         if err := json.Unmarshal(msg.Value, &event); err != nil {
-            log.Printf("Erro ao decodificar ProductUpdatedEvent: %v", err)
+            log.Printf("Error decoding ProductUpdatedEvent: %v", err)
             continue
         }
 
@@ -311,13 +311,13 @@ func (k *KafkaConsumer) handleProductUpdated(ctx context.Context, reader *kafka.
         }
 
         if err := reader.CommitMessages(context.Background(), msg); err != nil {
-            log.Printf("Erro ao commitar offset: %v", err)
+            log.Printf("Error committing offset: %v", err)
         }
     }
 }
 
 func (k *KafkaConsumer) handleProductDeleted(ctx context.Context, reader *kafka.Reader, inventoryService service.InventoryService) error {
-    log.Println("Consumindo ProductDeletedEvents...")
+    log.Println("Consuming ProductDeletedEvents...")
     
     for {
         if !k.isRunning() {
@@ -330,20 +330,20 @@ func (k *KafkaConsumer) handleProductDeleted(ctx context.Context, reader *kafka.
         
         if err != nil {
             if err == context.DeadlineExceeded {
-                log.Printf("[product.deleted] Timeout - continuando...")
+                log.Printf("[product.deleted] Timeout - continuing...")
                 continue
             }
             if err == context.Canceled {
                 return nil
             }
-            return fmt.Errorf("erro ao ler mensagem: %w", err)
+            return fmt.Errorf("error reading message: %w", err)
         }
 
-        log.Printf("[product.deleted] Mensagem recebida - offset: %d", msg.Offset)
+        log.Printf("[product.deleted] Message received - offset: %d", msg.Offset)
 
         var event models.ProductDeletedEvent
         if err := json.Unmarshal(msg.Value, &event); err != nil {
-            log.Printf("Erro ao decodificar ProductDeletedEvent: %v", err)
+            log.Printf("Error decoding ProductDeletedEvent: %v", err)
             continue
         }
 
@@ -357,22 +357,22 @@ func (k *KafkaConsumer) handleProductDeleted(ctx context.Context, reader *kafka.
         }
 
         if err := reader.CommitMessages(context.Background(), msg); err != nil {
-            log.Printf("Erro ao commitar offset: %v", err)
+            log.Printf("Error committing offset: %v", err)
         }
     }
 }
 
 func (k *KafkaConsumer) Stop() {
-    log.Println("Parando Kafka consumers...")
+    log.Println("Stopping Kafka consumers...")
     
     k.mu.Lock()
     k.running = false
     k.mu.Unlock()
     
-    // Aguardar consumers pararem
+    // Wait for consumers to stop
     k.wg.Wait()
-    
-    // Fechar readers
+
+    // Close readers
     if k.readerCreated != nil {
         k.readerCreated.Close()
     }
@@ -383,11 +383,11 @@ func (k *KafkaConsumer) Stop() {
         k.readerDeleted.Close()
     }
     
-    log.Println("Kafka consumers parados")
+    log.Println("Kafka consumers stopped")
 }
 
 func (k *KafkaConsumer) HealthCheck() bool {
-    // Tentar obter metadata do Kafka
+    // Try to get Kafka metadata
     conn, err := kafka.Dial("tcp", k.cfg.KafkaBrokers)
     if err != nil {
         log.Printf("Health check failed - Kafka connection error: %v", err)
@@ -395,7 +395,7 @@ func (k *KafkaConsumer) HealthCheck() bool {
     }
     defer conn.Close()
     
-    // Verificar se pode listar tópicos
+    // Check whether topics can be listed
     _, err = conn.ReadPartitions()
     if err != nil {
         log.Printf("Health check failed - Cannot read partitions: %v", err)

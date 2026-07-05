@@ -16,47 +16,47 @@ public class RabbitMQInitializer {
     public ApplicationRunner initializeRabbitMQ(AmqpAdmin amqpAdmin) {
         return args -> {
             try {
-                logger.info("Inicializando configuração RabbitMQ...");
+                logger.info("Initializing RabbitMQ configuration...");
 
-                // Cria exchange
+                // Create exchange
                 Exchange exchange = ExchangeBuilder.topicExchange("order.exchange")
                         .durable(true)
                         .build();
                 amqpAdmin.declareExchange(exchange);
-                logger.info("Exchange criado: order.exchange");
+                logger.info("Exchange created: order.exchange");
 
-                // Cria fila de reserva
+                // Create reserve queue
                 Queue reserveQueue = QueueBuilder.durable("inventory.reserve.queue")
                         .build();
                 amqpAdmin.declareQueue(reserveQueue);
-                logger.info("Fila criada: inventory.reserve.queue");
+                logger.info("Queue created: inventory.reserve.queue");
 
-                // Binding para reserva
+                // Binding for reserve
                 Binding reserveBinding = BindingBuilder.bind(reserveQueue)
                         .to(exchange)
                         .with("stock.reserve")
                         .noargs();
                 amqpAdmin.declareBinding(reserveBinding);
-                logger.info("Binding criado: order.exchange -> stock.reserve -> inventory.reserve.queue");
+                logger.info("Binding created: order.exchange -> stock.reserve -> inventory.reserve.queue");
 
-                // Cria fila de liberação
+                // Create release queue
                 Queue releaseQueue = QueueBuilder.durable("inventory.release.queue")
                         .build();
                 amqpAdmin.declareQueue(releaseQueue);
-                logger.info("Fila criada: inventory.release.queue");
+                logger.info("Queue created: inventory.release.queue");
 
-                // Binding para liberação
+                // Binding for release
                 Binding releaseBinding = BindingBuilder.bind(releaseQueue)
                         .to(exchange)
                         .with("stock.release")
                         .noargs();
                 amqpAdmin.declareBinding(releaseBinding);
-                logger.info("Binding criado: order.exchange -> stock.release -> inventory.release.queue");
+                logger.info("Binding created: order.exchange -> stock.release -> inventory.release.queue");
 
-                logger.info("Configuração RabbitMQ concluída com sucesso!");
+                logger.info("RabbitMQ configuration completed successfully!");
 
             } catch (Exception e) {
-                logger.error("Erro ao configurar RabbitMQ: {}", e.getMessage(), e);
+                logger.error("Error configuring RabbitMQ: {}", e.getMessage(), e);
                 throw e;
             }
         };

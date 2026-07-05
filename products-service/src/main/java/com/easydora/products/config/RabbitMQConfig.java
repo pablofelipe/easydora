@@ -18,15 +18,15 @@ import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 @Configuration
 public class RabbitMQConfig {
 
-    // Exchange do auth-service
+    // auth-service exchange
     public static final String AUTH_EXCHANGE = "auth.exchange";
     
-    // Routing keys do auth-service
+    // auth-service routing keys
     public static final String JWT_ROUTING_KEY = "jwt.created";
     public static final String USER_REGISTERED_KEY = "user.registered";
     public static final String USER_VERIFIED_KEY = "user.verified";
     
-    // Queues específicas do products-service
+    // products-service-specific queues
     public static final String USER_VERIFIED_QUEUE = "products.user.verified.queue";
     public static final String USER_REGISTERED_QUEUE = "products.user.registered.queue";
     public static final String JWT_CREATED_QUEUE = "products.jwt.created.queue";

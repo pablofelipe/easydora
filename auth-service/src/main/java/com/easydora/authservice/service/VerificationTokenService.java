@@ -25,7 +25,7 @@ public class VerificationTokenService {
     public VerificationTokenService(JwtProperties jwtProperties) {
         this.jwtProperties = jwtProperties;
         
-        // Se não tiver secret configurada, gera uma (apenas para dev)
+        // If no secret is configured, generate one (dev only)
         if (jwtProperties.getSecret() == null || jwtProperties.getSecret().isEmpty()) {
             throw new IllegalStateException("JWT secret key is not configured. Please set 'app.jwt.secret' in application properties.");
         } else {

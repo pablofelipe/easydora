@@ -28,24 +28,24 @@ public class PaymentService {
         this.paymentRepository = paymentRepository;
     }
     
-    // ========== MÉTODOS PARA EVENTOS KAFKA ==========
-    
+    // ========== METHODS FOR KAFKA EVENTS ==========
+
     @Transactional
     public void createPendingPayment(OrderCreatedEvent event) {
         try {
 
             String orderId = event.getOrderId();
-            
-            logger.info("Criando pagamento pendente para order: {}", orderId);
 
-            // Verificar se já existe
+            logger.info("Creating pending payment for order: {}", orderId);
+
+            // Check whether it already exists
             Optional<Payment> existingPayment = paymentRepository.findByOrderId(orderId);
             if (existingPayment.isPresent()) {
-                logger.warn("Pagamento já existe para order: {}", orderId);
+                logger.warn("Payment already exists for order: {}", orderId);
                 return;
             }
-            
-            // Criar novo pagamento
+
+            // Create new payment
             Payment payment = new Payment();
             payment.setOrderId(orderId);
             payment.setUserId(event.getUserId());
@@ -56,11 +56,11 @@ public class PaymentService {
             
             paymentRepository.save(payment);
             
-            logger.info("Pagamento pendente criado: order={}, amount={}, transactionId={}",
+            logger.info("Pending payment created: order={}, amount={}, transactionId={}",
                 payment.getOrderId(), payment.getAmount(), payment.getTransactionId());
 
         } catch (Exception e) {
-            logger.error("Erro ao criar pagamento pendente para order {}: {}",
+            logger.error("Error creating pending payment for order {}: {}",
                 event.getOrderId(), e.getMessage(), e);
             throw e;
         }
@@ -70,7 +70,7 @@ public class PaymentService {
         return paymentRepository.findByOrderId(orderId).isPresent();
     }
     
-    // ========== MÉTODOS PARA API REST ==========
+    // ========== METHODS FOR REST API ==========
     
     public PaymentDTO findById(Long id) {
         return paymentRepository.findById(id)
@@ -92,24 +92,24 @@ public class PaymentService {
     
     @Transactional
     public PaymentDTO processPayment(String orderId, BigDecimal amount) {
-        logger.info("Processando pagamento via API - Order: {}, Valor: {}", orderId, amount);
-        
-        // Buscar pagamento existente
+        logger.info("Processing payment via API - Order: {}, Amount: {}", orderId, amount);
+
+        // Look up existing payment
         Optional<Payment> paymentOpt = paymentRepository.findByOrderId(orderId);
         Payment payment;
-        
+
         if (paymentOpt.isPresent()) {
             payment = paymentOpt.get();
-            logger.info("Pagamento encontrado: {}", payment.getStatus());
+            logger.info("Payment found: {}", payment.getStatus());
 
-            // Se já está aprovado, retornar
+            // If already approved, return it
             if (payment.getStatus() == PaymentStatus.APPROVED) {
-                logger.warn("Pagamento já APROVADO para order {}", orderId);
+                logger.warn("Payment already APPROVED for order {}", orderId);
                 return convertToDTO(payment);
             }
         } else {
-            // Criar novo pagamento (fallback para chamada direta da API)
-            logger.info("Criando novo pagamento (fallback API)");
+            // Create new payment (fallback for a direct API call)
+            logger.info("Creating new payment (API fallback)");
             payment = new Payment();
             payment.setOrderId(orderId);
             payment.setAmount(amount);
@@ -118,31 +118,31 @@ public class PaymentService {
             payment.setTransactionId(UUID.randomUUID().toString());
         }
         
-        // Simular processamento de pagamento
+        // Simulate payment processing
         try {
-            Thread.sleep(1000); // Simula processamento
-            
-            // Simulação: 90% de chance de aprovação
+            Thread.sleep(1000); // Simulate processing
+
+            // Simulation: 90% chance of approval
             boolean approved = Math.random() < 0.9;
-            
+
             if (approved) {
                 payment.setStatus(PaymentStatus.APPROVED);
                 payment.setProcessedAt(LocalDateTime.now());
-                logger.info("Pagamento APROVADO para order {}", orderId);
+                logger.info("Payment APPROVED for order {}", orderId);
             } else {
                 payment.setStatus(PaymentStatus.FAILED);
-                payment.setFailureReason("Pagamento recusado pelo processador");
+                payment.setFailureReason("Payment declined by the processor");
                 payment.setProcessedAt(LocalDateTime.now());
-                logger.warn("Pagamento FALHOU para order {}", orderId);
+                logger.warn("Payment FAILED for order {}", orderId);
             }
-            
+
             Payment savedPayment = paymentRepository.save(payment);
             return convertToDTO(savedPayment);
-            
+
         } catch (Exception e) {
-            logger.error("Erro ao processar pagamento para order {}: {}", orderId, e.getMessage());
+            logger.error("Error processing payment for order {}: {}", orderId, e.getMessage());
             payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason("Erro interno: " + e.getMessage());
+            payment.setFailureReason("Internal error: " + e.getMessage());
             payment.setProcessedAt(LocalDateTime.now());
             Payment savedPayment = paymentRepository.save(payment);
             return convertToDTO(savedPayment);
@@ -151,23 +151,23 @@ public class PaymentService {
     
     @Transactional
     public PaymentDTO retryPayment(String orderId) {
-        logger.info("Retentando pagamento para order: {}", orderId);
-        
+        logger.info("Retrying payment for order: {}", orderId);
+
         Payment payment = paymentRepository.findByOrderId(orderId)
             .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
-        
-        // Só pode retentar se falhou anteriormente
+
+        // Can only retry if it previously failed
         if (payment.getStatus() != PaymentStatus.FAILED) {
             throw new RuntimeException("Cannot retry payment with status: " + payment.getStatus());
         }
-        
-        // Resetar para PENDING e tentar novamente
+
+        // Reset to PENDING and try again
         payment.setStatus(PaymentStatus.PENDING);
         payment.setFailureReason(null);
-        
+
         Payment savedPayment = paymentRepository.save(payment);
-        
-        // Processar pagamento
+
+        // Process payment
         return processPayment(orderId, payment.getAmount());
     }
     
@@ -180,7 +180,7 @@ public class PaymentService {
         logger.info("Payment deleted: {}", id);
     }
     
-    // ========== MÉTODOS AUXILIARES ==========
+    // ========== HELPER METHODS ==========
     
     private PaymentDTO convertToDTO(Payment payment) {
         PaymentDTO dto = new PaymentDTO();

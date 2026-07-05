@@ -29,7 +29,7 @@ func circuitBreakerSettings(serviceName string) gobreaker.Settings {
 	}
 }
 
-// Configuração dos serviços
+// Service configuration
 type ServiceConfig struct {
 	URL         string
 	Name        string
@@ -88,9 +88,9 @@ func setupServiceRoutes(router *gin.Engine) {
 		serviceGroup := router.Group("/" + path)
 		
 		if config.Implemented && config.URL != "" {
-			// Serviço implementado - usar reverse proxy.
-			// billing ainda não tem circuit breaker (ver README Roadmap) -
-			// mantém o proxy simples até essa entrada ser migrada.
+			// Service implemented - use reverse proxy.
+			// billing doesn't have a circuit breaker yet (see README Roadmap) -
+			// keeps the plain proxy until this entry is migrated.
 			if path == "billing" {
 				serviceGroup.Any("/*proxyPath", createReverseProxy(config.URL, config.Name))
 			} else {
@@ -98,14 +98,14 @@ func setupServiceRoutes(router *gin.Engine) {
 			}
 			log.Printf("%s proxy configured: %s", config.Name, config.URL)
 		} else {
-			// Serviço não implementado - usar mock
+			// Service not implemented - use mock
 			serviceGroup.Any("/*proxyPath", createMockHandler(config.Name))
 			log.Printf("%s not implemented - using mock responses", config.Name)
 		}
 	}
 }
 
-// Handler genérico para serviços não implementados
+// Generic handler for services that are not yet implemented
 func createMockHandler(serviceName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(503, gin.H{
@@ -120,7 +120,7 @@ func createMockHandler(serviceName string) gin.HandlerFunc {
 	}
 }
 
-// Reverse proxy para serviços implementados
+// Reverse proxy for implemented services
 func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		targetURL, err := url.Parse(target)
@@ -136,7 +136,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-		// Configurar error handler para debug
+		// Configure error handler for debugging
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("Proxy error for %s: %v", serviceName, err)
 			w.WriteHeader(http.StatusBadGateway)
@@ -158,7 +158,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		originalPath := c.Request.URL.Path
 		proxyPath := c.Param("proxyPath")
 
-		// Log detalhado
+		// Detailed log
 		log.Printf("Proxying %s %s → %s%s",
 			c.Request.Method, originalPath, targetURL.Host, proxyPath)
 
@@ -167,7 +167,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		c.Request.URL.Path = proxyPath
 		c.Request.Host = targetURL.Host
 
-		// Headers para tracing
+		// Headers for tracing
 		c.Request.Header.Set("X-Forwarded-Host", c.Request.Host)
 		c.Request.Header.Set("X-Origin-Service", serviceName)
 		c.Request.Header.Set("X-Gateway-Service", "api-gateway")
@@ -215,7 +215,7 @@ func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
 }
 
 func healthCheck(c *gin.Context) {
-	// Status dos serviços
+	// Service status
 	servicesStatus := make(map[string]string)
 	for path, config := range services {
 		if config.Implemented && config.URL != "" {

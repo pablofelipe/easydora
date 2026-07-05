@@ -35,7 +35,7 @@ public class InventoryEventsConsumer {
     public void handleStockReserved(String payload) throws Exception {
         JsonNode event = objectMapper.readTree(payload);
         String orderId = event.get("orderId").asText();
-        logger.info("[KAFKA] StockReservedEvent recebido: orderId={}, success={}, message={}",
+        logger.info("[KAFKA] StockReservedEvent received: orderId={}, success={}, message={}",
                 orderId, event.path("success").asBoolean(), event.path("message").asText(null));
         orderService.handleInventoryReserved(orderId);
     }
@@ -44,7 +44,7 @@ public class InventoryEventsConsumer {
     public void handleStockInsufficient(String payload) throws Exception {
         JsonNode event = objectMapper.readTree(payload);
         String orderId = event.get("orderId").asText();
-        logger.info("[KAFKA] StockInsufficientEvent recebido: orderId={}, productId={}, required={}, available={}",
+        logger.info("[KAFKA] StockInsufficientEvent received: orderId={}, productId={}, required={}, available={}",
                 orderId,
                 event.path("productId").asText(null),
                 event.path("required").asInt(-1),

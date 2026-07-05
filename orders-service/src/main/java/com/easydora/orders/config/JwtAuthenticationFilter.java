@@ -35,13 +35,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            logger.info("Token recebido: {}...", token.substring(0, Math.min(20, token.length())));
-            logger.info("Tokens armazenados: {}", validTokens.size());
-            
+            logger.info("Token received: {}...", token.substring(0, Math.min(20, token.length())));
+            logger.info("Stored tokens: {}", validTokens.size());
+
             JwtUserInfo userInfo = validTokens.get(token);
-            
+
             if (userInfo != null) {
-                logger.info("Token válido encontrado para usuário: {}", userInfo.getEmail());
+                logger.info("Valid token found for user: {}", userInfo.getEmail());
                 List<SimpleGrantedAuthority> authorities = Collections.singletonList(
                     new SimpleGrantedAuthority("ROLE_" + userInfo.getRole())
                 );
@@ -51,16 +51,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                logger.info("Autenticação configurada para: {}", userInfo.getEmail());
+                logger.info("Authentication set up for: {}", userInfo.getEmail());
             } else {
-                logger.warn("Token NÃO encontrado no mapa de tokens válidos");
-                logger.warn("Token completo: {}", token);
+                logger.warn("Token NOT found in the valid tokens map");
+                logger.warn("Full token: {}", token);
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("{\"error\": \"Token inválido ou expirado\"}");
+                response.getWriter().write("{\"error\": \"Invalid or expired token\"}");
                 return;
             }
         } else {
-            logger.warn("Header Authorization ausente ou mal formatado");
+            logger.warn("Authorization header missing or malformed");
         }
         
         filterChain.doFilter(request, response);
@@ -68,21 +68,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     public void addValidToken(String token, JwtUserInfo userInfo) {
         validTokens.put(token, userInfo);
-        logger.info("Token adicionado para usuário: {}, Total tokens: {}", userInfo.getEmail(), validTokens.size());
+        logger.info("Token added for user: {}, Total tokens: {}", userInfo.getEmail(), validTokens.size());
     }
-    
+
     public void removeToken(String token) {
         JwtUserInfo removed = validTokens.remove(token);
         if (removed != null) {
-            logger.info("Token removido para usuário: {}, Total tokens: {}", removed.getEmail(), validTokens.size());
+            logger.info("Token removed for user: {}, Total tokens: {}", removed.getEmail(), validTokens.size());
         }
     }
-    
-    // Método para debug
+
+    // Method for debugging
     public void listTokens() {
-        logger.info("Tokens atualmente armazenados:");
+        logger.info("Currently stored tokens:");
         validTokens.forEach((token, userInfo) -> {
-            logger.info("  - Token: {}... -> Usuário: {}", 
+            logger.info("  - Token: {}... -> User: {}",
                 token.substring(0, Math.min(10, token.length())), 
                 userInfo.getEmail());
         });

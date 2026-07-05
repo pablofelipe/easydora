@@ -73,7 +73,7 @@ func (r *PostgresRepository) GetAvailableByProductID(productID string) (*models.
 }
 
 func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) error {
-    log.Printf("Tentando UPSERT inventory - product_id: %s, quantity: %d", productID, newQuantity)
+    log.Printf("Attempting UPSERT inventory - product_id: %s, quantity: %d", productID, newQuantity)
     
     query := `
         INSERT INTO inventory_schema.inventory (product_id, quantity, available, deleted) 
@@ -89,7 +89,7 @@ func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) e
     
     result, err := r.db.Exec(query, productID, newQuantity)
     if err != nil {
-        log.Printf("Erro no UPSERT: %v", err)
+        log.Printf("Error during UPSERT: %v", err)
         return fmt.Errorf("failed to upsert inventory: %v", err)
     }
     
@@ -98,7 +98,7 @@ func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) e
         return fmt.Errorf("failed to get rows affected: %v", err)
     }
     
-    log.Printf("UPSERT realizado - Rows affected: %d", rows)
+    log.Printf("UPSERT completed - Rows affected: %d", rows)
     return nil
 }
 
@@ -186,7 +186,7 @@ func (r *PostgresRepository) DeactivateProduct(productID string) error {
     
     if rows == 0 {
         log.Printf("Product %s not found or already deleted", productID)
-        return nil // Não é erro se já estiver deletado
+        return nil // Not an error if it's already deleted
     }
     
     log.Printf("Product deactivated in inventory: %s", productID)
@@ -211,7 +211,7 @@ func (r *PostgresRepository) DeleteProduct(productID string) error {
     
     if rows == 0 {
         log.Printf("Product %s not found in inventory", productID)
-        return nil // Não é erro se não existir
+        return nil // Not an error if it doesn't exist
     }
     
     log.Printf("Product marked as deleted in inventory: %s", productID)
@@ -228,7 +228,7 @@ func (r *PostgresRepository) IsProductAvailable(productID string) (bool, error) 
     err := r.db.QueryRow(query, productID).Scan(&available, &deleted)
     if err != nil {
         if err == sql.ErrNoRows {
-            return false, nil // Produto não existe no inventory
+            return false, nil // Product doesn't exist in inventory
         }
         return false, fmt.Errorf("failed to check availability: %v", err)
     }
@@ -281,7 +281,7 @@ func (r *PostgresRepository) CreateInventory(productID string, quantity int) err
         return fmt.Errorf("failed to create inventory: %w", err)
     }
     
-    log.Printf("Inventory criado - product: %s, quantity: %d, id: %s",
+    log.Printf("Inventory created - product: %s, quantity: %d, id: %s",
         productID, quantity, id)
     return nil
 }

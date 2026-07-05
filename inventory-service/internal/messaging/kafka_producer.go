@@ -20,15 +20,15 @@ type KafkaProducer struct {
 func NewKafkaProducer() (*KafkaProducer, error) {
 	cfg := config.Load()
 	
-	log.Printf("Inicializando KafkaProducer para: %s", cfg.KafkaBrokers)
-	
-	// Configuração MÍNIMA que funciona
+	log.Printf("Initializing KafkaProducer for: %s", cfg.KafkaBrokers)
+
+	// Minimal configuration that works
 	createWriter := func(topic string) *kafka.Writer {
 		return &kafka.Writer{
 			Addr:     kafka.TCP(cfg.KafkaBrokers),
 			Topic:    topic,
 			Balancer: &kafka.LeastBytes{},
-			// Configurações mínimas
+			// Minimal settings
 			RequiredAcks: kafka.RequireOne,
 			Async:        false,
 		}

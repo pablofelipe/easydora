@@ -35,29 +35,29 @@ public class OrderCreatedConsumer {
             Acknowledgment ack) {
         
         try {
-            logger.info("[BILLING] Recebido OrderCreatedEvent - Order: {}, User: {}, Total: {}",
+            logger.info("[BILLING] Received OrderCreatedEvent - Order: {}, User: {}, Total: {}",
                 event.getOrderId(), event.getUserId(), event.getTotalAmount());
             logger.info("   Partition: {}, Offset: {}, Key: {}", partition, offset, key);
 
-            // Verificar se já existe pagamento para esta ordem
+            // Check whether a payment already exists for this order
             boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
 
             if (paymentExists) {
-                logger.warn("[BILLING] Pagamento já existe para order: {}", event.getOrderId());
+                logger.warn("[BILLING] Payment already exists for order: {}", event.getOrderId());
             } else {
-                // Criar registro de pagamento pendente
+                // Create the pending payment record
                 paymentService.createPendingPayment(event);
-                logger.info("[BILLING] Pagamento pendente criado para order: {}", event.getOrderId());
+                logger.info("[BILLING] Pending payment created for order: {}", event.getOrderId());
             }
 
-            // Confirmar processamento
+            // Confirm processing
             ack.acknowledge();
-            logger.info("[BILLING] Offset commitado para order: {}", event.getOrderId());
+            logger.info("[BILLING] Offset committed for order: {}", event.getOrderId());
 
         } catch (Exception e) {
-            logger.error("[BILLING] Erro ao processar OrderCreatedEvent para order {}: {}",
+            logger.error("[BILLING] Error processing OrderCreatedEvent for order {}: {}",
                 event.getOrderId(), e.getMessage(), e);
-            // Não fazemos ack para tentar novamente
+            // We don't ack, so it gets retried
         }
     }
 }

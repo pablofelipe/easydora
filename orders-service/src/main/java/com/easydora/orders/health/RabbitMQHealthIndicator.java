@@ -17,24 +17,24 @@ public class RabbitMQHealthIndicator implements HealthIndicator {
     
     @Override
     public Health health() {
-        // Primeiro, verifica se RabbitMQ está acessível
+        // First, check whether RabbitMQ is reachable
         try {
-            // Tenta uma operação simples
+            // Try a simple operation
             rabbitTemplate.execute(channel -> {
-                // Verifica se o exchange existe
+                // Check whether the exchange exists
                 try {
                     channel.exchangeDeclarePassive("order.exchange");
                     rabbitMQConfigured = true;
                     return null;
                 } catch (Exception e) {
-                    // Se não existe, tenta criar
+                    // If it doesn't exist, try to create it
                     channel.exchangeDeclare("order.exchange", "direct", true);
-                    
-                    // Cria as filas
+
+                    // Create the queues
                     channel.queueDeclare("inventory.reserve.queue", true, false, false, null);
                     channel.queueDeclare("inventory.release.queue", true, false, false, null);
-                    
-                    // Cria os bindings
+
+                    // Create the bindings
                     channel.queueBind("inventory.reserve.queue", "order.exchange", "stock.reserve");
                     channel.queueBind("inventory.release.queue", "order.exchange", "stock.release");
                     

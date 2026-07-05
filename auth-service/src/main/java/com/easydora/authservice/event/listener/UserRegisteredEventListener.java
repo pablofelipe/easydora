@@ -13,18 +13,18 @@ public class UserRegisteredEventListener {
     
     @EventListener
     public void handleUserRegistered(UserRegisteredEvent event) {
-        // Apenas para testes por enquanto
+        // Just for testing purposes for now
         String verificationLink = String.format(
-            "http://localhost:8081/auth/verify-email?token=%s", 
+            "http://localhost:8081/auth/verify-email?token=%s",
             event.getVerificationToken()
         );
-        
+
         logger.info("\n" +
-            "=== NOVO USUÁRIO REGISTRADO ===\n" +
-            "Usuário: {} {} ({})\n" +
+            "=== NEW USER REGISTERED ===\n" +
+            "User: {} {} ({})\n" +
             "User ID: {}\n" +
-            "Link de Verificação: {}\n" +
-            "Token criado em: {}\n" +
+            "Verification Link: {}\n" +
+            "Token created at: {}\n" +
             "===================================",
             event.getFirstName(),
             event.getLastName(), 
@@ -44,7 +44,7 @@ public class UserRegisteredEventListener {
         );
         
         logger.info("\n" +
-            "COMANDO CURL PARA TESTE:\n" +
+            "TEST CURL COMMAND:\n" +
             "{}\n" +
             "-----------------------------",
             curlCommand

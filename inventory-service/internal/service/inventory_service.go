@@ -83,9 +83,9 @@ func (s *inventoryService) lockForOrder(orderID string) *sync.Mutex {
 }
 
 func (s *inventoryService) CreateInventory(productID string, quantity int) error {
-    log.Printf("Criando inventário para produto: %s, quantidade: %d", productID, quantity)
-    
-    // Chame um método do repository para criar
+    log.Printf("Creating inventory for product: %s, quantity: %d", productID, quantity)
+
+    // Call the repository method to create it
     return s.repo.CreateInventory(productID, quantity)
 }
 
@@ -153,13 +153,13 @@ func (s *inventoryService) UpdateInventory(productID string, quantity int) error
 
 func (s *inventoryService) DeactivateProduct(productID string) error {
 	log.Printf("Deactivating product in inventory: %s", productID)
-	// Marcar como indisponível sem remover
+	// Mark as unavailable without removing
 	return s.repo.DeactivateProduct(productID)
 }
 
 func (s *inventoryService) DeleteProduct(productID string) error {
 	log.Printf("Removing product from inventory: %s", productID)
-	// Remover ou marcar como deletado
+	// Remove or mark as deleted
 	return s.repo.DeleteProduct(productID)
 }
 
@@ -176,7 +176,7 @@ func (s *inventoryService) ReleaseStock(command *models.ReleaseStockCommand) err
                 item.Quantity, item.ProductID, err)
             errors = append(errors, 
                 fmt.Sprintf("product %s: %v", item.ProductID, err))
-            continue // Tenta liberar os outros itens mesmo se um falhar
+            continue // Try to release the remaining items even if one fails
         }
         log.Printf("Released %d units of product %s",
             item.Quantity, item.ProductID)

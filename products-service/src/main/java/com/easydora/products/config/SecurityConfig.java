@@ -53,13 +53,13 @@ public class SecurityConfig {
                                 FilterChain filterChain) throws ServletException, IOException {
         
         String requestURI = request.getRequestURI();
-        
-        // Log para debug
+
+        // Log for debugging
         logger.info("Request URI: {}", requestURI);
         logger.info("Method: {}", request.getMethod());
-        
-        // PERMITIR TODAS AS REQUESTS TEMPORARIAMENTE PARA DEBUG
-        logger.warn("PERMITINDO TODAS AS REQUESTS - MODO DEBUG");
+
+        // TEMPORARILY ALLOW ALL REQUESTS FOR DEBUGGING
+        logger.warn("ALLOWING ALL REQUESTS - DEBUG MODE");
         filterChain.doFilter(request, response);
         return;
     }
@@ -71,14 +71,14 @@ public class SecurityConfig {
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(authz -> authz
-                // Endpoints públicos
+                // Public endpoints
                 .requestMatchers(
-                    "/ping", 
+                    "/ping",
                     "/health",
                     "/error",
                     "/debug/**"
                 ).permitAll()
-                // Endpoints que requerem autenticação
+                // Endpoints that require authentication
                 .anyRequest().authenticated()
             )
             .csrf(csrf -> csrf.disable())

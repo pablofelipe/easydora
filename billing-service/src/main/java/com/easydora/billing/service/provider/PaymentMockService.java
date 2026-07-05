@@ -17,7 +17,7 @@ public class PaymentMockService implements PaymentProvider {
         if (isApproved) {
             return PaymentResult.approved("TXN_" + UUID.randomUUID().toString().substring(0, 8));
         } else {
-            return PaymentResult.failed("Valor ímpar rejeitado pela política mock");
+            return PaymentResult.failed("Odd amount rejected by the mock policy");
         }
     }
 }

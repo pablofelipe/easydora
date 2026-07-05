@@ -25,36 +25,36 @@ public class JwtConsumer {
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
     public void receiveJwtCreated(JwtEvent event) {
         try {
-            logger.info("--- JWT EVENT RECEBIDO ---");
-            logger.info("Evento: {}", event.toString());
-            
+            logger.info("--- JWT EVENT RECEIVED ---");
+            logger.info("Event: {}", event.toString());
+
             String token = event.getToken();
             Long userId = event.getUserId();
             String email = event.getEmail();
             String firstName = event.getFirstName();
             String lastName = event.getLastName();
             String role = event.getRole();
-            
+
             if (token == null || token.trim().isEmpty()) {
-                logger.error("Token não encontrado no evento");
+                logger.error("Token not found in event");
                 return;
             }
-            
-            logger.info("Token extraído (primeiros 20 chars): {}...", 
+
+            logger.info("Token extracted (first 20 chars): {}...",
                 token.substring(0, Math.min(20, token.length())));
-            logger.info("Dados do usuário: userId={}, email={}, role={}", userId, email, role);
-            
-            // Cria o objeto userInfo
-            JwtAuthenticationFilter.JwtUserInfo userInfo = 
+            logger.info("User data: userId={}, email={}, role={}", userId, email, role);
+
+            // Create the userInfo object
+            JwtAuthenticationFilter.JwtUserInfo userInfo =
                 new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role, false);
-            
-            // Adiciona o token
+
+            // Add the token
             jwtAuthenticationFilter.addValidToken(token, userInfo);
 
-            logger.info("TOKEN ARMAZENADO COM SUCESSO!");
-            logger.info("Usuário: {}", email);
+            logger.info("TOKEN STORED SUCCESSFULLY!");
+            logger.info("User: {}", email);
             logger.info("Role: {}", role);
-            logger.info("Total de tokens armazenados: {}", 
+            logger.info("Total stored tokens: {}",
                 jwtAuthenticationFilter.getClass()
                     .getDeclaredMethod("getValidTokensSize")
                     .invoke(jwtAuthenticationFilter));
@@ -67,7 +67,7 @@ public class JwtConsumer {
             );
 
         } catch (Exception e) {
-            logger.error("ERRO ao processar JwtEvent: {}", e.getMessage(), e);
+            logger.error("ERROR processing JwtEvent: {}", e.getMessage(), e);
         }
     }
 }

@@ -29,43 +29,43 @@ public class ReleaseInventoryAction implements Action<OrderState, OrderEvent> {
     @Override
     public void execute(StateContext<OrderState, OrderEvent> context) {
         try {
-            // Extrair orderId do contexto
+            // Extract orderId from the context
             Object orderIdObj = context.getMessage().getHeaders().get("orderId");
             if (orderIdObj == null) {
-                log.error("OrderId não encontrado no contexto");
+                log.error("OrderId not found in context");
                 return;
             }
-            
+
             String orderId = orderIdObj.toString();
-            log.info("Liberando estoque para pedido: {}", orderId);
-            
-            // Buscar pedido
+            log.info("Releasing stock for order: {}", orderId);
+
+            // Look up the order
             Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + orderId));
-            
-            // Criar comando de liberação
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+            // Create the release command
             ReleaseStockCommand command = createReleaseCommand(order);
-            
-            // Enviar para RabbitMQ
+
+            // Send to RabbitMQ
             rabbitTemplate.convertAndSend(
                 "order.exchange",
                 "stock.release",
                 command
             );
-            
-            log.info("Estoque liberado para pedido: {}", orderId);
-            
+
+            log.info("Stock released for order: {}", orderId);
+
         } catch (Exception e) {
-            log.error("Erro ao liberar estoque: {}", e.getMessage(), e);
-            throw new RuntimeException("Erro na ação de liberação", e);
+            log.error("Error releasing stock: {}", e.getMessage(), e);
+            throw new RuntimeException("Error in release action", e);
         }
     }
-    
+
     private ReleaseStockCommand createReleaseCommand(Order order) {
         ReleaseStockCommand command = new ReleaseStockCommand();
         command.setOrderId(order.getId());
-        
-        // Converter itens
+
+        // Convert items
         java.util.List<ReleaseStockCommand.OrderItemDTO> items = new java.util.ArrayList<>();
         for (OrderItem item : order.getItems()) {
             ReleaseStockCommand.OrderItemDTO dto = new ReleaseStockCommand.OrderItemDTO();

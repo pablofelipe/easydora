@@ -40,7 +40,7 @@ public class BuyerService {
             buyer.setCreatedAt(LocalDateTime.now());
             
             buyerRepository.save(buyer);
-            logger.info("Buyer criado: {}", email);
+            logger.info("Buyer created: {}", email);
         }
     }
 }

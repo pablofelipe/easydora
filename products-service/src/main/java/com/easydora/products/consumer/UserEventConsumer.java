@@ -46,7 +46,7 @@ public class UserEventConsumer {
             seller.setName(userEvent.getFullName());
             seller.setRole(UserRole.SELLER);
             seller.setName(userEvent.getFullName());
-            seller.setActive(false); // Inativo até ativar email
+            seller.setActive(false); // Inactive until email is activated
             
             if (seller.getCreatedAt() == null) {
                 seller.setCreatedAt(java.time.LocalDateTime.now());
@@ -98,8 +98,8 @@ public class UserEventConsumer {
     }
     
     private void addValidToken(UserEvent event) {
-        logger.info("--- JWT EVENT RECEBIDO ---");
-        logger.info("Evento: {}", event.toString());
+        logger.info("--- JWT EVENT RECEIVED ---");
+        logger.info("Event: {}", event.toString());
         
         String token = event.getToken();
         Long userId = event.getUserId();
@@ -109,19 +109,19 @@ public class UserEventConsumer {
         String role = event.getRole();
         
         if (token == null || token.trim().isEmpty()) {
-            logger.error("Token não encontrado no evento");
+            logger.error("Token not found in event");
             return;
         }
-        
-        logger.info("Token extraído (primeiros 20 chars): {}...", 
+
+        logger.info("Token extracted (first 20 chars): {}...",
             token.substring(0, Math.min(20, token.length())));
-        logger.info("Dados do usuário: userId={}, email={}, role={}", userId, email, role);
-        
-        // Cria o objeto userInfo
-        JwtAuthenticationFilter.JwtUserInfo userInfo = 
+        logger.info("User data: userId={}, email={}, role={}", userId, email, role);
+
+        // Create the userInfo object
+        JwtAuthenticationFilter.JwtUserInfo userInfo =
             new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role);
-        
-        // Adiciona o token
+
+        // Add the token
         jwtAuthenticationFilter.addValidToken(token, userInfo);
     }
 
@@ -134,7 +134,7 @@ public class UserEventConsumer {
             Seller seller = sellerRepository.findById(userId.toString())
                 .orElseThrow(() -> new Exception("Seller not found: " + userId));
                 
-            seller.setActive(true); // Ativa o usuário após verificação
+            seller.setActive(true); // Activate the user after verification
 
             sellerRepository.save(seller);
         } catch (Exception e) {
@@ -144,19 +144,19 @@ public class UserEventConsumer {
     }
 
     private void updateSellerFromJwtEvent(Seller seller, UserEvent userEvent) {
-        // Atualiza role se fornecida
+        // Update role if provided
         seller.setRole(UserRole.SELLER);
-        
-        // Atualiza email se necessário
+
+        // Update email if needed
         if (userEvent.getEmail() != null) {
             seller.setEmail(userEvent.getEmail());
         }
-        
+
         if (userEvent.getFullName() != null) {
             seller.setName(userEvent.getFullName());
         }
 
-        // Ativa o usuário quando faz login
+        // Activate the user when they log in
         seller.setActive(true);
         seller.setUpdatedAt(java.time.LocalDateTime.now());
     }
