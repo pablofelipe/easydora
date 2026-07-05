@@ -51,7 +51,7 @@ each service independently deployable via Docker Compose.
 
 | Service | Stack | Port | Status |
 |---|---|---|---|
-| API Gateway | Go + Gin | 8080 | Implemented (tests: 4 test functions covering the circuit breaker, see ADR-0006) |
+| API Gateway | Go + Gin | 8080 | Implemented (tests: 5 test functions covering the circuit breaker, see ADR-0006/ADR-0009) |
 | Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 — `mvn test` 2/2 unit, `mvn verify` adds 2 `*IT` against real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 1/1 passing — contract test, `mvn test` only, no `*IT` yet) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
@@ -77,9 +77,10 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go, Kafka) left as separate future work; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
 | [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. |
 | [0005](docs/adr/0005-secret-rotation.md) | Secret rotation and removal of hardcoded credentials | Accepted | Three credentials hardcoded in `docker-compose.yml` since the project's first commit (public repo) rotated for real against the live Postgres/RabbitMQ, replaced with `${VAR}`/`.env`; orphaned JWT config removed from three services that never consumed it. History not rewritten — old values are treated as permanently compromised. |
-| [0006](docs/adr/0006-gateway-circuit-breaker.md) | Circuit breaker in the API Gateway | Accepted | `sony/gobreaker` added, one breaker per service (`auth`, `products`, `inventory`, `orders`; billing excluded, see Roadmap), 5 consecutive failures to open / 30s cooldown. Verified against real containers: stopping inventory-service made it fail fast while the other three kept responding normally. |
+| [0006](docs/adr/0006-gateway-circuit-breaker.md) | Circuit breaker in the API Gateway | Accepted | `sony/gobreaker` added, one breaker per service (`auth`, `products`, `inventory`, `orders`; billing excluded, see ADR-0009), 5 consecutive failures to open / 30s cooldown. Verified against real containers: stopping inventory-service made it fail fast while the other three kept responding normally. |
 | [0007](docs/adr/0007-remove-kafka-broker.md) | Remove Kafka broker (migrate to RabbitMQ) | Proposed (planning) | Stub — full decision and consequences to be written as part of Etapa 4 (Kafka → RabbitMQ migration). |
 | [0008](docs/adr/0008-surefire-failsafe-test-split.md) | Separate unit and integration tests via Surefire/Failsafe | Accepted | The four test classes that touch real Postgres/RabbitMQ renamed to the `*IT` suffix and moved to `maven-failsafe-plugin` (`mvn verify`) across all four Spring services; `mvn test` is now unit-only and needs no live infrastructure. |
+| [0009](docs/adr/0009-billing-circuit-breaker.md) | Extend the API Gateway circuit breaker to billing-service | Accepted | Same structure as ADR-0006 (`sony/gobreaker`, 5 failures / 30s cooldown), applied to the one remaining entry left on the plain proxy. Closes ADR-0006's open Roadmap item. |
 
 ## Quick Start
 
@@ -161,11 +162,16 @@ The stack split is deliberate:
       inspection. Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or
       a dead-letter exchange with limited retries. Blocked by
       prioritization, not a technical dependency.
-- [ ] api-gateway: billing-service is routable (since the prior gateway
-      update) but has no circuit breaker — the only entry in the services
-      map exposed without that protection between this delivery and the
-      next. See ADR-0006. Candidate: the same structure ADR-0006 already
-      uses, applied to the billing entry once it's migrated.
+- [x] api-gateway: billing-service now has a circuit breaker like every
+      other implemented entry — see ADR-0009 (closes the gap ADR-0006 left
+      open).
+- [ ] billing-service (`billing-service/Dockerfile:38`): the `HEALTHCHECK`
+      hard-codes `http://localhost:8082/actuator/health` — 8082 is
+      products-service's port, not billing-service's own 8085. `docker
+      compose ps` reports the container "unhealthy" even though the process
+      and every route to it work correctly; found while live-verifying
+      ADR-0009. Candidate fix: change the port to 8085. Blocked by
+      prioritization, not a technical dependency.
 - [ ] No shared parent POM across the four Spring services (auth,
       products, orders, billing). Not a deliberate decoupling decision —
       it happened by omission during the project's initial setup.

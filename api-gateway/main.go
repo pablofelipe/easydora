@@ -88,14 +88,9 @@ func setupServiceRoutes(router *gin.Engine) {
 		serviceGroup := router.Group("/" + path)
 		
 		if config.Implemented && config.URL != "" {
-			// Service implemented - use reverse proxy.
-			// billing doesn't have a circuit breaker yet (see README Roadmap) -
-			// keeps the plain proxy until this entry is migrated.
-			if path == "billing" {
-				serviceGroup.Any("/*proxyPath", createReverseProxy(config.URL, config.Name))
-			} else {
-				serviceGroup.Any("/*proxyPath", createReverseProxyWithBreaker(config.URL, config.Name))
-			}
+			// Service implemented - use reverse proxy with a per-service
+			// circuit breaker (see ADR-0006, extended to billing by ADR-0009).
+			serviceGroup.Any("/*proxyPath", createReverseProxyWithBreaker(config.URL, config.Name))
 			log.Printf("%s proxy configured: %s", config.Name, config.URL)
 		} else {
 			// Service not implemented - use mock
@@ -178,10 +173,10 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 
 // createReverseProxyWithBreaker wraps createReverseProxy with a per-service
 // gobreaker.CircuitBreaker (see circuitBreakerSettings: 5 consecutive
-// failures to open, 30s cooldown before a half-open trial). It's a thin
-// wrapper rather than a change to createReverseProxy itself so that
-// services not yet migrated to this (currently: billing-service, see
-// README Roadmap) keep using the plain proxy unchanged.
+// failures to open, 30s cooldown before a half-open trial). Every
+// implemented entry in setupServiceRoutes uses this wrapper (billing
+// included, since ADR-0009) — createReverseProxy itself stays as a plain,
+// breaker-less helper used only internally, not routed to directly.
 //
 // Failure is detected by checking the response status createReverseProxy
 // actually wrote: proxy.ErrorHandler (inside createReverseProxy) only

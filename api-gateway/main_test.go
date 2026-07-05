@@ -165,17 +165,19 @@ func TestCircuitBreaker_ProxyBypassedWhenOpen(t *testing.T) {
 	}
 }
 
-// TestPlainProxy_DoesNotShortCircuit proves createReverseProxy (used for
-// billing-service, deliberately out of this round's scope) keeps calling
-// the downstream on every request — no breaker, no 503 short-circuit —
-// even after repeated failures. This is the "Red" counterpart to the three
-// tests above: swap createReverseProxyWithBreaker for createReverseProxy in
-// any of them and the 503 assertions stop being true.
+// TestPlainProxy_DoesNotShortCircuit proves createReverseProxy itself (the
+// helper createReverseProxyWithBreaker wraps internally) keeps calling the
+// downstream on every request — no breaker, no 503 short-circuit — even
+// after repeated failures. This is the "Red" counterpart to the three tests
+// above: swap createReverseProxyWithBreaker for createReverseProxy in any of
+// them and the 503 assertions stop being true. No service is routed through
+// this function directly anymore (see TestSetupServiceRoutes_BillingUsesBreaker) —
+// it's exercised here purely as a unit test of the wrapped helper.
 func TestPlainProxy_DoesNotShortCircuit(t *testing.T) {
 	addr, callCount, closeFn := flakyDownstream(t)
 	defer closeFn()
 
-	server := newProxyTestServer(createReverseProxy(addr, "billing-service"))
+	server := newProxyTestServer(createReverseProxy(addr, "some-service"))
 	defer server.Close()
 
 	for i := 0; i < 10; i++ {
@@ -187,5 +189,36 @@ func TestPlainProxy_DoesNotShortCircuit(t *testing.T) {
 
 	if got := atomic.LoadInt32(callCount); got != 10 {
 		t.Fatalf("expected the plain proxy to dial the downstream on every one of the 10 calls, got %d dials", got)
+	}
+}
+
+// TestSetupServiceRoutes_BillingUsesBreaker proves the actual routing
+// decision in setupServiceRoutes — not just the generic
+// createReverseProxyWithBreaker helper — now sends billing through the
+// breaker like every other implemented entry. Before this task, billing was
+// special-cased in setupServiceRoutes to keep the plain, breaker-less proxy
+// (see ADR-0006's open Roadmap item), so this test fails against that
+// special case and passes once it's removed.
+func TestSetupServiceRoutes_BillingUsesBreaker(t *testing.T) {
+	downURL := closedPortURL(t)
+	original := services["billing"]
+	services["billing"] = ServiceConfig{URL: downURL, Name: "billing-service", Implemented: true}
+	defer func() { services["billing"] = original }()
+
+	router := gin.New()
+	setupServiceRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	for i := 0; i < 5; i++ {
+		code := doRequest(t, server, "/billing/ping")
+		if code != http.StatusBadGateway {
+			t.Fatalf("call %d: expected 502 from a still-closed breaker, got %d", i+1, code)
+		}
+	}
+
+	code := doRequest(t, server, "/billing/ping")
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 (breaker open) on the 6th call through the billing route, got %d", code)
 	}
 }
