@@ -184,13 +184,43 @@ The stack split is deliberate:
       the other three Spring services presumably need too (not yet
       checked). Blocked by prioritization/authorization, not a technical
       dependency.
-- [ ] orders-service (`orders-service/Dockerfile`): same copy-paste pattern
-      as billing-service's — `EXPOSE`/`HEALTHCHECK` hard-code port 8082
-      (products-service's port), but orders-service's own
-      `server.port` is 8084. Found via a comparison sweep while fixing
-      billing-service's equivalent bug; not verified live and not fixed
-      here — same class of bug, different file, needs its own
-      authorization.
+- [x] orders-service (`orders-service/Dockerfile`): same copy-paste pattern
+      as billing-service's — `EXPOSE`/`HEALTHCHECK` hard-coded port 8082
+      (products-service's port) instead of orders-service's own 8084. Fixed
+      to 8084; a Dockerfile-level `docker exec ... wget`/`curl` against 8084
+      now reaches the app (`403`, see the next item) instead of failing to
+      connect. Live `docker compose ps` verification of this specific fix
+      was inconclusive, though, because of the next item — a separate,
+      unrelated bug that makes orders-service's reported health status not
+      reflect the app's real state either way.
+- [ ] **orders-service's `docker-compose.yml` healthcheck override
+      (lines 181-190) is a no-op — it always reports "healthy" regardless
+      of whether the app actually responds.** The `test: >` YAML folded
+      block joins all its lines (including the `# Verifica se aplicação
+      Spring está respondendo` comment) into one string with spaces instead
+      of newlines; once folded, that leading `#` turns everything after it
+      on the (now single) line into a shell comment — including the actual
+      `curl -f http://localhost:8084/actuator/health || exit 1` — so the
+      `bash -c '...'` the healthcheck runs has no real command in it and
+      always exits `0`. Confirmed by reproducing the exact folded string
+      Compose generates (`docker compose config`) inside the running
+      container: exits `0` unconditionally, even though `curl` isn't even
+      installed in the image (only `bash`/`postgresql-client`) and
+      `/actuator/health` itself returns `403` (see the next item) rather
+      than `200`. Practical impact: `inventory-service`'s
+      `depends_on: orders-service: condition: service_healthy` gate is
+      currently meaningless — it will proceed as soon as this always-green
+      healthcheck's `start_period` elapses, not when orders-service is
+      actually ready. Found as a side effect of live-verifying the port fix
+      above; not fixed here, needs its own authorization (likely fix: drop
+      the stray `#` comment line, or move the comment above the `healthcheck:`
+      key entirely, out of the folded block).
+- [ ] orders-service's own `SecurityConfig`
+      (`orders-service/src/main/java/com/easydora/orders/config/SecurityConfig.java`)
+      only `permitAll()`s `/ping`, `/health`, `/error`, and `/debug/**` —
+      not `/actuator/health` — so even a corrected healthcheck would see a
+      `403`, the same underlying gap already tracked above for
+      billing-service. Not fixed here.
 - [ ] No shared parent POM across the four Spring services (auth,
       products, orders, billing). Not a deliberate decoupling decision —
       it happened by omission during the project's initial setup.

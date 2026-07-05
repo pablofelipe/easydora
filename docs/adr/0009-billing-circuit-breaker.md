@@ -86,7 +86,27 @@ container still never reports "healthy" because `billing-service` has
 Security's default deny-all covers `/actuator/health` too. That second
 issue is not fixed — see README Roadmap. A copy of the same wrong-port
 pattern was also found in `orders-service/Dockerfile` while comparing the
-three services' Dockerfiles; also not fixed, also tracked in the Roadmap.
+three services' Dockerfiles; since authorized and fixed too (`EXPOSE`/
+`HEALTHCHECK` corrected from 8082 to orders-service's real 8084).
+
+Verifying the orders-service port fix surfaced a third, more serious issue:
+`orders-service`'s health status in `docker compose ps` is driven entirely
+by a `healthcheck:` override in `docker-compose.yml` (lines 181-190), not by
+the Dockerfile's `HEALTHCHECK` — and that override's `test: >` YAML folded
+block turns its own `# Verifica se aplicação Spring está respondendo`
+comment line into one that swallows the actual `curl -f ... || exit 1` test
+once folding joins every line with spaces instead of newlines. The container
+health check therefore always exits `0` — reports "healthy" no matter what.
+Confirmed by reproducing the exact folded string `docker compose config`
+generates directly inside the container. Practical consequence:
+`inventory-service`'s `depends_on: orders-service: condition:
+service_healthy` never actually gates on orders-service being ready. Not
+fixed here — outside this task's authorized scope (a `docker-compose.yml`
+bug, not the Dockerfile copy-paste pattern this round covered) — see README
+Roadmap. Also, independent of that: orders-service's own `SecurityConfig`
+doesn't `permitAll()` `/actuator/health` either (only `/ping`, `/health`,
+`/error`, `/debug/**`), so a corrected healthcheck would still see `403` —
+the same class of gap already open for billing-service.
 
 ## Consequences
 
