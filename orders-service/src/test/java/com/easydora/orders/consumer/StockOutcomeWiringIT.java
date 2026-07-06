@@ -11,6 +11,7 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -27,8 +28,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * containers). inventory-service itself is not involved — this test
  * publishes the same event shape its Outbox would, to prove orders-service's
  * consumer side of the handshake independently.
+ *
+ * {@code @DirtiesContext} is load-bearing, not decorative: Failsafe reuses
+ * one JVM across every *IT class by default, and without it Spring's
+ * context cache would keep this class's real JwtConsumer/UserEventsConsumer
+ * listener containers running for the rest of that JVM — a live competing
+ * consumer on the exact queues JwtCreatedFanoutIT drains directly, the same
+ * failure mode ADR-0001/ADR-0008 documented, just self-inflicted between
+ * two test classes instead of by an external docker-compose stack.
  */
 @SpringBootTest
+@DirtiesContext
 class StockOutcomeWiringIT {
 
     @Autowired
