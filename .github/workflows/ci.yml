@@ -61,3 +61,83 @@ jobs:
       - name: mvn test
         working-directory: ${{ matrix.service }}
         run: mvn test
+
+  # Phase 2: real-infrastructure integration tests (wiring/Outbox), gated on
+  # Phase 1 passing first so a broken unit test fails fast without spending
+  # time provisioning service containers. A single job with a mixed
+  # java/go matrix, rather than one job per language, so the Postgres/
+  # RabbitMQ services block — and the credentials
+  # (local_dev_placeholder) each service's application-dev.properties /
+  # config.Load() already default to, so no secrets are needed — is
+  # written once; each matrix entry still gets its own fresh pair of
+  # containers (GitHub Actions has no way to share service containers
+  # across jobs, but a matrix only fans out one job definition, so this
+  # avoids repeating the YAML for it).
+  integration:
+    name: ${{ matrix.name }} (real infra)
+    runs-on: ubuntu-latest
+    needs: [gateway, inventory, spring-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: auth-service
+            language: java
+          - name: orders-service
+            language: java
+          - name: billing-service
+            language: java
+          - name: inventory-service
+            language: go
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: easydora
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: local_dev_placeholder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d easydora"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: admin
+          RABBITMQ_DEFAULT_PASS: local_dev_placeholder
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - if: matrix.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: inventory-service/go.sum
+      - if: matrix.language == 'java'
+        name: mvn verify
+        working-directory: ${{ matrix.name }}
+        run: mvn verify
+      - if: matrix.language == 'go'
+        name: go test -tags=integration
+        working-directory: ${{ matrix.name }}
+        env:
+          DB_HOST: localhost
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_HOST: localhost
+          RABBITMQ_PASSWORD: local_dev_placeholder
+        run: go test -tags=integration ./...

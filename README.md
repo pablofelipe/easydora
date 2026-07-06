@@ -132,7 +132,9 @@ The stack split is deliberate:
 - [ ] SvelteKit frontend
 - [ ] End-to-end integration tests across the six implemented services
 - [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all six services, no service containers
-- [ ] CI pipeline, Phase 2: contract and messaging-wiring tests against real brokers/Postgres (future work)
+- [x] CI pipeline, Phase 2 (`.github/workflows/ci.yml`): wiring and Outbox
+      integration tests against real Postgres/RabbitMQ service containers —
+      see [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md).
 - [x] inventory-service (Go): Outbox Pattern implemented for stock
       reservation — see [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
       `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
