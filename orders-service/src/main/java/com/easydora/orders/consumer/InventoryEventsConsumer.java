@@ -1,24 +1,31 @@
 package com.easydora.orders.consumer;
 
+import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.service.OrderService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+
 /**
- * inventory-service now publishes the full StockReservedEvent/
- * StockInsufficientEvent JSON (orderId, success/message or
- * productId/required/available, timestamp) instead of a bare orderId
- * string, so this consumer parses the payload as JSON. The Kafka listener
- * parameter stays typed as String rather than switching to a value class,
- * since orders-service has no JsonDeserializer/type-mapping configured on
- * its Kafka consumer factory (it relies on Spring's default
- * StringDeserializer) — introducing that would affect every @KafkaListener
- * in the service, which is out of scope here.
+ * inventory-service's Outbox (ADR-0007) publishes the full
+ * StockReservedEvent/StockInsufficientEvent JSON (orderId, success/message
+ * or productId/required/available, timestamp) as the raw outbox payload,
+ * so this consumer parses it as JSON. The @RabbitListener entry points
+ * take the raw AMQP Message and decode the body as a UTF-8 string
+ * themselves — the shared Jackson2JsonMessageConverter (content-type
+ * application/json) tries to JSON-parse the body into its inferred target
+ * type, and fails with a MismatchedInputException for a String target
+ * since the body is a JSON object, not a JSON string literal. Delegating
+ * to handleStockReserved/handleStockInsufficient keeps those methods'
+ * String payload signature exactly as the existing behavioral test
+ * expects.
  */
 @Component
 public class InventoryEventsConsumer {
@@ -31,20 +38,28 @@ public class InventoryEventsConsumer {
         this.orderService = orderService;
     }
 
-    @KafkaListener(topics = "stock-reserved")
+    @RabbitListener(queues = RabbitMQConfig.STOCK_RESERVED_QUEUE)
+    public void onStockReserved(Message message) throws Exception {
+        handleStockReserved(new String(message.getBody(), StandardCharsets.UTF_8));
+    }
+
     public void handleStockReserved(String payload) throws Exception {
         JsonNode event = objectMapper.readTree(payload);
         String orderId = event.get("orderId").asText();
-        logger.info("[KAFKA] StockReservedEvent received: orderId={}, success={}, message={}",
+        logger.info("[RABBITMQ] StockReservedEvent received: orderId={}, success={}, message={}",
                 orderId, event.path("success").asBoolean(), event.path("message").asText(null));
         orderService.handleInventoryReserved(orderId);
     }
 
-    @KafkaListener(topics = "stock-insufficient")
+    @RabbitListener(queues = RabbitMQConfig.STOCK_INSUFFICIENT_QUEUE)
+    public void onStockInsufficient(Message message) throws Exception {
+        handleStockInsufficient(new String(message.getBody(), StandardCharsets.UTF_8));
+    }
+
     public void handleStockInsufficient(String payload) throws Exception {
         JsonNode event = objectMapper.readTree(payload);
         String orderId = event.get("orderId").asText();
-        logger.info("[KAFKA] StockInsufficientEvent received: orderId={}, productId={}, required={}, available={}",
+        logger.info("[RABBITMQ] StockInsufficientEvent received: orderId={}, productId={}, required={}, available={}",
                 orderId,
                 event.path("productId").asText(null),
                 event.path("required").asInt(-1),

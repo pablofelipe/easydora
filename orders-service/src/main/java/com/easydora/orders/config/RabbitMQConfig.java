@@ -45,6 +45,17 @@ public class RabbitMQConfig {
     public static final String INVENTORY_RESERVE_QUEUE = "inventory.reserve.queue";
     public static final String RESERVE_STOCK_ROUTING_KEY = "stock.reserve";
 
+    // order.* domain events (ADR-0007) - published by OrderService
+    public static final String ORDER_CREATED_KEY = "order.created";
+    public static final String ORDER_STATUS_CHANGED_KEY = "order.status-changed";
+
+    // stock.* outcome events (ADR-0007) - published by inventory-service's
+    // Outbox, consumed here to drive the order state machine
+    public static final String STOCK_RESERVED_QUEUE = "orders.stock.reserved.queue";
+    public static final String STOCK_RESERVED_ROUTING_KEY = "stock.reserved";
+    public static final String STOCK_INSUFFICIENT_QUEUE = "orders.stock.insufficient.queue";
+    public static final String STOCK_INSUFFICIENT_ROUTING_KEY = "stock.insufficient";
+
     @Bean
     public TopicExchange authExchange() {
         return new TopicExchange(AUTH_EXCHANGE);
@@ -81,6 +92,16 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue stockReservedQueue() {
+        return new Queue(STOCK_RESERVED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue stockInsufficientQueue() {
+        return new Queue(STOCK_INSUFFICIENT_QUEUE, true);
+    }
+
+    @Bean
     public Binding userVerifiedBinding(Queue userVerifiedQueue, TopicExchange authExchange) {
         return BindingBuilder.bind(userVerifiedQueue)
                 .to(authExchange)
@@ -113,6 +134,20 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(inventoryReserveQueue)
                 .to(orderExchange)
                 .with(RESERVE_STOCK_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding stockReservedBinding(Queue stockReservedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(stockReservedQueue)
+                .to(orderExchange)
+                .with(STOCK_RESERVED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding stockInsufficientBinding(Queue stockInsufficientQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(stockInsufficientQueue)
+                .to(orderExchange)
+                .with(STOCK_INSUFFICIENT_ROUTING_KEY);
     }
 
     @Bean

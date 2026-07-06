@@ -13,11 +13,10 @@ import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.easydora.orders.config.RabbitMQConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,22 +32,17 @@ public class OrderService {
     private final BuyerRepository buyerRepository;
     private final OrderRepository orderRepository;
     private final OrderStateMachineService stateMachineService;
-    @Autowired
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final RabbitTemplate rabbitTemplate;
-    
-    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
-    private static final String ORDER_STATUS_CHANGED_TOPIC = "order-status-changed";
 
-    public OrderService(BuyerRepository buyerRepository, 
-                        OrderRepository orderRepository, 
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
+
+    public OrderService(BuyerRepository buyerRepository,
+                        OrderRepository orderRepository,
                        OrderStateMachineService stateMachineService,
-                       KafkaTemplate<String, Object> kafkaTemplate,
                        RabbitTemplate rabbitTemplate) {
         this.buyerRepository = buyerRepository;
         this.orderRepository = orderRepository;
         this.stateMachineService = stateMachineService;
-        this.kafkaTemplate = kafkaTemplate;
         this.rabbitTemplate = rabbitTemplate;
     }
     
@@ -289,8 +283,7 @@ public class OrderService {
                 .collect(Collectors.toList()));
             event.setCreatedAt(order.getCreatedAt());
             
-            // Publish to Kafka
-            kafkaTemplate.send("order.created.topic", event);
+            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event);
             logger.info("OrderCreatedEvent published: {}", order.getId());
 
         } catch (Exception e) {
@@ -315,7 +308,7 @@ public class OrderService {
         event.setPreviousState(previousState);
         event.setNewState(newState);
         
-        kafkaTemplate.send(ORDER_STATUS_CHANGED_TOPIC, orderId, event);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_STATUS_CHANGED_KEY, event);
     }
     
     private void sendReserveStockCommand(Order order) {
