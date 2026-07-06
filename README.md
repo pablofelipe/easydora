@@ -8,14 +8,15 @@ suited to its workload, not for convenience — Go for performance-sensitive
 gateway/inventory paths, Spring Boot for domain-rich business logic,
 FastAPI for async notification processing.
 
-**Status: in active development.** Five of seven services are implemented and
-building (auth, products, inventory, orders, billing). Four of them
-(auth-service, orders-service, products-service, billing-service) now have
+**Status: in active development.** Six of eight services are implemented and
+building (api-gateway, auth, products, inventory, orders, billing). Four of
+them (auth-service, orders-service, products-service, billing-service) have
 contract tests validating their event/message DTOs against JSON Schemas
-shared in `/schemas/json/`; inventory-service has four unit tests covering
-its stock-reservation idempotency logic specifically, not the service
-broadly. Notification and frontend are empty scaffolds, not yet functional.
-See [Service Status](#service-status) below for the current breakdown.
+shared in `/schemas/json/`; inventory-service has eight unit tests, four of
+which cover its stock-reservation idempotency logic specifically, not the
+service broadly. Notification and frontend are empty scaffolds, not yet
+functional. See [Service Status](#service-status) below for the current
+breakdown.
 
 ## Architecture
 
@@ -52,15 +53,15 @@ each service independently deployable via Docker Compose.
 | Service | Stack | Port | Status |
 |---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented (tests: 5 test functions covering the circuit breaker, see ADR-0006/ADR-0009) |
-| Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 — `mvn test` 2/2 unit, `mvn verify` adds 2 `*IT` against real Postgres/RabbitMQ) |
-| Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 1/1 passing — contract test, `mvn test` only, no `*IT` yet) |
-| Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 4/4 passing) |
-| Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 5/5 — `mvn test` 4/4 unit, `mvn verify` adds 1 `*IT` against real RabbitMQ) |
-| Billing | Spring Boot | 8085 | Implemented (tests: 3/3 — `mvn test` 2/2 unit (contract test + `HealthControllerTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
+| Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 — `mvn test` only, no `*IT`) |
+| Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 4/4 — `mvn test` only, no `*IT`) |
+| Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 8/8 passing) |
+| Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 8/8 — `mvn test` only, no `*IT`) |
+| Billing | Spring Boot | 8085 | Implemented (tests: 6/6 — `mvn test` 5/5 unit (contract test + `HealthControllerTest` + `PaymentServiceOrderCreatedBehaviorTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
 | Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
-"Implemented" means the service builds and runs; it does not imply full test coverage. Five services have real test source so far (see the table above); the paragraph below covers billing-service's history specifically, since it's where the original baseline audit's test-fixing work happened. billing-service has `BillingServiceApplicationIT` (a Spring Initializr default, renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), and its `mvn verify` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type.
+"Implemented" means the service builds and runs; it does not imply full test coverage. Six services have real test source so far (see the table above); the paragraph below covers billing-service's history specifically, since it's where the original baseline audit's test-fixing work happened. billing-service has `BillingServiceApplicationIT` (a Spring Initializr default, renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), and its `mvn verify` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type.
 
 Event contracts validated via JSON Schema — see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md) for the two schemas migrated, the drifts fixed, and the known `price` type gap that schema validation can't catch. Messaging layer audited for wiring bugs (routing keys, field names, a competing-consumer incident) — see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md) for all six findings and what's still open.
 
@@ -79,7 +80,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0005](docs/adr/0005-secret-rotation.md) | Secret rotation and removal of hardcoded credentials | Accepted | Three credentials hardcoded in `docker-compose.yml` since the project's first commit (public repo) rotated for real against the live Postgres/RabbitMQ, replaced with `${VAR}`/`.env`; orphaned JWT config removed from three services that never consumed it. History not rewritten — old values are treated as permanently compromised. |
 | [0006](docs/adr/0006-gateway-circuit-breaker.md) | Circuit breaker in the API Gateway | Accepted | `sony/gobreaker` added, one breaker per service (`auth`, `products`, `inventory`, `orders`; billing excluded, see ADR-0009), 5 consecutive failures to open / 30s cooldown. Verified against real containers: stopping inventory-service made it fail fast while the other three kept responding normally. |
 | [0007](docs/adr/0007-remove-kafka-broker.md) | Remove Kafka broker (migrate to RabbitMQ) | Accepted, implemented | Kafka removed from every service; product.\*/stock.\*/order.\* events all move over RabbitMQ topic exchanges; inventory-service's stock reservation outcome is now written through an Outbox table (see ADR-0003) instead of a direct post-commit publish. |
-| [0008](docs/adr/0008-surefire-failsafe-test-split.md) | Separate unit and integration tests via Surefire/Failsafe | Accepted | The four test classes that touch real Postgres/RabbitMQ renamed to the `*IT` suffix and moved to `maven-failsafe-plugin` (`mvn verify`) across all four Spring services; `mvn test` is now unit-only and needs no live infrastructure. |
+| [0008](docs/adr/0008-surefire-failsafe-test-split.md) | Separate unit and integration tests via Surefire/Failsafe | Accepted, partially superseded | Originally: four test classes touching real Postgres/RabbitMQ renamed to the `*IT` suffix and moved to `maven-failsafe-plugin` across all four Spring services. Since updated (see the ADR's 2026-07-06 addendum): Etapa 5 of ADR-0007's migration replaced three of those four `*IT` classes with broker-agnostic behavior tests; only billing-service's `BillingServiceApplicationIT` remains, and `maven-failsafe-plugin` was removed from the other three services' `pom.xml`. |
 | [0009](docs/adr/0009-billing-circuit-breaker.md) | Extend the API Gateway circuit breaker to billing-service | Accepted | Same structure as ADR-0006 (`sony/gobreaker`, 5 failures / 30s cooldown), applied to the one remaining entry left on the plain proxy. Closes ADR-0006's open Roadmap item. |
 | [0010](docs/adr/0010-uniform-service-healthchecks.md) | Uniform health checks across all six services | Accepted | Every Docker `HEALTHCHECK` now targets each service's own unauthenticated `/health` endpoint instead of `/actuator/health`; billing-service gained a `HealthController`/`SecurityConfig`; orders-service's broken `docker-compose.yml` override removed; auth-service/inventory-service/api-gateway gained a `HEALTHCHECK` they never had. All six services verified `healthy` simultaneously for the first time. |
 
@@ -96,22 +97,11 @@ docker-compose up -d
 docker-compose ps
 ```
 
-The five implemented services (Auth, Products, Inventory, Orders, Billing)
-come up and respond on their ports above. Notification and the frontend are
-commented out in `docker-compose.yml` — no Dockerfile or source exists for
-either yet, unlike Billing, which is a real, working service.
-
-**Before running `mvn verify` locally**: run `docker compose down` first.
-`orders-service`'s `JwtCreatedFanoutIT` (see ADR-0008) drains the real
-production queue `orders.jwt.created.queue` to prove the fan-out fix works —
-if a container from an earlier `docker compose up` session (especially
-`orders-service` itself) is still running and consuming from that same
-queue, it competes with the test for the same messages and the test fails
-intermittently, not because of a code regression. Confirmed via grep: this
-is the only integration test in the repository touching that queue, so a
-single running `orders-service` container is the whole exposure — this
-doesn't apply once CI (Phase 2, not yet implemented) gives each Spring
-job its own isolated RabbitMQ.
+The six implemented services (API Gateway, Auth, Products, Inventory,
+Orders, Billing) come up and respond on their ports above. Notification and
+the frontend are commented out in `docker-compose.yml` — no Dockerfile or
+source exists for either yet, unlike Billing, which is a real, working
+service.
 
 ## Prerequisites
 
@@ -139,15 +129,19 @@ The stack split is deliberate:
 
 - [ ] Notification service (FastAPI + RabbitMQ consumer)
 - [ ] SvelteKit frontend
-- [ ] End-to-end integration tests across the five implemented services
+- [ ] End-to-end integration tests across the six implemented services
 - [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all six services, no service containers
-- [ ] CI pipeline, Phase 2: contract and messaging-wiring tests against real brokers/Postgres (Etapa 8, not yet implemented)
-- [ ] inventory-service (Go): outbox pattern still not implemented. Publish
-      happens directly post-commit (no outbox table); a reservation can
-      duplicate on redelivery in a late dead-letter scenario past the
-      10-minute idempotency cache TTL. See ADR-0003 (auth-service) for the
-      reference pattern. Blocked by: no technical dependency, prioritization
-      only.
+- [ ] CI pipeline, Phase 2: contract and messaging-wiring tests against real brokers/Postgres (future work)
+- [x] inventory-service (Go): Outbox Pattern implemented for stock
+      reservation — see [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
+      `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
+      event to `inventory_schema.outbox_events` in the same Postgres
+      transaction as the reservation itself, and a poller publishes it to
+      RabbitMQ — closing the "event lost if the process crashes right
+      after commit" gap. This doesn't make message redelivery itself
+      idempotent (a separate, still-open concern — see below); it only
+      guarantees the reservation outcome is never silently lost once
+      committed.
 - [ ] auth/products/orders/billing (Spring): no retry limit/backoff/DLQ on
       RabbitMQ message consumption. Verified there's no synchronous
       inter-service HTTP call anywhere (no RestTemplate/WebClient/
@@ -191,10 +185,13 @@ The stack split is deliberate:
 - [ ] No shared parent POM across the four Spring services (auth,
       products, orders, billing). Not a deliberate decoupling decision —
       it happened by omission during the project's initial setup.
-      Consequence: any plugin or dependency common to all four (Failsafe
-      today, a future Resilience4j) has to be replicated by hand in all
-      four `pom.xml` files, with no automatic detection if one of them
-      drifts to a different version.
+      Consequence: any plugin or dependency common to all four
+      (`spring-boot-starter-amqp` today, a future Resilience4j) has to be
+      replicated by hand in all four `pom.xml` files, with no automatic
+      detection if one of them drifts to a different version — this is
+      exactly what made removing `spring-kafka` (ADR-0007) and
+      `maven-failsafe-plugin` (ADR-0008's update) a four-file manual edit
+      each, instead of a one-line parent POM change.
 
 ## Docker Troubleshooting (Windows)
 

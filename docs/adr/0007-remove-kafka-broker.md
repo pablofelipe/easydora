@@ -143,3 +143,26 @@ discipline:
    payloads during step 1–2's implementation, following ADR-0002's existing
    process; inventory-service's future outbox implementation targets
    RabbitMQ from the start, per the Decision above.
+
+## Update — 2026-07-06
+
+Migration completed across all four hops above, verified live against
+running containers (Products → Inventory → Orders → Billing) and the full
+test suite. Two deviations from the plan worth recording:
+
+- **The Outbox went further than "just retarget the publish."**
+  `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
+  outbox row in the *same Postgres transaction* as the stock reservation
+  itself, genuinely mirroring ADR-0003's atomicity guarantee rather than
+  only choosing RabbitMQ as the eventual publish target. A side effect: a
+  multi-item order's reservation is now all-or-nothing (any item failing
+  rolls back the whole transaction), fixing a pre-existing
+  partial-reservation bug this ADR didn't originally call out.
+- **Step 6's JSON Schemas for `product.*`/`stock.*` were not added.** Only
+  `OrderCreatedEvent` and `UserRegisteredEvent` have schemas today
+  (ADR-0002); this remains open technical debt.
+
+`maven-failsafe-plugin` was also removed from auth-service, orders-service
+and products-service, once zero `*IT` classes remained in any of the
+three — an adjacent cleanup, not part of this decision; see
+[ADR-0008](0008-surefire-failsafe-test-split.md)'s own update.
