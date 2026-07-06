@@ -12,9 +12,11 @@ import com.easydora.products.repository.ProductRepository;
 import com.easydora.products.repository.SellerRepository;
 import com.easydora.products.exception.*;
 
+import com.easydora.products.config.RabbitMQConfig;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,21 +27,17 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class ProductService {
-    
+
     private final ProductRepository productRepository;
     private final SellerRepository sellerRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-    
-    private static final String PRODUCT_CREATED_TOPIC = "product.created";
-    private static final String PRODUCT_UPDATED_TOPIC = "product.updated";
-    private static final String PRODUCT_DELETED_TOPIC = "product.deleted";
+    private final RabbitTemplate rabbitTemplate;
 
     private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
 
-    public ProductService(ProductRepository productRepository, SellerRepository sellerRepository, KafkaTemplate<String, Object> kafkaTemplate) {
+    public ProductService(ProductRepository productRepository, SellerRepository sellerRepository, RabbitTemplate rabbitTemplate) {
         this.productRepository = productRepository;
         this.sellerRepository = sellerRepository;
-        this.kafkaTemplate = kafkaTemplate;
+        this.rabbitTemplate = rabbitTemplate;
     }
     
     public ProductResponse createProduct(ProductRequest request, String sellerId) {
@@ -86,16 +84,10 @@ public class ProductService {
             event.setPrice(product.getPrice());
             event.setInitialStock(initialStock);
             event.setCreatedAt(Instant.now().toString());
-            
-            kafkaTemplate.send(PRODUCT_CREATED_TOPIC, event)
-                .whenComplete((result, failure) -> {
-                    if (failure != null) {
-                        logger.error("Failed to publish ProductCreatedEvent - Product: {}", product.getId(), failure);
-                    } else {
-                        logger.info("ProductCreatedEvent published successfully - Product: {}", product.getId());
-                    }
-                });
-                
+
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_CREATED_KEY, event);
+            logger.info("ProductCreatedEvent published successfully - Product: {}", product.getId());
+
         } catch (Exception e) {
             logger.error("Error publishing ProductCreatedEvent for product: {}", product.getId(), e);
         }
@@ -167,16 +159,10 @@ public class ProductService {
             event.setPrice(product.getPrice());
             event.setActive(product.getActive());
             event.setUpdatedAt(Instant.now().toString());
-            
-            kafkaTemplate.send(PRODUCT_UPDATED_TOPIC, event)
-                .whenComplete((result, failure) -> {
-                    if (failure != null) {
-                        logger.error("Failed to publish ProductUpdatedEvent - Product: {}", product.getId(), failure);
-                    } else {
-                        logger.info("ProductUpdatedEvent published successfully - Product: {}", product.getId());
-                    }
-                });
-                
+
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_UPDATED_KEY, event);
+            logger.info("ProductUpdatedEvent published successfully - Product: {}", product.getId());
+
         } catch (Exception e) {
             logger.error("Error publishing ProductUpdatedEvent for product: {}", product.getId(), e);
         }
@@ -206,16 +192,10 @@ public class ProductService {
             ProductDeletedEvent event = new ProductDeletedEvent();
             event.setProductId(product.getId().toString());
             event.setDeletedAt(Instant.now().toString());
-            
-            kafkaTemplate.send(PRODUCT_DELETED_TOPIC, event)
-                .whenComplete((result, failure) -> {
-                    if (failure != null) {
-                        logger.error("Failed to publish ProductDeletedEvent - Product: {}", product.getId(), failure);
-                    } else {
-                        logger.info("ProductDeletedEvent published successfully - Product: {}", product.getId());
-                    }
-                });
-                
+
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_DELETED_KEY, event);
+            logger.info("ProductDeletedEvent published successfully - Product: {}", product.getId());
+
         } catch (Exception e) {
             logger.error("Error publishing ProductDeletedEvent for product: {}", product.getId(), e);
         }

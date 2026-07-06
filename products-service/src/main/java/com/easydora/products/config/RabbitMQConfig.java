@@ -31,9 +31,20 @@ public class RabbitMQConfig {
     public static final String USER_REGISTERED_QUEUE = "products.user.registered.queue";
     public static final String JWT_CREATED_QUEUE = "products.jwt.created.queue";
 
+    // product.* domain events (ADR-0007) - consumed by inventory-service
+    public static final String PRODUCT_EXCHANGE = "product.exchange";
+    public static final String PRODUCT_CREATED_KEY = "product.created";
+    public static final String PRODUCT_UPDATED_KEY = "product.updated";
+    public static final String PRODUCT_DELETED_KEY = "product.deleted";
+
     @Bean
     public TopicExchange authExchange() {
         return new TopicExchange(AUTH_EXCHANGE);
+    }
+
+    @Bean
+    public TopicExchange productExchange() {
+        return new TopicExchange(PRODUCT_EXCHANGE);
     }
 
     @Bean
