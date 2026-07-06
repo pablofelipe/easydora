@@ -50,6 +50,22 @@ Etapa 5 of the Kafka-to-RabbitMQ migration ([ADR-0007](0007-remove-kafka-broker.
 
 This doesn't reverse the decision above — Surefire for unit tests, Failsafe for real-infrastructure integration tests is still the convention. It's a narrower scope reduction: this project currently has only one class in the second category, so only one service needs the plugin.
 
+## Update — 2026-07-06 (2)
+
+Etapa 9 ([ADR-0012](0012-ci-phase-2-real-infrastructure.md)) added a CI
+Phase 2 with real Postgres/RabbitMQ service containers, which gave
+`VerifyEmailOutboxIT`/`VerifyEmailOutboxHappyPathIT` and `JwtCreatedFanoutIT`
+somewhere to actually run. Both classes were restored verbatim from the
+commit that removed them, and `maven-failsafe-plugin` was added back to
+auth-service's and orders-service's `pom.xml` — the paragraph above stating
+it "remains only in billing-service" no longer reflects the current state.
+This still doesn't reverse the Surefire/Failsafe convention itself, only the
+narrower "one service currently needs the plugin" fact, which was always
+scoped to "as of when this was written," not a permanent ceiling.
+products-service is still the one service with neither a real `*IT` class
+nor the plugin — see ADR-0012's Consequences section for why that gap
+remains open.
+
 ## References
 
 - ADR-0003 (outbox pattern for auth-service) and ADR-0005 (secret rotation) — introduced two of the four `*IT` classes renamed here.
