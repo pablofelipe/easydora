@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://easydora.internal/schemas/OrderCreatedEvent.schema.json",
   "title": "OrderCreatedEvent",
-  "description": "Published by orders-service (Kafka topic order.created.topic) after an order is created. Consumed by billing-service.",
+  "description": "Published by orders-service (RabbitMQ order.exchange, routing key order.created) after an order is created. Consumed by billing-service.",
   "type": "object",
   "properties": {
     "orderId": { "type": "string" },

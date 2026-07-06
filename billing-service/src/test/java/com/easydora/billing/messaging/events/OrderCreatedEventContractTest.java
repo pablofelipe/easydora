@@ -21,9 +21,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Contract test: the OrderCreatedEvent this service consumes from Kafka
- * (topic order.created.topic, published by orders-service) must conform to
- * the schema shared across services at
+ * Contract test: the OrderCreatedEvent this service consumes from RabbitMQ
+ * (order.exchange, routing key order.created, published by orders-service)
+ * must conform to the schema shared across services at
  * /schemas/json/OrderCreatedEvent.schema.json. orders-service runs the same
  * check against its own copy of this DTO, since there is no shared DTO
  * library in this codebase.
@@ -31,9 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OrderCreatedEventContractTest {
 
     // WRITE_DATES_AS_TIMESTAMPS is disabled to match production behavior:
-    // Spring's Jackson2JsonMessageConverter/JsonSerializer (used by the real
-    // Kafka producer) also disables it, serializing java.time types as
-    // ISO-8601 strings instead of numeric arrays.
+    // Spring's Jackson2JsonMessageConverter (used by the real RabbitMQ
+    // producer) also disables it, serializing java.time types as ISO-8601
+    // strings instead of numeric arrays.
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .findAndRegisterModules()
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);

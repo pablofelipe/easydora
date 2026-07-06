@@ -28,7 +28,7 @@ public class PaymentService {
         this.paymentRepository = paymentRepository;
     }
     
-    // ========== METHODS FOR KAFKA EVENTS ==========
+    // ========== METHODS FOR ORDER-CREATED EVENTS (RabbitMQ) ==========
 
     @Transactional
     public void createPendingPayment(OrderCreatedEvent event) {
