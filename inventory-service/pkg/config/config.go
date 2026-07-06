@@ -9,14 +9,12 @@ import (
 type Config struct {
     DatabaseURL string
     RabbitMQURL string
-    KafkaBrokers string
 }
 
 func Load() *Config {
     return &Config{
-        DatabaseURL:  getDatabaseURL(),
-        RabbitMQURL:  getRabbitMQURL(),
-        KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+        DatabaseURL: getDatabaseURL(),
+        RabbitMQURL: getRabbitMQURL(),
     }
 }
 

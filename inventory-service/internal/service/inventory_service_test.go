@@ -56,26 +56,42 @@ func (m *mockInventoryRepository) UpdateQuantity(productID string, newQuantity i
 	return nil
 }
 
-func (m *mockInventoryRepository) ReserveStock(productID string, quantity int) error {
+func (m *mockInventoryRepository) ReserveStockForOrder(command *models.ReserveStockCommand) (bool, *models.StockInsufficientEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.reserveStockCalls++
 
-	inv, ok := m.inventory[productID]
-	if !ok {
-		return fmt.Errorf("product not found: %s", productID)
-	}
-	if !inv.Available || inv.Deleted {
-		return fmt.Errorf("product not available for reservation: %s", productID)
+	for _, item := range command.Items {
+		inv, ok := m.inventory[item.ProductID]
+		if !ok {
+			return false, nil, fmt.Errorf("product not found: %s", item.ProductID)
+		}
+
+		available := inv.Quantity - inv.Reserved
+		if !inv.Available || inv.Deleted || available < item.Quantity {
+			return false, &models.StockInsufficientEvent{
+				OrderID:   command.OrderID,
+				ProductID: item.ProductID,
+				Required:  item.Quantity,
+				Available: available,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 
-	available := inv.Quantity - inv.Reserved
-	if available < quantity {
-		return fmt.Errorf("insufficient stock: available %d, required %d", available, quantity)
+	for _, item := range command.Items {
+		m.inventory[item.ProductID].Reserved += item.Quantity
 	}
 
-	inv.Reserved += quantity
+	return true, nil, nil
+}
+
+func (m *mockInventoryRepository) FindUnpublishedOutboxEvents() ([]models.OutboxEvent, error) {
+	return nil, nil
+}
+
+func (m *mockInventoryRepository) MarkOutboxEventPublished(id int64) error {
 	return nil
 }
 
@@ -147,8 +163,9 @@ func (m *mockInventoryRepository) reservedFor(productID string) int {
 
 // TestReserveStock_RetryDoesNotDuplicateReservation reproduces the
 // catalogued idempotency bug: RabbitMQ redelivers a ReserveStockCommand
-// (e.g. because the Kafka publish after the DB commit failed, triggering a
-// Nack+requeue) and the same order gets its stock reserved twice.
+// (e.g. because the consumer crashed or the connection dropped after the
+// DB commit but before the Ack, triggering a Nack+requeue) and the same
+// order gets its stock reserved twice.
 func TestReserveStock_RetryDoesNotDuplicateReservation(t *testing.T) {
 	repo := newMockInventoryRepository()
 	repo.inventory["prod-1"] = &models.Inventory{
@@ -174,8 +191,9 @@ func TestReserveStock_RetryDoesNotDuplicateReservation(t *testing.T) {
 	require.True(t, success1)
 
 	// Simulated redelivery of the exact same command for the same order
-	// (what happens today when the Kafka publish step fails after the
-	// Postgres commit and RabbitMQ requeues the message).
+	// (what happens today when the consumer crashes or the connection
+	// drops after the Postgres commit but before the Ack, and RabbitMQ
+	// requeues the message).
 	_, success2, _, err2 := svc.ReserveStock(cmd)
 	require.NoError(t, err2)
 	require.True(t, success2)
@@ -241,10 +259,13 @@ func TestReserveStock_CacheDoesNotGrowUnboundedWithVolume(t *testing.T) {
 // shows up after the entry has expired (e.g. a message reprocessed late
 // from a dead-letter queue, or a service restart followed by a slow
 // broker reconnect) is indistinguishable from a first delivery and will
-// reserve stock again. This is not fixed here — the outbox-pattern gap
-// already catalogued in the baseline audit is what would actually close
-// it. This test only proves the current behavior matches what the README
-// claims, instead of leaving it as an unverified assumption.
+// reserve stock again. This is not fixed here: the Outbox Pattern
+// (ReserveStockForOrder, ADR-0007) closes a different gap — it guarantees
+// the stock.reserved/stock.insufficient event is never lost once a
+// reservation commits — but it doesn't make message redelivery itself
+// idempotent, so this residual gap remains open. This test only proves
+// the current behavior matches what the README claims, instead of
+// leaving it as an unverified assumption.
 func TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation(t *testing.T) {
 	repo := newMockInventoryRepository()
 	repo.inventory["prod-1"] = &models.Inventory{

@@ -13,10 +13,11 @@ import (
 const (
     // reservationCacheTTL bounds how long a processed order's outcome is
     // kept for idempotent retry detection. The RabbitMQ reserve-stock
-    // consumer Nacks with requeue=true on a Kafka publish failure
-    // (rabbitmq_consumer.go), which RabbitMQ redelivers to this consumer
-    // almost immediately — no message-ttl/backoff is configured on that
-    // queue. The slowest realistic retry path in this codebase is the
+    // consumer Nacks with requeue=true whenever ReserveStockForOrder
+    // returns a repository-level error (rabbitmq_consumer.go), which
+    // RabbitMQ redelivers to this consumer almost immediately — no
+    // message-ttl/backoff is configured on that queue. The slowest
+    // realistic retry path in this codebase is the
     // consumer's own reconnect loop in NewRabbitMQConsumer, which backs
     // off for up to 3s * 10 attempts = 30s. 10 minutes gives roughly a 20x
     // margin over that reconnect window, comfortably covering a full
@@ -41,7 +42,7 @@ const (
 
 // reservationOutcome is the cached result of a previously processed
 // ReserveStockCommand, keyed by OrderID, so a redelivered command (e.g.
-// RabbitMQ requeue after a Kafka publish failure) returns the original
+// RabbitMQ requeue after a repository-level error) returns the original
 // result instead of reserving stock a second time. The entry is only
 // honored until expiresAt — see reservationCacheTTL.
 type reservationOutcome struct {
@@ -236,40 +237,22 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (or
 func (s *inventoryService) doReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
     log.Printf("Starting stock reservation for order: %s", command.OrderID)
 
-    // Try to reserve stock for each item
-    for _, item := range command.Items {
-        log.Printf("  Attempting to reserve %d units of product %s",
-            item.Quantity, item.ProductID)
-        
-        err = s.repo.ReserveStock(item.ProductID, item.Quantity)
-        if err != nil {
-            log.Printf("  Failed to reserve product %s: %v", item.ProductID, err)
-            
-            // Get available stock for reporting
-            inventory, _ := s.repo.GetByProductID(item.ProductID)
-            available := 0
-            if inventory != nil {
-                available = inventory.Quantity - inventory.Reserved
-            }
-            
-            // Create insufficient event
-            insufficientEvent = &models.StockInsufficientEvent{
-                OrderID:   command.OrderID,
-                ProductID: item.ProductID,
-                Required:  item.Quantity,
-                Available: available,
-                Timestamp: time.Now(),
-            }
-            
-            return command.OrderID, false, insufficientEvent, nil
-        }
-        
-        log.Printf("  Successfully reserved %d units of product %s",
-            item.Quantity, item.ProductID)
+    // ReserveStockForOrder reserves all items and writes the outbox event
+    // for the outcome in the same Postgres transaction (Outbox Pattern,
+    // ADR-0007) — the messaging layer no longer builds or publishes this
+    // event itself; it's already durably recorded by the time this
+    // returns.
+    success, insufficientEvent, err = s.repo.ReserveStockForOrder(command)
+    if err != nil {
+        log.Printf("Failed to reserve stock for order %s: %v", command.OrderID, err)
+        return command.OrderID, false, nil, err
     }
 
-    // All items reserved successfully
-    log.Printf("All stock reserved successfully for order: %s", command.OrderID)
-    
-    return command.OrderID, true, nil, nil
+    if success {
+        log.Printf("All stock reserved successfully for order: %s", command.OrderID)
+    } else {
+        log.Printf("Insufficient stock for order %s, product %s", command.OrderID, insufficientEvent.ProductID)
+    }
+
+    return command.OrderID, success, insufficientEvent, nil
 }

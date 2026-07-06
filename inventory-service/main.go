@@ -37,37 +37,35 @@ func main() {
     // Initialize services
     inventoryService := service.NewInventoryService(inventoryRepo)
 
-    kafkaConsumer, err := messaging.NewKafkaConsumer()
-    if err != nil {
-        log.Fatal("Failed to create Kafka consumer:", err)
-    }
-    defer kafkaConsumer.Stop()
-    
-    // Executar consumer em goroutine separada
-    go kafkaConsumer.StartConsuming(inventoryService)
-        
-    // Initialize RabbitMQ consumer
+    // Initialize RabbitMQ consumer (sole messaging transport, ADR-0007)
     rabbitMQ, err := messaging.NewRabbitMQConsumer()
     if err != nil {
-        log.Printf("Failed to connect to RabbitMQ: %v", err)
-        log.Println("Continuing without RabbitMQ...")
-    } else {
-        defer rabbitMQ.Close()
-
-        // Initialize Kafka producer
-        kafkaProducer, err := messaging.NewKafkaProducer()
-        if err != nil {
-            log.Printf("Failed to connect to Kafka: %v", err)
-            log.Println("Continuing without Kafka...")
-        } else {
-            defer kafkaProducer.Close()
-
-            // Start consuming messages
-            go rabbitMQ.ConsumeReserveStockCommands(inventoryService, kafkaProducer)
-
-            go rabbitMQ.ConsumeReleaseStockCommands(inventoryService)
-        }
+        log.Fatal("Failed to connect to RabbitMQ:", err)
     }
+    defer rabbitMQ.Close()
+
+    if err := rabbitMQ.SetupOrderExchange(); err != nil {
+        log.Fatal("Failed to set up order.exchange:", err)
+    }
+    if err := rabbitMQ.SetupProductExchange(); err != nil {
+        log.Fatal("Failed to set up product.exchange:", err)
+    }
+
+    // Outbox poller (ADR-0007): publishes stock.reserved/stock.insufficient
+    // events written atomically by ReserveStockForOrder.
+    outboxPublisher, err := rabbitMQ.StartOutboxPublisher(inventoryRepo)
+    if err != nil {
+        log.Fatal("Failed to start outbox publisher:", err)
+    }
+    defer outboxPublisher.Stop()
+
+    // Start consuming messages
+    go rabbitMQ.ConsumeReserveStockCommands(inventoryService)
+    go rabbitMQ.ConsumeReleaseStockCommands(inventoryService)
+
+    go rabbitMQ.ConsumeProductCreatedEvents(inventoryService)
+    go rabbitMQ.ConsumeProductUpdatedEvents(inventoryService)
+    go rabbitMQ.ConsumeProductDeletedEvents(inventoryService)
 
     // HTTP handlers
     http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

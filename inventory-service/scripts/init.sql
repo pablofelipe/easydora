@@ -25,3 +25,17 @@ CREATE INDEX IF NOT EXISTS idx_inventory_product_id ON inventory_schema.inventor
 
 CREATE INDEX IF NOT EXISTS idx_inventory_available ON inventory_schema.inventory(available);
 CREATE INDEX IF NOT EXISTS idx_inventory_deleted ON inventory_schema.inventory(deleted);
+
+-- Outbox pattern (ADR-0007): written atomically with the stock
+-- reservation transaction that produces it; published and marked by a
+-- separate poller. Mirrors auth-service's outbox_events table.
+CREATE TABLE IF NOT EXISTS inventory_schema.outbox_events (
+    id BIGSERIAL PRIMARY KEY,
+    exchange VARCHAR(200) NOT NULL,
+    routing_key VARCHAR(200) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at TIMESTAMP NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_events_unpublished ON inventory_schema.outbox_events(created_at) WHERE published_at IS NULL;
