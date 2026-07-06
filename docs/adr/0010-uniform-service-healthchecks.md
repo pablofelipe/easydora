@@ -64,8 +64,9 @@ Apply one consistent pattern across all six services:
   Deliberately **not** copying `orders-service`'s/`products-service`'s
   `.httpBasic(disable)`/`.formLogin(disable)`/JWT-filter wiring: those
   services replace Spring's default authentication with their own
-  `JwtAuthenticationFilter` fed by the cross-service JWT broadcast (see
-  CLAUDE.md's auth-cache architecture note); `billing-service` has never
+  `JwtAuthenticationFilter` fed by the cross-service JWT broadcast (each
+  service's own `JwtConsumer` + in-memory token cache, populated from
+  `auth-service`'s `JwtCreatedEvent` on `auth.exchange`); `billing-service` has never
   joined that broadcast (confirmed: no `JwtConsumer`/`JwtAuthenticationFilter`
   anywhere in the service). Building that integration is a separate, much
   larger task — out of scope here. This `SecurityConfig` only carves out
@@ -130,6 +131,7 @@ actually gates on orders-service being ready.
 - [ADR-0009](0009-billing-circuit-breaker.md) — where the port bug and its
   two follow-on discoveries (billing's missing SecurityConfig, orders'
   broken Compose override) were first found and logged.
-- CLAUDE.md's "Cross-service auth: broadcast JWT cache" section — why
-  billing-service's `SecurityConfig` deliberately doesn't mirror
-  orders/products' `httpBasic(disable)` pattern.
+- `orders-service`'s `JwtConsumer`/`JwtAuthenticationFilter` pair
+  (`src/main/java/com/easydora/orders/consumer/JwtConsumer.java` and its
+  `security` package) — the broadcast JWT cache pattern billing-service's
+  `SecurityConfig` deliberately doesn't mirror.
