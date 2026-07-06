@@ -39,6 +39,17 @@ One real flake surfaced and diagnosed during this verification, not a defect in 
 **Positive**: `mvn test` is now fast and hermetic across all four services — no live Postgres/RabbitMQ required, and it can't silently fail from infrastructure being down. `mvn verify` is the one command that runs everything, matching normal Maven/CI expectations. The `*IT` suffix is now a reliable, greppable signal for "this test needs real infrastructure," which the pre-existing `*IntegrationTest` naming was not consistently applied.
 - Not fixed here: this repository has no CI configured anywhere (per the README status line), so this split's main near-term benefit is local developer ergonomics, not an automated gate.
 
+## Update — 2026-07-06
+
+Etapa 5 of the Kafka-to-RabbitMQ migration ([ADR-0007](0007-remove-kafka-broker.md)) revisited three of the four `*IT` classes named above and replaced them with broker-agnostic behavior tests, validating the same outcomes without requiring live infrastructure to compile or pass:
+
+- `VerifyEmailOutboxIT` and `VerifyEmailOutboxHappyPathIT` (auth-service) → replaced by `VerifyEmailOutboxBehaviorTest`, which mocks `RabbitMQProducerService`/`OutboxEventRepository` directly.
+- `JwtCreatedFanoutIT` (orders-service) → replaced by `JwtCreatedFanoutBehaviorTest`, which calls `JwtConsumer`/`UserEventsConsumer` directly against mocked collaborators.
+
+`BillingServiceApplicationIT` is the only class from the original four still exercising real infrastructure. `mvn verify` in auth-service, orders-service and products-service now runs zero `*IT` classes, so `maven-failsafe-plugin` has been removed from those three services' `pom.xml`; it remains only in billing-service, where it's still load-bearing.
+
+This doesn't reverse the decision above — Surefire for unit tests, Failsafe for real-infrastructure integration tests is still the convention. It's a narrower scope reduction: this project currently has only one class in the second category, so only one service needs the plugin.
+
 ## References
 
 - ADR-0003 (outbox pattern for auth-service) and ADR-0005 (secret rotation) — introduced two of the four `*IT` classes renamed here.
