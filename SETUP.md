@@ -18,7 +18,7 @@ docker-compose up -d
 docker-compose ps
 ```
 
-This starts PostgreSQL (5432), RabbitMQ (5672, management UI on 15672), Kafka + Zookeeper, and the implemented application services. See the root `README.md` for the current per-service status.
+This starts PostgreSQL (5432), RabbitMQ (5672, management UI on 15672), and the implemented application services. See the root `README.md` for the current per-service status.
 
 To build/test an individual Spring Boot service locally:
 
