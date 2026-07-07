@@ -186,17 +186,28 @@ services:
       - easydora-network
 
   # Notification Service
-  #notification-service:
-  #  build: ./notification-service
-  #  container_name: notification-service
-  #  ports:
-  #    - "8086:8086"
-  #  environment:
-  #    - RABBITMQ_URL=amqp://admin:${RABBITMQ_PASSWORD}@rabbitmq:5672
-  #  depends_on:
-  #    - rabbitmq
-  #  networks:
-  #    - easydora-network
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "8086:8086"
+    environment:
+      - RABBITMQ_URL=amqp://admin:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=easydora
+      - DB_USER=admin
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - easydora-network
       
   # Frontend
   #frontend:
