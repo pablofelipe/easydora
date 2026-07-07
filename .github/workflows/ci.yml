@@ -141,3 +141,248 @@ jobs:
           RABBITMQ_HOST: localhost
           RABBITMQ_PASSWORD: local_dev_placeholder
         run: go test -tags=integration ./...
+
+  # Phase 3: cross-service e2e (ADR-0013). Unlike Phase 2 -- which runs each
+  # service's own test suite against a real broker/DB but always in
+  # isolation, one service per job -- this starts multiple real services as
+  # actual running processes against the *same* Postgres/RabbitMQ pair and
+  # drives the flow through their public HTTP APIs only, so the message a
+  # consumer reacts to is never hand-built, it's whatever the producing
+  # service's real code actually put on the wire. Gated on Phase 2 passing
+  # first for the same fail-fast reasoning ADR-0012 already applies.
+  e2e-catalog-onboarding:
+    name: catalog onboarding (cross-service e2e)
+    runs-on: ubuntu-latest
+    needs: [integration]
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: easydora
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: local_dev_placeholder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d easydora"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: admin
+          RABBITMQ_DEFAULT_PASS: local_dev_placeholder
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: inventory-service/go.sum
+
+      - name: package auth-service
+        working-directory: auth-service
+        run: mvn -DskipTests package
+      - name: package products-service
+        working-directory: products-service
+        run: mvn -DskipTests package
+      - name: build inventory-service
+        working-directory: inventory-service
+        run: go build -o inventory-service-bin .
+
+      - name: start auth-service
+        working-directory: auth-service
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+          JWT_SECRET: ci_pipeline_placeholder_secret_key_do_not_use_in_prod_env
+          APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/auth-service.log 2>&1 &
+      - name: start products-service
+        working-directory: products-service
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/products-service.log 2>&1 &
+      - name: start inventory-service
+        working-directory: inventory-service
+        env:
+          DB_HOST: localhost
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_HOST: localhost
+          RABBITMQ_PASSWORD: local_dev_placeholder
+        run: nohup ./inventory-service-bin > /tmp/inventory-service.log 2>&1 &
+
+      - name: wait for services to be healthy
+        run: |
+          for url in http://localhost:8081/health http://localhost:8082/health http://localhost:8083/health; do
+            for i in $(seq 1 60); do
+              if curl -sf "$url" > /dev/null; then
+                echo "$url is healthy"
+                break
+              fi
+              if [ "$i" -eq 60 ]; then
+                echo "$url never became healthy after 60s"
+                exit 1
+              fi
+              sleep 1
+            done
+          done
+
+      - name: run cross-service e2e tests
+        working-directory: e2e-tests
+        run: mvn test -Dtest=CatalogOnboardingE2ETest
+
+      - name: dump service logs on failure
+        if: failure()
+        run: |
+          echo "--- auth-service ---"; cat /tmp/auth-service.log || true
+          echo "--- products-service ---"; cat /tmp/products-service.log || true
+          echo "--- inventory-service ---"; cat /tmp/inventory-service.log || true
+
+  e2e-order-lifecycle:
+    name: order lifecycle (cross-service e2e)
+    runs-on: ubuntu-latest
+    needs: [integration]
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: easydora
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: local_dev_placeholder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d easydora"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: admin
+          RABBITMQ_DEFAULT_PASS: local_dev_placeholder
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: inventory-service/go.sum
+
+      - name: package auth-service
+        working-directory: auth-service
+        run: mvn -DskipTests package
+      - name: package orders-service
+        working-directory: orders-service
+        run: mvn -DskipTests package
+      - name: package billing-service
+        working-directory: billing-service
+        run: mvn -DskipTests package
+      - name: build inventory-service
+        working-directory: inventory-service
+        run: go build -o inventory-service-bin .
+
+      - name: start auth-service
+        working-directory: auth-service
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+          JWT_SECRET: ci_pipeline_placeholder_secret_key_do_not_use_in_prod_env
+          APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/auth-service.log 2>&1 &
+      - name: start orders-service
+        working-directory: orders-service
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/orders-service.log 2>&1 &
+      - name: start billing-service
+        working-directory: billing-service
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+          # billing-service has no JWT broadcast integration yet (ADR-0010) --
+          # its API still sits behind Spring Boot's default single-user Basic
+          # Auth, so this fixes that user's credentials to a known,
+          # non-secret placeholder instead of the randomly generated default,
+          # the same way every other credential in this pipeline is a fixed
+          # placeholder rather than a real secret.
+          SPRING_SECURITY_USER_NAME: admin
+          SPRING_SECURITY_USER_PASSWORD: local_dev_placeholder
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/billing-service.log 2>&1 &
+      - name: start inventory-service
+        working-directory: inventory-service
+        env:
+          DB_HOST: localhost
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_HOST: localhost
+          RABBITMQ_PASSWORD: local_dev_placeholder
+        run: nohup ./inventory-service-bin > /tmp/inventory-service.log 2>&1 &
+
+      - name: wait for services to be healthy
+        run: |
+          for url in http://localhost:8081/health http://localhost:8083/health http://localhost:8084/health http://localhost:8085/health; do
+            for i in $(seq 1 60); do
+              if curl -sf "$url" > /dev/null; then
+                echo "$url is healthy"
+                break
+              fi
+              if [ "$i" -eq 60 ]; then
+                echo "$url never became healthy after 60s"
+                exit 1
+              fi
+              sleep 1
+            done
+          done
+
+      - name: run cross-service e2e tests
+        working-directory: e2e-tests
+        run: mvn test -Dtest=OrderLifecycleE2ETest
+
+      - name: dump service logs on failure
+        if: failure()
+        run: |
+          echo "--- auth-service ---"; cat /tmp/auth-service.log || true
+          echo "--- orders-service ---"; cat /tmp/orders-service.log || true
+          echo "--- billing-service ---"; cat /tmp/billing-service.log || true
+          echo "--- inventory-service ---"; cat /tmp/inventory-service.log || true

@@ -84,6 +84,8 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0009](docs/adr/0009-billing-circuit-breaker.md) | Extend the API Gateway circuit breaker to billing-service | Accepted | Same structure as ADR-0006 (`sony/gobreaker`, 5 failures / 30s cooldown), applied to the one remaining entry left on the plain proxy. Closes ADR-0006's open Roadmap item. |
 | [0010](docs/adr/0010-uniform-service-healthchecks.md) | Uniform health checks across all six services | Accepted | Every Docker `HEALTHCHECK` now targets each service's own unauthenticated `/health` endpoint instead of `/actuator/health`; billing-service gained a `HealthController`/`SecurityConfig`; orders-service's broken `docker-compose.yml` override removed; auth-service/inventory-service/api-gateway gained a `HEALTHCHECK` they never had. All six services verified `healthy` simultaneously for the first time. |
 | [0011](docs/adr/0011-flyway-schema-authority-all-services.md) | Flyway as the single schema authority in every Spring Boot service | Accepted | Closes the gap ADR-0004 explicitly left open. `flyway-core` was silently missing from products-service and billing-service's `pom.xml`, making their Flyway config dead and letting `ddl-auto=update` author their entire live schema (with visible drift from what the migrations specify). billing-service gets its first real migration; all four services now baseline correctly and run with `ddl-auto=validate` everywhere. |
+| [0012](docs/adr/0012-ci-phase-2-real-infrastructure.md) | CI Phase 2 — real-infrastructure integration tests via service containers | Accepted | New `integration` job in CI, matrix of auth-service/orders-service/billing-service/inventory-service, each against its own fresh Postgres/RabbitMQ service-container pair. Restores three previously-removed `*IT` classes and adds new ones; every hop is tested from at most one side (producer or consumer), never both, and never across a real process boundary — see ADR-0013. |
+| [0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) | CI Phase 3 — cross-service end-to-end tests via real running processes | Accepted | Two named jobs that start multiple real services as actual processes against one shared Postgres/RabbitMQ pair, driving flows through public HTTP APIs only: `catalog-onboarding` (auth/products/inventory) and `order-lifecycle` (auth/orders/inventory/billing). Surfaced and fixed a real bug where billing-service's Basic Auth never actually worked (403 regardless of credentials). |
 
 ## Quick Start
 
@@ -130,11 +132,20 @@ The stack split is deliberate:
 
 - [ ] Notification service (FastAPI + RabbitMQ consumer)
 - [ ] SvelteKit frontend
-- [ ] End-to-end integration tests across the six implemented services
+- [x] End-to-end integration tests across the six implemented services — see
+      CI Phase 3 below (`catalog-onboarding` and `order-lifecycle` groups).
 - [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all six services, no service containers
 - [x] CI pipeline, Phase 2 (`.github/workflows/ci.yml`): wiring and Outbox
       integration tests against real Postgres/RabbitMQ service containers —
       see [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md).
+- [x] CI pipeline, Phase 3 (`.github/workflows/ci.yml`): cross-service
+      end-to-end tests that start multiple real services as actual running
+      processes against one shared Postgres/RabbitMQ pair and drive each
+      flow through public HTTP APIs only — `catalog-onboarding`
+      (auth-service, products-service, inventory-service) and
+      `order-lifecycle` (auth-service, orders-service, inventory-service,
+      billing-service) — see
+      [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md).
 - [x] inventory-service (Go): Outbox Pattern implemented for stock
       reservation — see [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
       `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
