@@ -8,15 +8,18 @@ suited to its workload, not for convenience — Go for performance-sensitive
 gateway/inventory paths, Spring Boot for domain-rich business logic,
 FastAPI for async notification processing.
 
-**Status: in active development.** Six of eight services are implemented and
-building (api-gateway, auth, products, inventory, orders, billing). Four of
-them (auth-service, orders-service, products-service, billing-service) have
-contract tests validating their event/message DTOs against JSON Schemas
-shared in `/schemas/json/`; inventory-service has eight unit tests, four of
-which cover its stock-reservation idempotency logic specifically, not the
-service broadly. Notification and frontend are empty scaffolds, not yet
-functional. See [Service Status](#service-status) below for the current
-breakdown.
+**Status: in active development.** Seven of eight services are implemented
+and building (api-gateway, auth, products, inventory, orders, billing,
+notification). Four of them (auth-service, orders-service, products-service,
+billing-service) have contract tests validating their event/message DTOs
+against JSON Schemas shared in `/schemas/json/`; inventory-service has eight
+unit tests, four of which cover its stock-reservation idempotency logic
+specifically, not the service broadly. notification-service consumes
+`order.created` via RabbitMQ, enriches it with a real HTTP call to
+auth-service, and persists an observable notification (no real email/SMS
+provider yet — see [ADR-0014](docs/adr/0014-notification-service.md)).
+Frontend is the only remaining empty scaffold. See
+[Service Status](#service-status) below for the current breakdown.
 
 ## Architecture
 
@@ -39,8 +42,7 @@ breakdown.
                     │  Billing  │         │Notification │
                     │  Spring   │         │  FastAPI +  │
                     │  Boot     │         │  RabbitMQ   │
-                    └───────────┘         │  (planned)  │
-                                           └─────────────┘
+                    └───────────┘         └─────────────┘
 
 Frontend (SvelteKit, planned) consumes the API Gateway.
 ```
@@ -58,7 +60,7 @@ each service independently deployable via Docker Compose.
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 8/8 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 8/8 — `mvn test` only, no `*IT`) |
 | Billing | Spring Boot | 8085 | Implemented (tests: 6/6 — `mvn test` 5/5 unit (contract test + `HealthControllerTest` + `PaymentServiceOrderCreatedBehaviorTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
-| Notification | FastAPI + RabbitMQ | 8086 | Planned (empty scaffold) |
+| Notification | FastAPI + RabbitMQ | 8086 | Implemented (tests: 2 domain unit tests + 2 real-infra integration tests against Postgres/RabbitMQ/auth-service — see [ADR-0014](docs/adr/0014-notification-service.md)) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
 "Implemented" means the service builds and runs; it does not imply full test coverage. Six services have real test source so far (see the table above); the paragraph below covers billing-service's history specifically, since it's where the original baseline audit's test-fixing work happened. billing-service has `BillingServiceApplicationIT` (a Spring Initializr default, renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), and its `mvn verify` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type.
@@ -86,6 +88,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0011](docs/adr/0011-flyway-schema-authority-all-services.md) | Flyway as the single schema authority in every Spring Boot service | Accepted | Closes the gap ADR-0004 explicitly left open. `flyway-core` was silently missing from products-service and billing-service's `pom.xml`, making their Flyway config dead and letting `ddl-auto=update` author their entire live schema (with visible drift from what the migrations specify). billing-service gets its first real migration; all four services now baseline correctly and run with `ddl-auto=validate` everywhere. |
 | [0012](docs/adr/0012-ci-phase-2-real-infrastructure.md) | CI Phase 2 — real-infrastructure integration tests via service containers | Accepted | New `integration` job in CI, matrix of auth-service/orders-service/billing-service/inventory-service, each against its own fresh Postgres/RabbitMQ service-container pair. Restores three previously-removed `*IT` classes and adds new ones; every hop is tested from at most one side (producer or consumer), never both, and never across a real process boundary — see ADR-0013. |
 | [0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) | CI Phase 3 — cross-service end-to-end tests via real running processes | Accepted | Two named jobs that start multiple real services as actual processes against one shared Postgres/RabbitMQ pair, driving flows through public HTTP APIs only: `catalog-onboarding` (auth/products/inventory) and `order-lifecycle` (auth/orders/inventory/billing). Surfaced and fixed a real bug where billing-service's Basic Auth never actually worked (403 regardless of credentials). |
+| [0014](docs/adr/0014-notification-service.md) | Notification Service — first Python/FastAPI service | Accepted | Consumes `order.created` via a new RabbitMQ queue, enriches it via a real HTTP call to a new minimal auth-service endpoint (`GET /users/{id}/notification-profile`), and persists an observable notification in a new `notification_schema` — no real email/SMS provider, one `FakeNotificationSender` implementation. Found (not fixed, currently latent) the same missing-`.httpBasic()` defect class ADR-0013 fixed in billing-service, this time in auth-service. |
 
 ## Quick Start
 
@@ -100,11 +103,10 @@ docker-compose up -d
 docker-compose ps
 ```
 
-The six implemented services (API Gateway, Auth, Products, Inventory,
-Orders, Billing) come up and respond on their ports above. Notification and
-the frontend are commented out in `docker-compose.yml` — no Dockerfile or
-source exists for either yet, unlike Billing, which is a real, working
-service.
+The seven implemented services (API Gateway, Auth, Products, Inventory,
+Orders, Billing, Notification) come up and respond on their ports above. The
+frontend is the only service still commented out in `docker-compose.yml` —
+no Dockerfile or source exists for it yet.
 
 ## Prerequisites
 
@@ -125,16 +127,24 @@ The stack split is deliberate:
   paths.
 - **Spring Boot** (Auth, Products, Orders, Billing) — domain-rich business
   logic where Java's ecosystem (validation, transactions, ORM) pays off.
-- **FastAPI** (Notification) — async I/O-bound processing.
+- **FastAPI** (Notification) — async I/O-bound processing (currently a
+  synchronous RabbitMQ consumer + HTTP client; see
+  [ADR-0014](docs/adr/0014-notification-service.md) for why sync was chosen
+  over `aio-pika`/asyncpg at this size).
 - **SvelteKit** (Frontend) — lightweight reactive UI.
 
 ## Roadmap
 
-- [ ] Notification service (FastAPI + RabbitMQ consumer)
+- [x] Notification service (FastAPI + RabbitMQ consumer): consumes
+      `order.created`, enriches via a real HTTP call to a new minimal
+      auth-service endpoint, persists an observable notification in a new
+      `notification_schema` — see
+      [ADR-0014](docs/adr/0014-notification-service.md).
 - [ ] SvelteKit frontend
-- [x] End-to-end integration tests across the six implemented services — see
-      CI Phase 3 below (`catalog-onboarding` and `order-lifecycle` groups).
-- [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all six services, no service containers
+- [x] End-to-end integration tests across the implemented services — see CI
+      Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and
+      `notification-flow` groups).
+- [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all seven services, no service containers
 - [x] CI pipeline, Phase 2 (`.github/workflows/ci.yml`): wiring and Outbox
       integration tests against real Postgres/RabbitMQ service containers —
       see [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md).
@@ -142,10 +152,12 @@ The stack split is deliberate:
       end-to-end tests that start multiple real services as actual running
       processes against one shared Postgres/RabbitMQ pair and drive each
       flow through public HTTP APIs only — `catalog-onboarding`
-      (auth-service, products-service, inventory-service) and
+      (auth-service, products-service, inventory-service),
       `order-lifecycle` (auth-service, orders-service, inventory-service,
       billing-service) — see
-      [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md).
+      [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) — and
+      `notification-flow` (auth-service, notification-service) — see
+      [ADR-0014](docs/adr/0014-notification-service.md).
 - [x] inventory-service (Go): Outbox Pattern implemented for stock
       reservation — see [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
       `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
@@ -156,21 +168,44 @@ The stack split is deliberate:
       idempotent (a separate, still-open concern — see below); it only
       guarantees the reservation outcome is never silently lost once
       committed.
-- [ ] auth/products/orders/billing (Spring): no retry limit/backoff/DLQ on
-      RabbitMQ message consumption. Verified there's no synchronous
-      inter-service HTTP call anywhere (no RestTemplate/WebClient/
-      FeignClient in any of the four services) — the real gap isn't a
-      circuit breaker for calls that don't exist, it's on the consumer
-      side: `SimpleRabbitListenerContainerFactory` in products-service,
-      orders-service, and billing-service is built with no
+- [ ] auth/products/orders/billing (Spring) and notification (Python): no
+      retry limit/backoff/DLQ on RabbitMQ message consumption. Verified
+      there's no synchronous inter-service HTTP call anywhere among the four
+      Spring services (no RestTemplate/WebClient/FeignClient) —
+      notification-service is the one deliberate exception, calling
+      auth-service's public API by design (ADR-0014). The real gap isn't a
+      circuit breaker for calls that mostly don't exist, it's on the
+      consumer side: `SimpleRabbitListenerContainerFactory` in
+      products-service, orders-service, and billing-service is built with no
       `AcknowledgeMode`, `MessageRecoverer`, or requeue policy set, so it
       runs on Spring AMQP's defaults — a listener exception nacks and
       requeues the message indefinitely (`defaultRequeueRejected=true`),
-      with no dead-letter queue and no backoff. A poison message (one that
-      always throws) loops forever instead of landing somewhere for
-      inspection. Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or
-      a dead-letter exchange with limited retries. Blocked by
-      prioritization, not a technical dependency.
+      with no dead-letter queue and no backoff. notification-service's own
+      `pika` consumer has the equivalent gap by a different mechanism: it
+      always acks, even on failure, so a poison message is logged once and
+      dropped rather than retried forever — a different failure mode
+      (silent loss vs. infinite loop) but the same missing capability
+      (retry/backoff/DLQ). A poison message in any of the four Spring
+      services loops forever instead of landing somewhere for inspection.
+      Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or a
+      dead-letter exchange with limited retries for the Spring side; a dead
+      letter queue for notification-service. Blocked by prioritization, not
+      a technical dependency.
+- [ ] notification-service has no versioned migration tool (no Alembic
+      equivalent to Flyway) — `scripts/init.sql` is idempotent but not
+      versioned, matching inventory-service's (Go) level of simplicity, not
+      the four Spring services'. Acceptable for a single-table schema today;
+      revisit if the schema grows. See [ADR-0014](docs/adr/0014-notification-service.md).
+- [ ] auth-service's `SecurityConfig` builds a custom `SecurityFilterChain`
+      with `anyRequest().authenticated()` but never calls `.httpBasic(...)`
+      (or any other auth mechanism) — the same defect class ADR-0013 found
+      and fixed in billing-service. Currently latent: every existing
+      auth-service endpoint (including the new
+      `/users/{id}/notification-profile`) is already `permitAll()`-ed, so
+      nothing falls through to the authenticated fallback yet. Found while
+      wiring ADR-0014's new endpoint; deliberately left unfixed as outside
+      that task's scope — will misbehave exactly like billing-service did
+      the day a genuinely protected endpoint is added to this service.
 - [x] api-gateway: billing-service now has a circuit breaker like every
       other implemented entry — see ADR-0009 (closes the gap ADR-0006 left
       open).
