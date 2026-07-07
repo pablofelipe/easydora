@@ -37,6 +37,11 @@ target/
 *.ear
 *.exe
 
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Database
 *.db
 *.sqlite

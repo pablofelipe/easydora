@@ -1,0 +1,160 @@
+import json
+import threading
+import time
+import uuid
+
+import psycopg2
+import pytest
+
+from app.auth_client import AuthServiceClient
+from app.config import load_settings
+from app.rabbitmq import (
+    ORDER_CREATED_ROUTING_KEY,
+    ORDER_EXCHANGE,
+    connect,
+    consume_forever,
+    declare_topology,
+)
+from app.repository import NotificationRepository
+from app.schema import ensure_schema
+from app.sender import FakeNotificationSender
+
+pytestmark = pytest.mark.integration
+
+settings = load_settings()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _schema():
+    # Normally created by main.py's own startup; this test drives the
+    # consumer functions directly rather than through a running app
+    # process, so it ensures the schema itself the same way.
+    ensure_schema(settings.db_dsn)
+
+
+def _seed_user(email: str, first_name: str, last_name: str) -> int:
+    """Not the flow under test -- a real signup would work too, but the
+    thing this test exists to prove is notification-service's own
+    consumption + HTTP enrichment + persistence, not auth-service's signup
+    endpoint (already covered elsewhere). Seeding the row directly mirrors
+    the same convention this project's other cross-service e2e tests
+    already use for prerequisite state.
+    """
+    with psycopg2.connect(settings.db_dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO auth_schema.users
+                    (email, password_hash, first_name, last_name, role, status, email_verified)
+                VALUES (%s, 'not-a-real-hash', %s, %s, 'BUYER', 'ACTIVE', true)
+                RETURNING id
+                """,
+                (email, first_name, last_name),
+            )
+            user_id = cur.fetchone()[0]
+    return user_id
+
+
+def _await_notification(order_id: str, timeout_seconds: float = 10.0):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        with psycopg2.connect(settings.db_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT status, payload FROM notification_schema.notifications
+                    WHERE aggregate_id = %s
+                    """,
+                    (order_id,),
+                )
+                row = cur.fetchone()
+                if row:
+                    return row
+        time.sleep(0.25)
+    return None
+
+
+def _start_consumer(auth_client, sender) -> threading.Event:
+    """Runs connect + declare_topology + consume_forever entirely on one
+    thread -- pika's BlockingConnection is not safe to touch from a thread
+    other than the one that created it. The ready_event lets the caller
+    wait on a real condition (the queue is bound) instead of guessing with
+    a sleep, avoiding the exact publish-before-queue-exists race this
+    project's Go wiring tests already hit once (ADR-0012).
+    """
+    ready = threading.Event()
+
+    def _run():
+        _connection, channel = connect(settings.rabbitmq_url)
+        declare_topology(channel)
+        ready.set()
+        consume_forever(channel, auth_client, sender)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return ready
+
+
+def test_order_created_event_produces_a_sent_notification():
+    order_id = f"it-{uuid.uuid4()}"
+    email = f"buyer-{uuid.uuid4()}@example.com"
+    user_id = _seed_user(email, "Casey", "Buyer")
+
+    auth_client = AuthServiceClient(settings.auth_service_url)
+    repository = NotificationRepository(settings.db_dsn)
+    sender = FakeNotificationSender(repository)
+
+    ready = _start_consumer(auth_client, sender)
+    assert ready.wait(timeout=10), "consumer never finished declaring its queue"
+
+    _pub_connection, pub_channel = connect(settings.rabbitmq_url)
+    event = {
+        "orderId": order_id,
+        "userId": user_id,
+        "totalAmount": 42.50,
+        "items": [{"productId": "p1", "quantity": 1, "unitPrice": 42.50}],
+        "createdAt": "2026-07-07T10:00:00",
+    }
+    pub_channel.basic_publish(
+        exchange=ORDER_EXCHANGE,
+        routing_key=ORDER_CREATED_ROUTING_KEY,
+        body=json.dumps(event),
+    )
+
+    row = _await_notification(order_id)
+    assert row is not None, f"expected a notification row for order {order_id}"
+    status, payload = row
+    assert status == "SENT"
+    assert payload["email"] == email
+    assert payload["userId"] == user_id
+
+
+def test_order_created_event_for_unknown_user_produces_a_failed_notification():
+    order_id = f"it-{uuid.uuid4()}"
+    unknown_user_id = 999_999_999
+
+    auth_client = AuthServiceClient(settings.auth_service_url)
+    repository = NotificationRepository(settings.db_dsn)
+    sender = FakeNotificationSender(repository)
+
+    ready = _start_consumer(auth_client, sender)
+    assert ready.wait(timeout=10), "consumer never finished declaring its queue"
+
+    _pub_connection, pub_channel = connect(settings.rabbitmq_url)
+    event = {
+        "orderId": order_id,
+        "userId": unknown_user_id,
+        "totalAmount": 10.0,
+        "items": [],
+        "createdAt": "2026-07-07T10:00:00",
+    }
+    pub_channel.basic_publish(
+        exchange=ORDER_EXCHANGE,
+        routing_key=ORDER_CREATED_ROUTING_KEY,
+        body=json.dumps(event),
+    )
+
+    row = _await_notification(order_id)
+    assert row is not None, f"expected a notification row for order {order_id}"
+    status, payload = row
+    assert status == "FAILED"
+    assert str(unknown_user_id) in payload["error"] or "not found" in payload["error"].lower()
