@@ -16,7 +16,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email").permitAll()
+                .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email", "/users/*/notification-profile").permitAll()
                 .anyRequest().authenticated()
             )
             .csrf(csrf -> csrf.disable());
