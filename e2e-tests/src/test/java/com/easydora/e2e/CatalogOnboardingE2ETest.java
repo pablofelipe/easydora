@@ -40,7 +40,12 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
     void sellerOnboardingFlowsThroughAuthProductsAndInventory() throws Exception {
         String suffix = UUID.randomUUID().toString();
         String email = "seller-" + suffix + "@example.com";
-        String password = "Sup3rSecret!";
+        // Generated per run from the same suffix as the email -- not a
+        // credential worth protecting (it only ever authenticates this
+        // run's throwaway user, in an ephemeral Postgres/RabbitMQ pair torn
+        // down at the end of the job), and a fixed literal here reads to
+        // secret scanners as a real password even though it isn't one.
+        String password = "Pwd-" + suffix;
 
         // --- Auth -> Products: signup publishes a real UserRegisteredEvent ---
         Map<String, Object> signupBody = Map.of(
