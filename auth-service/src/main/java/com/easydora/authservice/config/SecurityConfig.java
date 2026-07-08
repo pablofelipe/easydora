@@ -1,6 +1,7 @@
 package com.easydora.authservice.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,8 +20,14 @@ public class SecurityConfig {
                 .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email", "/users/*/notification-profile").permitAll()
                 .anyRequest().authenticated()
             )
-            .csrf(csrf -> csrf.disable());
-            
+            .csrf(csrf -> csrf.disable())
+            // Building a custom SecurityFilterChain bean opts out of Spring
+            // Boot's automatic HTTP Basic setup -- without this, there is no
+            // authentication mechanism wired up at all, so every request
+            // past the permitAll list gets a blanket 403 regardless of
+            // whether credentials are present, correct, or wrong.
+            .httpBasic(Customizer.withDefaults());
+
         return http.build();
     }
 
