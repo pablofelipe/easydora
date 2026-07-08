@@ -91,6 +91,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0014](docs/adr/0014-notification-service.md) | Notification Service — first Python/FastAPI service | Accepted | Consumes `order.created` via a new RabbitMQ queue, enriches it via a real HTTP call to a new minimal auth-service endpoint (`GET /users/{id}/notification-profile`), and persists an observable notification in a new `notification_schema` — no real email/SMS provider, one `FakeNotificationSender` implementation. Found (not fixed, currently latent) the same missing-`.httpBasic()` defect class ADR-0013 fixed in billing-service, this time in auth-service. |
 | [0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md) | billing-service joins the JWT broadcast pattern; auth-service's latent `.httpBasic()` gap fixed | Accepted | auth-service gets the same one-line `.httpBasic()` fix ADR-0013 applied to billing-service (currently unexercised, since every auth-service endpoint is `permitAll()`). billing-service was the only service protected solely by Spring Boot's default Basic Auth; it now authenticates via the same Bearer JWT broadcast cache already used by products-service and orders-service (auth-service is the producer of that broadcast, not a consumer of it). New `JwtConsumerBehaviorTest`/`PaymentControllerSecurityTest`/`BillingJwtCreatedWiringIT` give this mechanism real regression coverage for the first time. |
 | [0016](docs/adr/0016-shared-spring-parent-pom.md) | Shared Maven parent POM for the four Spring Boot services | Accepted | New root `pom.xml` (inheritance only, no reactor) standardizes all four services on Spring Boot 3.2.12 (previously split 3.2.0/3.2.12) and centralizes every dependency/plugin that was identical across all four by hand. Required changing Docker's build context to the repository root for all four services so the parent resolves inside each build. |
+| [0017](docs/adr/0017-notification-service-startup-resilience.md) | notification-service survives a slow/restarting RabbitMQ and Postgres | Accepted | Found while validating the end-to-end walkthrough against a real, freshly-started stack: the RabbitMQ consumer thread made exactly one connection attempt and died silently on a real startup race, leaving the container "healthy" but permanently unable to process any event. Both the RabbitMQ consumer and the Postgres schema-init step now retry instead of giving up. |
 
 ## Quick Start
 
@@ -109,6 +110,11 @@ The seven implemented services (API Gateway, Auth, Products, Inventory,
 Orders, Billing, Notification) come up and respond on their ports above. The
 frontend is the only service still commented out in `docker-compose.yml` —
 no Dockerfile or source exists for it yet.
+
+For a full, reproducible business-flow walkthrough (signup → product →
+order → stock reservation → payment → notification), driven entirely by
+`curl` against each service's public API with real request/response
+examples, see [docs/walkthrough.md](docs/walkthrough.md).
 
 ## Prerequisites
 
@@ -193,6 +199,13 @@ The stack split is deliberate:
       dead-letter exchange with limited retries for the Spring side; a dead
       letter queue for notification-service. Blocked by prioritization, not
       a technical dependency.
+- [x] notification-service's RabbitMQ consumer and Postgres schema-init
+      step now both retry a failed initial connection instead of dying
+      silently — found as a real, blocking defect while validating the
+      end-to-end walkthrough against a real freshly-started stack, see
+      [ADR-0017](docs/adr/0017-notification-service-startup-resilience.md).
+      Distinct from the per-message retry/DLQ gap above: this was about
+      the consumer never even getting a chance to process *any* message.
 - [ ] notification-service has no versioned migration tool (no Alembic
       equivalent to Flyway) — `scripts/init.sql` is idempotent but not
       versioned, matching inventory-service's (Go) level of simplicity, not
@@ -233,6 +246,23 @@ The stack split is deliberate:
       standardized all four on Spring Boot 3.2.12 (previously split
       3.2.0/3.2.12) and required moving Docker's build context to the
       repository root for these four services.
+- [ ] `inventory-service/internal/handlers/http_handlers.go` (an
+      `InventoryHandler` struct built on gin) is dead code — `main.go`
+      registers its actual `/inventory` and `/inventory/{productId}`
+      routes with plain `net/http.HandleFunc` directly and never
+      references this struct at all. Found while writing
+      [docs/walkthrough.md](docs/walkthrough.md); doesn't affect behavior
+      (main.go's real handlers work correctly), so left alone rather than
+      removed outside that task's scope. Candidate for a future cleanup
+      pass: either delete the file or migrate main.go's routing to use it.
+- [ ] notification-service has no public API to inspect a persisted
+      notification (only `GET /health`) — confirming step 9 of
+      [docs/walkthrough.md](docs/walkthrough.md) requires an optional
+      direct Postgres query, the one step in that walkthrough that isn't
+      driven by a public API. A minimal read endpoint (e.g.
+      `GET /notifications/{orderId}`) would close this, mirroring the
+      same "smallest endpoint for the use case" principle ADR-0014 already
+      applied to auth-service's `notification-profile` endpoint.
 
 ## Docker Troubleshooting (Windows)
 
