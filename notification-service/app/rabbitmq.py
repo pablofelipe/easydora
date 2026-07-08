@@ -1,11 +1,14 @@
 import json
 import logging
+import time
 
 import pika
 
 from app.consumer import process_order_created
 
 logger = logging.getLogger(__name__)
+
+RECONNECT_DELAY_SECONDS = 5
 
 # Must match orders-service's real producer exactly (see
 # orders-service/src/main/java/com/easydora/orders/config/RabbitMQConfig.java
@@ -54,6 +57,25 @@ def consume_forever(channel, auth_client, sender) -> None:
 
 
 def run_consumer(rabbitmq_url: str, auth_client, sender) -> None:
-    _connection, channel = connect(rabbitmq_url)
-    declare_topology(channel)
-    consume_forever(channel, auth_client, sender)
+    """Runs connect + declare_topology + consume_forever in a loop that
+    never gives up permanently. This is a daemon thread with no supervisor:
+    a container can start before RabbitMQ is fully ready to accept
+    connections despite docker-compose's own healthcheck-based ordering,
+    and the original single-attempt version died silently on that race --
+    the container's HEALTHCHECK only covers FastAPI's own /health, which
+    has nothing to do with this thread, so nothing else would ever notice
+    the consumer was permanently dead. A later broker restart mid-run
+    would kill this thread the same way. Every failure, at startup or
+    mid-run, is logged and retried after a fixed delay instead.
+    """
+    while True:
+        try:
+            _connection, channel = connect(rabbitmq_url)
+            declare_topology(channel)
+            consume_forever(channel, auth_client, sender)
+        except Exception:
+            logger.exception(
+                "RabbitMQ connection lost or unavailable; retrying in %ss",
+                RECONNECT_DELAY_SECONDS,
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
