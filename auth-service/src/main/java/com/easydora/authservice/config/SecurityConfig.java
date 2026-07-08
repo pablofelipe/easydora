@@ -1,7 +1,6 @@
 package com.easydora.authservice.config;
 
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,15 +17,17 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email", "/users/*/notification-profile").permitAll()
-                .anyRequest().authenticated()
+                // auth-service has no protected endpoint of its own today --
+                // it's the producer of the cross-service JWT broadcast, not
+                // a consumer of it, so there is no authentication mechanism
+                // to wire up here. denyAll() rejects anything outside the
+                // permitAll list explicitly and unconditionally, instead of
+                // authenticated(), which would silently depend on an auth
+                // mechanism (e.g. .httpBasic()) that doesn't actually match
+                // how this project protects anything else.
+                .anyRequest().denyAll()
             )
-            .csrf(csrf -> csrf.disable())
-            // Building a custom SecurityFilterChain bean opts out of Spring
-            // Boot's automatic HTTP Basic setup -- without this, there is no
-            // authentication mechanism wired up at all, so every request
-            // past the permitAll list gets a blanket 403 regardless of
-            // whether credentials are present, correct, or wrong.
-            .httpBasic(Customizer.withDefaults());
+            .csrf(csrf -> csrf.disable());
 
         return http.build();
     }
