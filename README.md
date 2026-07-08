@@ -2,11 +2,17 @@
 
 [![CI](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml/badge.svg)](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml)
 
-A polyglot, event-driven e-commerce system built as a microservices
-architecture exercise: each service is implemented in the language/stack
-suited to its workload, not for convenience — Go for performance-sensitive
-gateway/inventory paths, Spring Boot for domain-rich business logic,
-FastAPI for async notification processing.
+## Overview
+
+EasyDora is a microservices-based e-commerce platform that demonstrates how
+to build an end-to-end distributed business flow using event-driven
+architecture, RabbitMQ, the Outbox Pattern, contract testing, and continuous
+integration.
+
+Each service is implemented in the language/stack suited to its workload,
+not for convenience — Go for performance-sensitive gateway/inventory paths,
+Spring Boot for domain-rich business logic, FastAPI for async notification
+processing.
 
 **Status: in active development.** Seven of eight services are implemented
 and building (api-gateway, auth, products, inventory, orders, billing,
@@ -19,7 +25,90 @@ specifically, not the service broadly. notification-service consumes
 auth-service, and persists an observable notification (no real email/SMS
 provider yet — see [ADR-0014](docs/adr/0014-notification-service.md)).
 Frontend is the only remaining empty scaffold. See
-[Service Status](#service-status) below for the current breakdown.
+[Service Status](#service-status) for the current breakdown.
+
+## What This Project Demonstrates
+
+- **Event-driven architecture on RabbitMQ** — every cross-service
+  interaction (user lifecycle, product catalog, order/stock/payment/
+  notification) flows through topic exchanges instead of synchronous
+  calls. See [Architecture](#architecture) and
+  [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
+- **Outbox Pattern** — auth-service and inventory-service write their
+  outbound event in the same database transaction as the state change that
+  triggers it, so an event is never silently lost on a crash between
+  commit and publish. See
+  [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md) and
+  [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
+- **Contract testing** — event/message DTOs are validated against
+  versioned JSON Schemas so producer/consumer drift is caught
+  automatically instead of discovered in production. See
+  [ADR-0002](docs/adr/0002-json-schema-contract-testing.md).
+- **Cross-service JWT broadcast authentication** — auth-service issues the
+  token once; every other service builds its own in-memory cache from a
+  broadcast event instead of re-verifying signatures locally. See
+  [Design notes](#design-notes).
+- **Circuit breaker at the API Gateway** — outbound proxy calls fail fast
+  instead of piling up when a downstream service is down. See
+  [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md) and
+  [ADR-0009](docs/adr/0009-billing-circuit-breaker.md).
+- **Three-phase CI**: unit tests with no infrastructure (Phase 1),
+  integration tests against real Postgres/RabbitMQ service containers
+  (Phase 2), and cross-service end-to-end tests driven through public HTTP
+  APIs against real running processes (Phase 3). See
+  [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md) and
+  [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md).
+- **A polyglot stack matched to workload**, not convenience — Go, Spring
+  Boot, and FastAPI each doing the job they're best suited for. See
+  [Design notes](#design-notes).
+- **A fully reproducible, real-command business flow** — signup through
+  order, stock reservation, payment, and notification — documented and
+  validated against real containers. See the
+  [walkthrough](docs/walkthrough.md) and
+  [sequence diagram](docs/sequence-diagram.md).
+
+## Quick Start
+
+**Prerequisites**: Docker Desktop (Windows/Mac) or Docker Engine (Linux),
+Docker Compose, Git.
+
+```bash
+docker --version
+docker-compose --version
+```
+
+```bash
+git clone <repo-url>
+cd easydora
+
+# Start all implemented services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+```
+
+The seven implemented services (API Gateway, Auth, Products, Inventory,
+Orders, Billing, Notification) come up and respond on their ports (see
+[Service Status](#service-status) for the full port list). The frontend is
+the only service still commented out in `docker-compose.yml` — no
+Dockerfile or source exists for it yet.
+
+For a full, reproducible business-flow walkthrough (signup → product →
+order → stock reservation → payment → notification), driven entirely by
+`curl` against each service's public API with real request/response
+examples, see [docs/walkthrough.md](docs/walkthrough.md). For the same flow
+as a Mermaid sequence diagram, see
+[docs/sequence-diagram.md](docs/sequence-diagram.md).
+
+### Troubleshooting (Windows)
+
+If `docker-compose` fails to connect:
+
+1. Open Docker Desktop and wait for "Docker Desktop is running".
+2. Verify with `docker version`.
+3. If `docker-compose` doesn't work, try `docker compose` (no hyphen).
+4. If issues persist, restart Docker Desktop via its system tray icon.
 
 ## Architecture
 
@@ -50,6 +139,20 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 Async order flow via RabbitMQ; JWT-based cross-service authentication;
 each service independently deployable via Docker Compose.
 
+## Documentation
+
+- [Architecture Decision Records](#architecture-decision-records) — 17
+  ADRs, one per architectural decision made along the way, in chronological
+  order.
+- [End-to-end walkthrough](docs/walkthrough.md) — the full business flow
+  driven entirely by `curl`, with real requests/responses from an actual
+  run.
+- [Sequence diagram](docs/sequence-diagram.md) — the same flow as a
+  Mermaid diagram.
+- [Design notes](#design-notes) — why each service uses the stack it uses.
+- [Service Status](#service-status) — per-service ports, stack, and test
+  coverage.
+
 ## Service Status
 
 | Service | Stack | Port | Status |
@@ -70,6 +173,20 @@ Event contracts validated via JSON Schema — see [ADR-0002](docs/adr/0002-json-
 inventory-service has four unit tests covering `ReserveStock`'s idempotency, and two known duplication scenarios around it. A redelivered `ReserveStockCommand` for the same order (the retry scenario that follows a consumer crash or dropped connection between the Postgres commit and the Ack) previously reserved stock a second time; the service now caches the outcome per `OrderID` for 10 minutes and returns it on retry instead of reserving again, with a background sweep so the cache doesn't grow unbounded with order volume. That 10-minute window covers short-lived retries — an immediate RabbitMQ requeue, or the consumer's own reconnect loop, which backs off for at most 30s — with margin for a full container restart during a redeploy. Two truly concurrent redeliveries of the same order (not sequential retries — actual simultaneous calls) used to both slip past the cache check before either had written its result back, double-reserving; that race is now closed by serializing `ReserveStock` per `OrderID` (a fixed-size striped mutex, not a second unbounded map), verified by a 50-goroutine concurrency test and by `go test -race` (run in a Linux container, since this environment's native Windows Go toolchain has no cgo/gcc for the race detector) reporting no data races. What remains open, deliberately not fixed here: a redelivery that arrives *after* the 10-minute cache entry has expired — e.g. a message reprocessed late from a dead-letter queue — is indistinguishable from a first delivery and will still duplicate the reservation (verified by a test, not assumed). The cache is also in-memory and per-process, so a service restart clears it outright. The Outbox Pattern added as part of ADR-0007 closes a different gap (the reservation outcome event is never lost once a reservation commits); it doesn't make message redelivery itself idempotent, so this residual gap remains open — closing it for good would need message-level deduplication (e.g. a processed-message-id table), not a bigger TTL. CI (Phase 1: build/vet/unit-test only, no service containers) is configured — see the badge above and `.github/workflows/ci.yml`; Phase 2 (contract/wiring tests against real brokers) is future work.
 
 Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
+
+## Design notes
+
+The stack split is deliberate:
+
+- **Go** (Gateway, Inventory) — performance-sensitive, high-throughput
+  paths.
+- **Spring Boot** (Auth, Products, Orders, Billing) — domain-rich business
+  logic where Java's ecosystem (validation, transactions, ORM) pays off.
+- **FastAPI** (Notification) — async I/O-bound processing (currently a
+  synchronous RabbitMQ consumer + HTTP client; see
+  [ADR-0014](docs/adr/0014-notification-service.md) for why sync was chosen
+  over `aio-pika`/asyncpg at this size).
+- **SvelteKit** (Frontend) — lightweight reactive UI.
 
 ## Architecture Decision Records
 
@@ -93,57 +210,10 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0016](docs/adr/0016-shared-spring-parent-pom.md) | Shared Maven parent POM for the four Spring Boot services | Accepted | New root `pom.xml` (inheritance only, no reactor) standardizes all four services on Spring Boot 3.2.12 (previously split 3.2.0/3.2.12) and centralizes every dependency/plugin that was identical across all four by hand. Required changing Docker's build context to the repository root for all four services so the parent resolves inside each build. |
 | [0017](docs/adr/0017-notification-service-startup-resilience.md) | notification-service survives a slow/restarting RabbitMQ and Postgres | Accepted | Found while validating the end-to-end walkthrough against a real, freshly-started stack: the RabbitMQ consumer thread made exactly one connection attempt and died silently on a real startup race, leaving the container "healthy" but permanently unable to process any event. Both the RabbitMQ consumer and the Postgres schema-init step now retry instead of giving up. |
 
-## Quick Start
-
-```bash
-git clone <repo-url>
-cd easydora
-
-# Start all implemented services
-docker-compose up -d
-
-# Check status
-docker-compose ps
-```
-
-The seven implemented services (API Gateway, Auth, Products, Inventory,
-Orders, Billing, Notification) come up and respond on their ports above. The
-frontend is the only service still commented out in `docker-compose.yml` —
-no Dockerfile or source exists for it yet.
-
-For a full, reproducible business-flow walkthrough (signup → product →
-order → stock reservation → payment → notification), driven entirely by
-`curl` against each service's public API with real request/response
-examples, see [docs/walkthrough.md](docs/walkthrough.md). For the same flow
-as a Mermaid sequence diagram, see
-[docs/sequence-diagram.md](docs/sequence-diagram.md).
-
-## Prerequisites
-
-- Docker Desktop (Windows/Mac) or Docker Engine (Linux)
-- Docker Compose
-- Git
-
-```bash
-docker --version
-docker-compose --version
-```
-
-## Design notes
-
-The stack split is deliberate:
-
-- **Go** (Gateway, Inventory) — performance-sensitive, high-throughput
-  paths.
-- **Spring Boot** (Auth, Products, Orders, Billing) — domain-rich business
-  logic where Java's ecosystem (validation, transactions, ORM) pays off.
-- **FastAPI** (Notification) — async I/O-bound processing (currently a
-  synchronous RabbitMQ consumer + HTTP client; see
-  [ADR-0014](docs/adr/0014-notification-service.md) for why sync was chosen
-  over `aio-pika`/asyncpg at this size).
-- **SvelteKit** (Frontend) — lightweight reactive UI.
-
 ## Roadmap
+
+<details>
+<summary>Click to expand — closed items marked <code>[x]</code>, open items <code>[ ]</code></summary>
 
 - [x] Notification service (FastAPI + RabbitMQ consumer): consumes
       `order.created`, enriches via a real HTTP call to a new minimal
@@ -266,11 +336,4 @@ The stack split is deliberate:
       same "smallest endpoint for the use case" principle ADR-0014 already
       applied to auth-service's `notification-profile` endpoint.
 
-## Docker Troubleshooting (Windows)
-
-If `docker-compose` fails to connect:
-
-1. Open Docker Desktop and wait for "Docker Desktop is running".
-2. Verify with `docker version`.
-3. If `docker-compose` doesn't work, try `docker compose` (no hyphen).
-4. If issues persist, restart Docker Desktop via its system tray icon.
+</details>
