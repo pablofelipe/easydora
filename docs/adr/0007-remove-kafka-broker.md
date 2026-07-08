@@ -82,9 +82,10 @@ already independently declared by both orders-service (Java) and
 inventory-service (Go).
 
 `order-status-changed` keeps its current status: published, with zero
-consumers. Moving its transport doesn't resolve that open design question
-from ADR-0001 — it remains a pending decision, not something this ADR
-settles.
+consumers. Moving its transport doesn't resolve that gap from ADR-0001 —
+implementing a consumer stays out of this ADR's scope. (See ADR-0001's
+Update and the README Roadmap for the intended consumer and current
+status.)
 
 JSON Schema (ADR-0002) remains the single authority for event/command
 contracts, unchanged: schema validation is transport-agnostic, so switching
@@ -181,3 +182,18 @@ test suite. Two deviations from the plan worth recording:
 and products-service, once zero `*IT` classes remained in any of the
 three — an adjacent cleanup, not part of this decision; see
 [ADR-0008](0008-surefire-failsafe-test-split.md)'s own update.
+
+## References
+
+- [Architectural Principles](../architecture/architectural-principles.md)
+  — this ADR's primary driver (context shifted from demonstrating
+  messaging-technology coexistence to demonstrating architectural
+  patterns) is the clearest instance of principles #2 ("a component must
+  earn its place") and #3 ("remove complexity that doesn't add
+  architectural value"); the migration itself follows #6 (no hybrid
+  broker state) and #7 (staged, verified rollout).
+- ADR-0001 (messaging wiring audit) — the wiring bugs and the
+  competing-consumer incident this migration's target topology
+  (`auth.exchange`/`order.exchange`) already had to handle correctly.
+- ADR-0003 (Outbox pattern for auth-service) — the atomicity guarantee
+  this migration's Go-side Outbox mirrors.

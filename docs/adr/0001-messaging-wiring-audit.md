@@ -58,7 +58,15 @@ RabbitMQ's competing-consumers semantics mean every individual `jwt.created` mes
 
 **Pending — not resolved by this ADR**: `OrderStatusChangedEvent` (Kafka topic `order-status-changed`) is published at several points in the order lifecycle with no consumer anywhere in the repository. This is published ahead of the order lifecycle with no consumer defined yet — a pending design decision on whether notification-service (currently empty) or another service should consume it, not an oversight. No action was taken on it as part of this audit; it is tracked here for whoever makes that call.
 
+## Update — 2026-07-08
+
+notification-service ([ADR-0014](0014-notification-service.md)) has since been implemented — no longer the speculative "currently empty" candidate this ADR named above. Its designated future consumer is now settled: `notification-service` is the intended consumer of `order.status-changed`, the same way it already consumes `order.created` today. Implementation status and tracking belong in the README Roadmap, not here — this Update only records that the destination question this ADR left open is decided.
+
 ## References
 
 - ADR-0002 (JSON Schema contract testing) — the audit that led to this one.
 - Baseline audit (2026-07-03 entry in this repo's history) — original catalogue of architectural debt (no outbox pattern, no circuit breaker/retry, no contract testing), which this ADR and ADR-0002 both partially address.
+- [Architectural Principles](../architecture/architectural-principles.md)
+  — every finding here was reproduced against a live broker before being
+  called a bug (principle #8, evidence over assumption); finding 5's
+  removal of `PaymentEventProducer` follows principle #5 (avoid dead code).

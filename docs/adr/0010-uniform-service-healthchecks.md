@@ -118,8 +118,14 @@ actually gates on orders-service being ready.
 **Negative / residual**:
 - `billing-service` still has no JWT integration — its real API
   (`/api/payments/**`) is protected only by Spring Boot's default
-  single-generated-user Basic auth, unlike its three sibling services. Not
-  addressed here; a separate, larger task.
+  single-generated-user Basic auth. `auth-service` is the emitter of the
+  JWTs in this project's cross-service broadcast; `orders-service` and
+  `products-service` are consumers of that Bearer JWT mechanism today,
+  billing-service is not yet — auth-service plays a different architectural
+  role here (producer, not a peer consumer), so it isn't a third "sibling"
+  to compare billing-service against on this specific mechanism. Not
+  addressed here; a separate, larger task. (Resolved in
+  [ADR-0015](0015-billing-service-jwt-and-auth-securityconfig-fix.md).)
 - The `/health` endpoints across all four Spring services are shallow
   liveness checks (hardcoded `"status": "OK"`, no real DB/broker
   connectivity probe) — `products-service`'s and `auth-service`'s even

@@ -180,8 +180,9 @@ out-of-scope on architectural grounds, just not reached in this pass:
   anywhere — not scaled back from something bigger, never attempted. It's
   the only one of the four Spring services with neither an `*IT` class nor
   `maven-failsafe-plugin` in its `pom.xml` (see the ADR-0008 update above).
-- `order.status-changed` still has no consumer (ADR-0001's open decision),
-  so there's nothing to wiring-test on the receiving end.
+- `order.status-changed` still has no consumer, so there's nothing to
+  wiring-test on the receiving end. (See ADR-0001 and the README Roadmap
+  for the intended consumer and current status.)
 - products-service's own `jwt.created` queue (separate from
   orders-service's two) isn't covered by `JwtCreatedFanoutIT`, which only
   asserts delivery to orders-service's `orders.jwt.created.queue`/

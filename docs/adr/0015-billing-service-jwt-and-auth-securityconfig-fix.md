@@ -61,8 +61,17 @@ ADR-0013's original billing-service Basic Auth fix was verified only live, via `
 - A service restart still wipes billing-service's token cache in-memory, exactly like every other service using this pattern — previously-issued tokens become invalid until the next login or JWT rebroadcast. This is a pre-existing, project-wide characteristic of the broadcast-cache design (see `CLAUDE.md`'s "Cross-service auth" section), not something introduced or worsened here.
 - auth-service still has `.httpBasic(Customizer.withDefaults())` configured alongside `anyRequest().authenticated()`, even though every one of its endpoints is `permitAll()`-ed — the fix here is defensive (it's what stops a *future* protected endpoint from silently 403-ing regardless of credentials), but as of today that combination is unexercised configuration, not something actively guarding a real endpoint. Left as-is rather than simplified, since removing it now would just reintroduce the same landmine the moment a protected endpoint is added.
 
+## Update — 2026-07-07
+
+The bullet immediately above no longer reflects the current code. auth-service's `SecurityConfig` was simplified: `anyRequest().authenticated()` + `.httpBasic(Customizer.withDefaults())` was replaced with `anyRequest().denyAll()`, and the `.httpBasic()` call/import removed entirely. This doesn't reopen or reverse the decision above — `.httpBasic()` was never wrong, just unnecessary, since `authenticated()` had no real endpoint to protect and no other part of this project authenticates via Basic auth for auth-service to be consistent with. `denyAll()` rejects anything outside the `permitAll()` list explicitly and unconditionally, without depending on an authentication mechanism this service doesn't otherwise use — a simplification, not a new mechanism. A new test (`SecurityConfigTest.rejectsAnyPathOutsideThePermitAllList`) confirms a path outside the `permitAll()` list is rejected regardless of credentials. `mvn test` re-confirmed no regression (6/6).
+
 ## References
 
 - [ADR-0013](0013-ci-phase-3-cross-service-e2e.md) — found and fixed the same defect class in billing-service's `SecurityConfig` (missing `.httpBasic()`), and explicitly flagged billing-service's Basic-Auth-only gap as unresolved.
 - [ADR-0001](0001-messaging-wiring-audit.md) — the shared-queue/competing-consumer bug class this task's own IT test had to design around.
 - [ADR-0014](0014-notification-service.md) — found the same latent `.httpBasic()` defect in auth-service while adding an unrelated endpoint; this ADR is where it's actually fixed.
+- [Architectural Principles](../architecture/architectural-principles.md)
+  — the auth-service `denyAll()` simplification (Update above) and
+  billing-service's full replacement of Basic Auth (not a hybrid of both
+  mechanisms) both follow principle #3 (remove complexity that doesn't add
+  value) and #6 (avoid unnecessary compatibility modes).

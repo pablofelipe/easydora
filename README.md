@@ -144,6 +144,9 @@ each service independently deployable via Docker Compose.
 - [Architecture Decision Records](#architecture-decision-records) — 17
   ADRs, one per architectural decision made along the way, in chronological
   order.
+- [Architectural Principles](docs/architecture/architectural-principles.md)
+  — the recurring principles behind those decisions, extracted from the
+  ADRs rather than declared up front.
 - [End-to-end walkthrough](docs/walkthrough.md) — the full business flow
   driven entirely by `curl`, with real requests/responses from an actual
   run.
@@ -192,7 +195,7 @@ The stack split is deliberate:
 
 | ADR | Title | Status | Summary |
 |---|---|---|---|
-| [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent` left as an open design decision. |
+| [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted, updated 2026-07-08 | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent`'s future consumer is now decided (notification-service) — see the Roadmap for implementation status. |
 | [0002](docs/adr/0002-json-schema-contract-testing.md) | JSON Schema contract testing | Accepted | JSON Schema (draft 2020-12) adopted for event contracts, versioned in `/schemas/json/`; two catalogued DTO drifts fixed; `price` type drift (BigDecimal vs float64) documented as a known gap schema validation can't catch. |
 | [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go) closed the same way as part of ADR-0007's RabbitMQ migration; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
 | [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted, extended by ADR-0011 | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. Left checking the other three services as explicit future work — see ADR-0011. |
@@ -206,7 +209,7 @@ The stack split is deliberate:
 | [0012](docs/adr/0012-ci-phase-2-real-infrastructure.md) | CI Phase 2 — real-infrastructure integration tests via service containers | Accepted | New `integration` job in CI, matrix of auth-service/orders-service/billing-service/inventory-service, each against its own fresh Postgres/RabbitMQ service-container pair. Restores three previously-removed `*IT` classes and adds new ones; every hop is tested from at most one side (producer or consumer), never both, and never across a real process boundary — see ADR-0013. |
 | [0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) | CI Phase 3 — cross-service end-to-end tests via real running processes | Accepted | Two named jobs that start multiple real services as actual processes against one shared Postgres/RabbitMQ pair, driving flows through public HTTP APIs only: `catalog-onboarding` (auth/products/inventory) and `order-lifecycle` (auth/orders/inventory/billing). Surfaced and fixed a real bug where billing-service's Basic Auth never actually worked (403 regardless of credentials). |
 | [0014](docs/adr/0014-notification-service.md) | Notification Service — first Python/FastAPI service | Accepted | Consumes `order.created` via a new RabbitMQ queue, enriches it via a real HTTP call to a new minimal auth-service endpoint (`GET /users/{id}/notification-profile`), and persists an observable notification in a new `notification_schema` — no real email/SMS provider, one `FakeNotificationSender` implementation. Found (not fixed, currently latent) the same missing-`.httpBasic()` defect class ADR-0013 fixed in billing-service, this time in auth-service. |
-| [0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md) | billing-service joins the JWT broadcast pattern; auth-service's latent `.httpBasic()` gap fixed | Accepted | auth-service gets the same one-line `.httpBasic()` fix ADR-0013 applied to billing-service (currently unexercised, since every auth-service endpoint is `permitAll()`). billing-service was the only service protected solely by Spring Boot's default Basic Auth; it now authenticates via the same Bearer JWT broadcast cache already used by products-service and orders-service (auth-service is the producer of that broadcast, not a consumer of it). New `JwtConsumerBehaviorTest`/`PaymentControllerSecurityTest`/`BillingJwtCreatedWiringIT` give this mechanism real regression coverage for the first time. |
+| [0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md) | billing-service joins the JWT broadcast pattern; auth-service's latent `.httpBasic()` gap fixed | Accepted, updated 2026-07-07 | auth-service originally got the same one-line `.httpBasic()` fix ADR-0013 applied to billing-service; later simplified further to `denyAll()` once it was clear no endpoint depended on any auth mechanism (see the ADR's Update). billing-service was the only service protected solely by Spring Boot's default Basic Auth; it now authenticates via the same Bearer JWT broadcast cache already used by products-service and orders-service (auth-service is the producer of that broadcast, not a consumer of it). New `JwtConsumerBehaviorTest`/`PaymentControllerSecurityTest`/`BillingJwtCreatedWiringIT` give this mechanism real regression coverage for the first time. |
 | [0016](docs/adr/0016-shared-spring-parent-pom.md) | Shared Maven parent POM for the four Spring Boot services | Accepted | New root `pom.xml` (inheritance only, no reactor) standardizes all four services on Spring Boot 3.2.12 (previously split 3.2.0/3.2.12) and centralizes every dependency/plugin that was identical across all four by hand. Required changing Docker's build context to the repository root for all four services so the parent resolves inside each build. |
 | [0017](docs/adr/0017-notification-service-startup-resilience.md) | notification-service survives a slow/restarting RabbitMQ and Postgres | Accepted | Found while validating the end-to-end walkthrough against a real, freshly-started stack: the RabbitMQ consumer thread made exactly one connection attempt and died silently on a real startup race, leaving the container "healthy" but permanently unable to process any event. Both the RabbitMQ consumer and the Postgres schema-init step now retry instead of giving up. |
 
@@ -220,6 +223,13 @@ The stack split is deliberate:
       auth-service endpoint, persists an observable notification in a new
       `notification_schema` — see
       [ADR-0014](docs/adr/0014-notification-service.md).
+- [ ] `order.status-changed` (`orders-service`, published on
+      `order.exchange`, see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md))
+      has no consumer yet. Its destination is decided —
+      `notification-service` is the designated future consumer, the same
+      way it already consumes `order.created` — but implementation hasn't
+      started. Planned technical debt, not an open design question
+      anymore.
 - [ ] SvelteKit frontend
 - [x] End-to-end integration tests across the implemented services — see CI
       Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and

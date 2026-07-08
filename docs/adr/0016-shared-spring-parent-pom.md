@@ -52,3 +52,8 @@ CI needed no changes at all: Phase 1/2/3 jobs already run `mvn` directly with `w
 
 - [ADR-0007](0007-remove-kafka-broker.md) and [ADR-0008](0008-surefire-failsafe-test-split.md) — the two prior changes that had to hand-edit all four `pom.xml` files, the concrete cost this ADR closes.
 - [ADR-0015](0015-billing-service-jwt-and-auth-securityconfig-fix.md) — implemented alongside this change in the same pass, unrelated in substance but touching billing-service's `pom.xml` in the same commits.
+- [Architectural Principles](../architecture/architectural-principles.md)
+  — the inheritance-only (no reactor) design is the clearest instance of
+  principle #11 (reduce cognitive load without losing architectural
+  capability): it removes the four-file hand-edit cost without taking away
+  each service's independent build.
