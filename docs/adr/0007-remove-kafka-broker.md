@@ -6,6 +6,21 @@ Accepted - 2026-07-05
 
 ## Context
 
+**Primary driver — project goal shifted.** Early on, running two messaging
+stacks side by side was itself part of what this portfolio was meant to
+demonstrate: coexistence of different messaging technologies. As the
+project evolved, that goal changed — the demonstration target became
+distributed architectural patterns (Event-Driven Architecture, the Outbox
+Pattern, contract testing, consumer wiring correctness, CI against real
+infrastructure, etc.), not broker diversity for its own sake. Once that was
+the actual goal, keeping two messaging infrastructures stopped adding any
+architectural concept and only added operational surface (two client
+libraries, two sets of health checks, two reconnect/backoff paths, twice
+the wiring bugs to audit) that has to be maintained without teaching
+anything new. This reframing is what makes the migration a clear decision
+rather than a judgment call — everything below is the technical detail that
+confirms it, not the reason itself.
+
 Two brokers currently run side by side for no technical reason that survives
 scrutiny. RabbitMQ already carries the auth broadcast (`auth.exchange`) and
 the order/inventory command exchange (`order.exchange`), both declared as
