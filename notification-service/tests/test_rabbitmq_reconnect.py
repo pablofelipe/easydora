@@ -34,7 +34,7 @@ def test_run_consumer_retries_past_a_startup_connection_failure():
             patch("app.rabbitmq.consume_forever", side_effect=_StopTest), \
             patch("app.rabbitmq.time.sleep"):
         with pytest.raises(_StopTest):
-            run_consumer("amqp://fake", auth_client=None, sender=None)
+            run_consumer("amqp://fake", auth_client=None, repository=None, sender=None)
 
     assert len(attempts) == 3
 
@@ -49,7 +49,7 @@ def test_run_consumer_reconnects_after_a_mid_run_disconnect():
         calls["connect"] += 1
         return object(), object()
 
-    def fake_consume(channel, auth_client, sender):
+    def fake_consume(channel, auth_client, repository, sender):
         calls["consume"] += 1
         if calls["consume"] < 2:
             raise ConnectionError("simulated: broker connection lost mid-run")
@@ -60,7 +60,7 @@ def test_run_consumer_reconnects_after_a_mid_run_disconnect():
             patch("app.rabbitmq.consume_forever", side_effect=fake_consume), \
             patch("app.rabbitmq.time.sleep"):
         with pytest.raises(_StopTest):
-            run_consumer("amqp://fake", auth_client=None, sender=None)
+            run_consumer("amqp://fake", auth_client=None, repository=None, sender=None)
 
     assert calls["connect"] == 2
     assert calls["consume"] == 2

@@ -4,7 +4,7 @@ import time
 
 import pika
 
-from app.consumer import process_order_created
+from app.consumer import process_order_created, process_order_status_changed
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,11 @@ RECONNECT_DELAY_SECONDS = 5
 ORDER_EXCHANGE = "order.exchange"
 ORDER_CREATED_ROUTING_KEY = "order.created"
 ORDER_CREATED_QUEUE = "notification.order.created.queue"
+
+# order.status-changed's destination was decided in ADR-0001's Update; this
+# is that consumer, finally implemented.
+ORDER_STATUS_CHANGED_ROUTING_KEY = "order.status-changed"
+ORDER_STATUS_CHANGED_QUEUE = "notification.order.status-changed.queue"
 
 
 def connect(rabbitmq_url: str):
@@ -34,10 +39,14 @@ def declare_topology(channel) -> None:
     channel.exchange_declare(exchange=ORDER_EXCHANGE, exchange_type="topic", durable=True)
     channel.queue_declare(queue=ORDER_CREATED_QUEUE, durable=True)
     channel.queue_bind(queue=ORDER_CREATED_QUEUE, exchange=ORDER_EXCHANGE, routing_key=ORDER_CREATED_ROUTING_KEY)
+    channel.queue_declare(queue=ORDER_STATUS_CHANGED_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=ORDER_STATUS_CHANGED_QUEUE, exchange=ORDER_EXCHANGE, routing_key=ORDER_STATUS_CHANGED_ROUTING_KEY
+    )
 
 
-def consume_forever(channel, auth_client, sender) -> None:
-    def on_message(ch, method, properties, body):
+def consume_forever(channel, auth_client, repository, sender) -> None:
+    def on_order_created(ch, method, properties, body):
         try:
             event = json.loads(body)
             process_order_created(event, auth_client, sender)
@@ -52,11 +61,21 @@ def consume_forever(channel, auth_client, sender) -> None:
         finally:
             ch.basic_ack(delivery_tag=method.delivery_tag)
 
-    channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_message)
+    def on_order_status_changed(ch, method, properties, body):
+        try:
+            event = json.loads(body)
+            process_order_status_changed(event, repository, sender)
+        except Exception:
+            logger.exception("failed to process order.status-changed message")
+        finally:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+
+    channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_order_created)
+    channel.basic_consume(queue=ORDER_STATUS_CHANGED_QUEUE, on_message_callback=on_order_status_changed)
     channel.start_consuming()
 
 
-def run_consumer(rabbitmq_url: str, auth_client, sender) -> None:
+def run_consumer(rabbitmq_url: str, auth_client, repository, sender) -> None:
     """Runs connect + declare_topology + consume_forever in a loop that
     never gives up permanently. This is a daemon thread with no supervisor:
     a container can start before RabbitMQ is fully ready to accept
@@ -72,7 +91,7 @@ def run_consumer(rabbitmq_url: str, auth_client, sender) -> None:
         try:
             _connection, channel = connect(rabbitmq_url)
             declare_topology(channel)
-            consume_forever(channel, auth_client, sender)
+            consume_forever(channel, auth_client, repository, sender)
         except Exception:
             logger.exception(
                 "RabbitMQ connection lost or unavailable; retrying in %ss",

@@ -20,9 +20,11 @@ notification). Four of them (auth-service, orders-service, products-service,
 billing-service) have contract tests validating their event/message DTOs
 against JSON Schemas shared in `/schemas/json/`; inventory-service has eight
 unit tests, four of which cover its stock-reservation idempotency logic
-specifically, not the service broadly. notification-service consumes
-`order.created` via RabbitMQ, enriches it with a real HTTP call to
-auth-service, and persists an observable notification (no real email/SMS
+specifically, not the service broadly. notification-service consumes both
+`order.created` and `order.status-changed` via RabbitMQ, enriches the
+former with a real HTTP call to auth-service, and persists an observable
+notification per event — never overwriting a previous one — queryable via
+its own read-only `GET /notifications/{orderId}` (no real email/SMS
 provider yet — see [ADR-0014](docs/adr/0014-notification-service.md)).
 Frontend is the only remaining empty scaffold. See
 [Service Status](#service-status) for the current breakdown.
@@ -147,7 +149,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 19
+- [Architecture Decision Records](#architecture-decision-records) — 20
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Postman collection](postman/) — the same main flow as an importable,
@@ -175,7 +177,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 8/8 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 8/8 — `mvn test` only, no `*IT`) |
 | Billing | Spring Boot | 8085 | Implemented (tests: 6/6 — `mvn test` 5/5 unit (contract test + `HealthControllerTest` + `PaymentServiceOrderCreatedBehaviorTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
-| Notification | FastAPI + RabbitMQ | 8086 | Implemented (tests: 2 domain unit tests + 2 real-infra integration tests against Postgres/RabbitMQ/auth-service — see [ADR-0014](docs/adr/0014-notification-service.md)) |
+| Notification | FastAPI + RabbitMQ | 8086 | Implemented (tests: 5 domain unit tests + 6 real-infra integration tests against Postgres/RabbitMQ/auth-service — see [ADR-0014](docs/adr/0014-notification-service.md)) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
 "Implemented" means the service builds and runs; it does not imply full test coverage. Six services have real test source so far (see the table above); the paragraph below covers billing-service's history specifically, since it's where the original baseline audit's test-fixing work happened. billing-service has `BillingServiceApplicationIT` (a Spring Initializr default, renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), and its `mvn verify` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type.
@@ -204,7 +206,7 @@ The stack split is deliberate:
 
 | ADR | Title | Status | Summary |
 |---|---|---|---|
-| [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted, updated 2026-07-08 | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent`'s future consumer is now decided (notification-service) — see the Roadmap for implementation status. |
+| [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted, updated 2026-07-08 | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent`'s designated consumer (notification-service) is now implemented — see the Roadmap. |
 | [0002](docs/adr/0002-json-schema-contract-testing.md) | JSON Schema contract testing | Accepted | JSON Schema (draft 2020-12) adopted for event contracts, versioned in `/schemas/json/`; two catalogued DTO drifts fixed; `price` type drift (BigDecimal vs float64) documented as a known gap schema validation can't catch. |
 | [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go) closed the same way as part of ADR-0007's RabbitMQ migration; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
 | [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted, extended by ADR-0011 | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. Left checking the other three services as explicit future work — see ADR-0011. |
@@ -223,6 +225,7 @@ The stack split is deliberate:
 | [0017](docs/adr/0017-notification-service-startup-resilience.md) | notification-service survives a slow/restarting RabbitMQ and Postgres | Accepted | Found while validating the end-to-end walkthrough against a real, freshly-started stack: the RabbitMQ consumer thread made exactly one connection attempt and died silently on a real startup race, leaving the container "healthy" but permanently unable to process any event. Both the RabbitMQ consumer and the Postgres schema-init step now retry instead of giving up. |
 | [0018](docs/adr/0018-persistence-strategy.md) | Persistence strategy — shared PostgreSQL instance, schema-per-service ownership | Accepted | Formally registers a decision that was implicit since the project's first commit: one Postgres instance, one schema per service, ownership enforced by convention rather than by database ACLs. Argues the architectural boundary is data ownership, not the physical instance, and that every property this project demonstrates already holds without database-per-service. |
 | [0019](docs/adr/0019-message-consumption-resilience.md) | Uniform message consumption resilience (limited retry, exponential backoff, dead-lettering) | Accepted | `products-service`, `orders-service`, and `billing-service` now share the same native Spring Boot listener retry policy (3 attempts, exponential backoff) and dead-letter exchange/queue per service; eight listener methods that previously swallowed exceptions internally were fixed to propagate them, so container-level retry/DLQ actually applies to business-logic failures, not just malformed messages. `auth-service` has no consumer at all, so is out of scope; `notification-service` (Python) keeps its separate, unrelated gap. |
+| [0020](docs/adr/0020-notification-domain-completion.md) | Complete the notification domain — consume `order.status-changed`, add a read-only API | Accepted | `notification-service` now consumes `order.status-changed` in addition to `order.created`, reusing the prior notification's enriched user info instead of a second synchronous call (the event carries no `userId`). Adds a read-only `GET /notifications/{orderId}`, closing the walkthrough's one direct-Postgres-access step. Found, not fixed: `billing-service` never publishes a payment outcome event, so `order.status-changed` is never emitted for a payment transition. |
 
 ## Roadmap
 
@@ -234,13 +237,23 @@ The stack split is deliberate:
       auth-service endpoint, persists an observable notification in a new
       `notification_schema` — see
       [ADR-0014](docs/adr/0014-notification-service.md).
-- [ ] `order.status-changed` (`orders-service`, published on
+- [x] `order.status-changed` (`orders-service`, published on
       `order.exchange`, see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md))
-      has no consumer yet. Its destination is decided —
-      `notification-service` is the designated future consumer, the same
-      way it already consumes `order.created` — but implementation hasn't
-      started. Planned technical debt, not an open design question
-      anymore.
+      is now consumed by `notification-service`, the same way it already
+      consumes `order.created`. It carries no `userId` of its own, so
+      notification-service reuses the email/name already captured by that
+      order's `order.created` notification instead of a second
+      auth-service call. Every event produces its own new notification
+      row — none are ever overwritten. See
+      [ADR-0020](docs/adr/0020-notification-domain-completion.md).
+- [ ] `billing-service` still doesn't publish payment outcome events,
+      therefore the payment lifecycle never reaches its final business
+      state (`APPROVED`/`FAILED`) and `order.status-changed` is never
+      emitted for payment transitions. `orders-service`'s own
+      `handlePaymentReceived`/`handlePaymentFailed` (which would publish
+      exactly that) have no caller anywhere in the codebase today — found
+      while completing the notification domain, see
+      [ADR-0020](docs/adr/0020-notification-domain-completion.md).
 - [ ] SvelteKit frontend
 - [x] End-to-end integration tests across the implemented services — see CI
       Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and
@@ -342,13 +355,13 @@ The stack split is deliberate:
       (main.go's real handlers work correctly), so left alone rather than
       removed outside that task's scope. Candidate for a future cleanup
       pass: either delete the file or migrate main.go's routing to use it.
-- [ ] notification-service has no public API to inspect a persisted
-      notification (only `GET /health`) — confirming step 9 of
-      [docs/walkthrough.md](docs/walkthrough.md) requires an optional
-      direct Postgres query, the one step in that walkthrough that isn't
-      driven by a public API. A minimal read endpoint (e.g.
-      `GET /notifications/{orderId}`) would close this, mirroring the
-      same "smallest endpoint for the use case" principle ADR-0014 already
-      applied to auth-service's `notification-profile` endpoint.
+- [x] notification-service now has a minimal, read-only public API —
+      `GET /notifications/{orderId}` — mirroring the same "smallest
+      endpoint for the use case" principle ADR-0014 already applied to
+      auth-service's `notification-profile` endpoint. Closes the gap that
+      previously made step 9 of [docs/walkthrough.md](docs/walkthrough.md)
+      the one step in that walkthrough requiring direct Postgres access;
+      no direct database query is needed anywhere in that walkthrough
+      anymore.
 
 </details>

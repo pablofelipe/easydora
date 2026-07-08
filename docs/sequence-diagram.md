@@ -88,6 +88,7 @@ sequenceDiagram
     Note right of Inventory: Outbox (ADR-0007) - polled every 5s
     MQ->>Orders: stock.reserved
     Orders->>Orders: state machine -> INVENTORY_RESERVED
+    Orders->>MQ: publish OrderStatusChangedEvent (order.status-changed, order.exchange)
 
     MQ->>Billing: order.created
     Billing->>Billing: create Payment (status=PENDING)
@@ -96,14 +97,20 @@ sequenceDiagram
     Notif->>Auth: GET /users/{userId}/notification-profile
     Auth-->>Notif: profile data
     Notif->>Notif: persist notification row (SENT or FAILED)
+
+    MQ->>Notif: order.status-changed
+    Notif->>Notif: reuse this order's order.created notification's email/name
+    Notif->>Notif: persist a second notification row (SENT or FAILED)
     end
 
     rect rgb(245, 245, 245)
-    Note over Client,Billing: Final state validation (public APIs only)
+    Note over Client,Notif: Final state validation (public APIs only)
     Client->>Orders: GET /{orderId} (Bearer BUYER_TOKEN)
     Orders-->>Client: state=INVENTORY_RESERVED
     Client->>Billing: GET /api/payments/order/{orderId} (Bearer BUYER_TOKEN)
     Billing-->>Client: Payment status=PENDING
+    Client->>Notif: GET /notifications/{orderId}
+    Notif-->>Client: [order.created, order.status-changed]
     end
 ```
 
@@ -146,10 +153,30 @@ sequenceDiagram
   direct HTTP call in this entire flow** — everything else crosses
   services exclusively through RabbitMQ. See
   [`docs/adr/0014-notification-service.md`](adr/0014-notification-service.md).
+- **`order.status-changed` is consumed the same way `order.created` is**
+  (its destination was decided in
+  [`docs/adr/0001-messaging-wiring-audit.md`](adr/0001-messaging-wiring-audit.md)'s
+  Update, implemented here), but it carries no `userId` of its own — unlike
+  `OrderCreatedEvent`. `notification-service` resolves this by reusing the
+  email/name already captured in that same order's `order.created`
+  notification row (its own schema, no second synchronous call, no
+  cross-schema access) rather than calling `auth-service` a second time. A
+  status change never replaces an earlier notification — every event
+  produces its own new row, so an order can have any number of
+  notifications over its lifetime, oldest first.
+- `notification-service`'s notification message content is implemented
+  directly in code, not as an externalized template — deliberately, to
+  keep this stage simple and readable rather than runtime-configurable.
 - This diagram stops at the same point `docs/walkthrough.md` does — Payment
   in `PENDING`, order in `INVENTORY_RESERVED`. `billing-service` does expose
   `POST /api/payments/process` (`PaymentService.processPayment`, a random
   90%-approval simulation) to advance a payment to `APPROVED`/`FAILED`, and
   `POST /api/payments/{orderId}/retry` to reset a `FAILED` one back to
   `PENDING` — neither is part of the documented flow or triggered by any
-  event consumer, so neither appears in this diagram.
+  event consumer, so neither appears in this diagram. If either were wired
+  up to publish an order.status-changed transition (e.g. `PAYMENT_APPROVED`/
+  `PAYMENT_FAILED`), notification-service would already be able to consume
+  it with no further changes — but no such transition is currently
+  triggered from the payment side of the system (only `handlePaymentReceived`/
+  `handlePaymentFailed` in `orders-service` call it today, and neither is
+  invoked by anything in this flow).

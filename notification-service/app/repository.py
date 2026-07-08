@@ -29,3 +29,31 @@ class NotificationRepository:
                         json.dumps(notification.payload),
                     ),
                 )
+
+    def find_by_aggregate_id(self, aggregate_id: str) -> list[dict]:
+        """Every notification persisted for one order, oldest first. Used
+        both by the public read-only API and internally to look up a prior
+        order.created notification's enriched payload when processing a
+        later order.status-changed event for the same order.
+        """
+        with psycopg2.connect(self._dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT event_type, status, payload, created_at
+                    FROM notification_schema.notifications
+                    WHERE aggregate_id = %s
+                    ORDER BY created_at ASC
+                    """,
+                    (aggregate_id,),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "eventType": row[0],
+                "status": row[1],
+                "payload": row[2],
+                "createdAt": row[3].isoformat(),
+            }
+            for row in rows
+        ]

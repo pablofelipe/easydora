@@ -15,7 +15,7 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **inventory-service** | Stock: quantity and reservation per product | `stock.reserved`, `stock.insufficient` | `product.created`/`updated`/`deleted`, `stock.reserve`, `stock.release` |
 | **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient` |
 | **billing-service** | Payment: simulated processing per order | — | `jwt.created`, `order.created` |
-| **notification-service** | Notification: one record per order outcome | — | `order.created` |
+| **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
 | **frontend** | Planned, empty scaffold — no responsibility yet | — | — |
 
@@ -33,7 +33,10 @@ other, how data is persisted, and where to go for more depth on any of it.
 - **Order → Inventory → Payment → Notification** — creating an order
   triggers, from the same two events, a stock-reservation round trip that
   drives the order's state machine, a payment record in billing-service,
-  and a notification record in notification-service. See the
+  and a notification record in notification-service. Every subsequent
+  order state transition (`order.status-changed`) produces its own
+  additional notification record, queryable via notification-service's
+  `GET /notifications/{orderId}` — never replacing an earlier one. See the
   [walkthrough](../walkthrough.md) and the
   [sequence diagram](../sequence-diagram.md).
 
@@ -53,7 +56,10 @@ other, how data is persisted, and where to go for more depth on any of it.
   synchronous HTTP call to auth-service's public
   `GET /users/{id}/notification-profile` endpoint to enrich a notification
   (see [ADR-0014](../adr/0014-notification-service.md)). This is a
-  deliberate, singular exception, not a pattern used anywhere else.
+  deliberate, singular exception, not a pattern used anywhere else — even
+  `order.status-changed`, added later, deliberately avoids a second one by
+  reusing the enrichment already captured in that order's `order.created`
+  notification instead of calling auth-service again.
 
 ## Persistence
 
@@ -84,7 +90,7 @@ is documented separately in
 | `order.exchange` | `stock.reserved` | inventory-service | orders-service |
 | `order.exchange` | `stock.insufficient` | inventory-service | orders-service |
 | `order.exchange` | `order.created` | orders-service | billing-service, notification-service |
-| `order.exchange` | `order.status-changed` | orders-service | *(none yet — planned: notification-service, see [ADR-0001](../adr/0001-messaging-wiring-audit.md))* |
+| `order.exchange` | `order.status-changed` | orders-service | notification-service |
 
 ## Architectural Principles
 

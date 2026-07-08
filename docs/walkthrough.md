@@ -235,51 +235,60 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8085/api/payments/orde
 # expected: 403
 ```
 
-## 9. Validate the notification (optional Postgres check)
+## 9. Validate the notifications
 
-**Event published**: the same `order.created` from step 8.
-**Who consumes it**: `notification-service`.
-**Observable effect**: `notification-service` calls `auth-service`'s
-`GET /users/{id}/notification-profile` to enrich the event, then persists
-one row describing the outcome.
-**How to confirm it**: `notification-service` has no public API beyond
-`/health` — its only observable effect at this stage is the persisted row
-itself (a deliberate design choice, see `docs/adr/0014-notification-service.md`).
-This is the one validation in this walkthrough that requires direct
-Postgres access, and it's optional (skip it if you're only interested in
-the public-API-visible parts of the flow):
+**Events published**: `order.created` (step 8) and `order.status-changed`
+(step 7's automatic transition to `INVENTORY_RESERVED` also publishes this
+— see `orders-service`'s `publishOrderStatusChanged`).
+**Who consumes them**: `notification-service`, for both.
+**Observable effect**: one persisted notification row per event — never
+replacing a previous one, so an order accumulates a new row each time a
+relevant event fires. For `order.created`, `notification-service` calls
+`auth-service`'s `GET /users/{id}/notification-profile` to enrich the
+event. `order.status-changed` carries no `userId` of its own, so it
+reuses the email/name already captured by that same order's
+`order.created` notification instead of a second enrichment call.
+**How to confirm it** (public API):
 
 ```bash
-docker exec easydora-postgres-1 psql -U admin -d easydora -c \
-  "SELECT event_type, aggregate_id, status, payload FROM notification_schema.notifications WHERE aggregate_id = '$ORDER_ID';"
+curl -s http://localhost:8086/notifications/$ORDER_ID
 ```
 
-Expected (real example):
-```
- event_type   |             aggregate_id             | status |  payload
---------------+--------------------------------------+--------+------------
-order.created | fee3fef1-49ca-4be3-a107-b73f316a7396  | SENT   | {"email": "buyer-demo@example.com", "userId": 9, ...}
+Response (real example):
+```json
+[
+  {"eventType":"order.created","status":"SENT","payload":{"email":"buyer-demo@example.com","userId":9,"firstName":"Bea","lastName":"Buyer","totalAmount":499.80},"createdAt":"2026-07-08T17:19:11.489475+00:00"},
+  {"eventType":"order.status-changed","status":"SENT","payload":{"email":"buyer-demo@example.com","userId":9,"firstName":"Bea","lastName":"Buyer","previousState":"PROCESSING","newState":"INVENTORY_RESERVED"},"createdAt":"2026-07-08T17:19:13.691928+00:00"}
+]
 ```
 
-`status` is `SENT` when the profile lookup succeeds, `FAILED` (with an
-`error` field in the payload) if it doesn't — either way, exactly one row
-is produced per order, never zero.
+`status` is `SENT` when enrichment succeeds, `FAILED` (with an `error`
+field in the payload) if it doesn't — either way, exactly one row is
+produced per event, never zero, and never overwriting an earlier row. A
+`404` means no notification exists yet for that order id.
+
+`notification-service`'s message content (what goes into each
+notification's `payload`) is implemented directly in code
+(`app/consumer.py`), not as an externalized template — the project
+prioritizes simplicity and readability over a runtime-configurable
+templating mechanism it has no present need for.
 
 ## 10. Final state
 
-At this point you have, driven entirely by 6 HTTP calls plus 4 read-only
+At this point you have, driven entirely by 6 HTTP calls plus 5 read-only
 checks:
 - 1 verified seller, 1 active product, 1 verified buyer
 - 1 order in `INVENTORY_RESERVED`
 - 1 `Payment` in `PENDING`
-- 1 persisted notification in `SENT` status
+- 2 persisted notifications (`order.created`, `order.status-changed`), both `SENT`
 
 ```bash
 curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
 curl -s http://localhost:8085/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
+curl -s http://localhost:8086/notifications/$ORDER_ID
 ```
 
-Both calls succeeding with the states above is the end-to-end success
+All three calls succeeding with the states above is the end-to-end success
 criterion for this walkthrough.
 
 ## Event flow summary
@@ -292,6 +301,7 @@ criterion for this walkthrough.
 | Create product | `product.created` | products-service | inventory-service | inventory row created |
 | Create order | `stock.reserve` / `stock.reserved` | orders-service / inventory-service | inventory-service / orders-service | order → `INVENTORY_RESERVED`, stock reserved |
 | Create order | `order.created` | orders-service | billing-service, notification-service | Payment created; notification persisted |
+| Stock reserved | `order.status-changed` | orders-service | notification-service | second notification persisted (`PROCESSING` → `INVENTORY_RESERVED`), reusing the `order.created` notification's enriched user info |
 
 ## Troubleshooting
 
