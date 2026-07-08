@@ -7,6 +7,9 @@ was actually executed against a real, freshly-started stack; every response
 shown is a real response from that run (IDs, tokens, and timestamps will
 differ on your own run).
 
+For the same flow as a diagram, see
+[docs/sequence-diagram.md](sequence-diagram.md).
+
 ## Prerequisites
 
 - Docker Desktop (Windows/Mac) or Docker Engine (Linux) + Docker Compose

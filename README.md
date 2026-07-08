@@ -114,7 +114,9 @@ no Dockerfile or source exists for it yet.
 For a full, reproducible business-flow walkthrough (signup → product →
 order → stock reservation → payment → notification), driven entirely by
 `curl` against each service's public API with real request/response
-examples, see [docs/walkthrough.md](docs/walkthrough.md).
+examples, see [docs/walkthrough.md](docs/walkthrough.md). For the same flow
+as a Mermaid sequence diagram, see
+[docs/sequence-diagram.md](docs/sequence-diagram.md).
 
 ## Prerequisites
 
