@@ -68,6 +68,7 @@ public class JwtConsumer {
 
         } catch (Exception e) {
             logger.error("ERROR processing JwtEvent: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to process JwtEvent", e);
         }
     }
 }

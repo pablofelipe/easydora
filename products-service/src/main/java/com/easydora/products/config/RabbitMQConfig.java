@@ -4,8 +4,11 @@ import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.retry.MessageRecoverer;
+import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -36,6 +39,13 @@ public class RabbitMQConfig {
     public static final String PRODUCT_CREATED_KEY = "product.created";
     public static final String PRODUCT_UPDATED_KEY = "product.updated";
     public static final String PRODUCT_DELETED_KEY = "product.deleted";
+
+    // Dead letter routing - every listener queue in this service
+    // shares one DLX/DLQ pair; RepublishMessageRecoverer republishes using
+    // the original received routing key, so the DLQ binds on "#" to catch
+    // whichever queue's message was rejected after exhausting retries.
+    public static final String DLX_EXCHANGE = "products.dlx";
+    public static final String DLQ = "products.dlq";
 
     @Bean
     public TopicExchange authExchange() {
@@ -84,6 +94,28 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public TopicExchange deadLetterExchange() {
+        return new TopicExchange(DLX_EXCHANGE);
+    }
+
+    @Bean
+    public Queue deadLetterQueue() {
+        return new Queue(DLQ, true);
+    }
+
+    @Bean
+    public Binding deadLetterBinding(Queue deadLetterQueue, TopicExchange deadLetterExchange) {
+        return BindingBuilder.bind(deadLetterQueue)
+                .to(deadLetterExchange)
+                .with("#");
+    }
+
+    @Bean
+    public MessageRecoverer messageRecoverer(RabbitTemplate rabbitTemplate) {
+        return new RepublishMessageRecoverer(rabbitTemplate, DLX_EXCHANGE);
+    }
+
+    @Bean
     public MessageConverter messageConverter() {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
@@ -108,9 +140,14 @@ public class RabbitMQConfig {
 
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
-            ConnectionFactory connectionFactory) {
+            ConnectionFactory connectionFactory,
+            SimpleRabbitListenerContainerFactoryConfigurer configurer) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
+        // Applies spring.rabbitmq.listener.simple.retry.* (limited attempts,
+        // exponential backoff) and wires the messageRecoverer bean above as
+        // the recoverer used once retries are exhausted - no custom retry
+        // code, just Spring Boot's native listener container configurer.
+        configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(messageConverter());
         return factory;
     }

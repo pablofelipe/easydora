@@ -147,7 +147,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 18
+- [Architecture Decision Records](#architecture-decision-records) — 19
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Postman collection](postman/) — the same main flow as an importable,
@@ -222,6 +222,7 @@ The stack split is deliberate:
 | [0016](docs/adr/0016-shared-spring-parent-pom.md) | Shared Maven parent POM for the four Spring Boot services | Accepted | New root `pom.xml` (inheritance only, no reactor) standardizes all four services on Spring Boot 3.2.12 (previously split 3.2.0/3.2.12) and centralizes every dependency/plugin that was identical across all four by hand. Required changing Docker's build context to the repository root for all four services so the parent resolves inside each build. |
 | [0017](docs/adr/0017-notification-service-startup-resilience.md) | notification-service survives a slow/restarting RabbitMQ and Postgres | Accepted | Found while validating the end-to-end walkthrough against a real, freshly-started stack: the RabbitMQ consumer thread made exactly one connection attempt and died silently on a real startup race, leaving the container "healthy" but permanently unable to process any event. Both the RabbitMQ consumer and the Postgres schema-init step now retry instead of giving up. |
 | [0018](docs/adr/0018-persistence-strategy.md) | Persistence strategy — shared PostgreSQL instance, schema-per-service ownership | Accepted | Formally registers a decision that was implicit since the project's first commit: one Postgres instance, one schema per service, ownership enforced by convention rather than by database ACLs. Argues the architectural boundary is data ownership, not the physical instance, and that every property this project demonstrates already holds without database-per-service. |
+| [0019](docs/adr/0019-message-consumption-resilience.md) | Uniform message consumption resilience (limited retry, exponential backoff, dead-lettering) | Accepted | `products-service`, `orders-service`, and `billing-service` now share the same native Spring Boot listener retry policy (3 attempts, exponential backoff) and dead-letter exchange/queue per service; eight listener methods that previously swallowed exceptions internally were fixed to propagate them, so container-level retry/DLQ actually applies to business-logic failures, not just malformed messages. `auth-service` has no consumer at all, so is out of scope; `notification-service` (Python) keeps its separate, unrelated gap. |
 
 ## Roadmap
 
@@ -268,29 +269,23 @@ The stack split is deliberate:
       idempotent (a separate, still-open concern — see below); it only
       guarantees the reservation outcome is never silently lost once
       committed.
-- [ ] auth/products/orders/billing (Spring) and notification (Python): no
-      retry limit/backoff/DLQ on RabbitMQ message consumption. Verified
-      there's no synchronous inter-service HTTP call anywhere among the four
-      Spring services (no RestTemplate/WebClient/FeignClient) —
-      notification-service is the one deliberate exception, calling
-      auth-service's public API by design (ADR-0014). The real gap isn't a
-      circuit breaker for calls that mostly don't exist, it's on the
-      consumer side: `SimpleRabbitListenerContainerFactory` in
-      products-service, orders-service, and billing-service is built with no
-      `AcknowledgeMode`, `MessageRecoverer`, or requeue policy set, so it
-      runs on Spring AMQP's defaults — a listener exception nacks and
-      requeues the message indefinitely (`defaultRequeueRejected=true`),
-      with no dead-letter queue and no backoff. notification-service's own
-      `pika` consumer has the equivalent gap by a different mechanism: it
-      always acks, even on failure, so a poison message is logged once and
-      dropped rather than retried forever — a different failure mode
-      (silent loss vs. infinite loop) but the same missing capability
-      (retry/backoff/DLQ). A poison message in any of the four Spring
-      services loops forever instead of landing somewhere for inspection.
-      Candidate: Spring Retry (`@Retryable`/`RetryTemplate`) or a
-      dead-letter exchange with limited retries for the Spring side; a dead
-      letter queue for notification-service. Blocked by prioritization, not
-      a technical dependency.
+- [x] products-service, orders-service, billing-service: limited retry
+      (3 attempts, exponential backoff) plus a dead-letter exchange/queue
+      per service, configured natively via Spring Boot's
+      `SimpleRabbitListenerContainerFactoryConfigurer` and a
+      `RepublishMessageRecoverer` — no custom retry code. Eight listener
+      methods across four consumer classes that used to swallow business
+      exceptions internally (so the container never saw a failure to
+      retry) were fixed to propagate them. `auth-service` has no
+      `@RabbitListener` at all, so was out of scope. See
+      [ADR-0019](docs/adr/0019-message-consumption-resilience.md).
+- [ ] notification-service (Python): still no retry limit/backoff/DLQ on
+      its `pika` consumer — it always acks, even on failure, so a poison
+      message is logged once and dropped rather than retried forever
+      (silent loss, unlike the infinite-requeue failure mode ADR-0019
+      closed on the Spring side). Candidate: a dead-letter queue plus a
+      bounded nack-and-requeue count. Blocked by prioritization, not a
+      technical dependency — tracked here as its own follow-up item.
 - [x] notification-service's RabbitMQ consumer and Postgres schema-init
       step now both retry a failed initial connection instead of dying
       silently — found as a real, blocking defect while validating the

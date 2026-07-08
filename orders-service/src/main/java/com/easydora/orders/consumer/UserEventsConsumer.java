@@ -68,8 +68,9 @@ public class UserEventsConsumer {
             logger.info("Buyer registered: {} as {}", userEvent.getUserId(), buyer.getRole());
             
         } catch (Exception e) {
-            logger.error("Error processing USER_REGISTERED event for user: {}", 
+            logger.error("Error processing USER_REGISTERED event for user: {}",
                 userEvent.getUserId(), e);
+            throw new RuntimeException("Failed to process USER_REGISTERED event for user " + userEvent.getUserId(), e);
         }
     }
     
@@ -114,8 +115,9 @@ public class UserEventsConsumer {
             }
             
         } catch (Exception e) {
-            logger.error("Error processing JWT_CREATED event for user: {}", 
+            logger.error("Error processing JWT_CREATED event for user: {}",
                 userEvent.getUserId(), e);
+            throw new RuntimeException("Failed to process JWT_CREATED event for user " + userEvent.getUserId(), e);
         }
     }
     
@@ -134,8 +136,9 @@ public class UserEventsConsumer {
             logger.info("Buyer activated: {}", userId);
             
         } catch (Exception e) {
-            logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}", 
+            logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}",
                 userId, e);
+            throw new RuntimeException("Failed to process USER_VERIFIED_QUEUE event for user " + userId, e);
         }
     }
 

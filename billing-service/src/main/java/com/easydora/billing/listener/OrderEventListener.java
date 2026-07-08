@@ -33,6 +33,7 @@ public class OrderEventListener {
             }
         } catch (Exception e) {
             logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to process OrderCreatedEvent for order " + event.getOrderId(), e);
         }
     }
 }
