@@ -352,15 +352,13 @@ The stack split is deliberate:
       standardized all four on Spring Boot 3.2.12 (previously split
       3.2.0/3.2.12) and required moving Docker's build context to the
       repository root for these four services.
-- [ ] `inventory-service/internal/handlers/http_handlers.go` (an
-      `InventoryHandler` struct built on gin) is dead code — `main.go`
-      registers its actual `/inventory` and `/inventory/{productId}`
-      routes with plain `net/http.HandleFunc` directly and never
-      references this struct at all. Found while writing
-      [docs/walkthrough.md](docs/walkthrough.md); doesn't affect behavior
-      (main.go's real handlers work correctly), so left alone rather than
-      removed outside that task's scope. Candidate for a future cleanup
-      pass: either delete the file or migrate main.go's routing to use it.
+- [x] `inventory-service/internal/handlers/http_handlers.go` (the dead
+      `InventoryHandler` struct built on gin, never referenced by
+      `main.go`'s real `net/http.HandleFunc` routes) has been deleted, and
+      the now-unused `gin-gonic/gin` dependency removed from `go.mod`/
+      `go.sum` via `go mod tidy`. `net/http` already covered every route
+      this service serves, so there was no missing behavior to migrate —
+      removal, not a migration.
 - [x] notification-service now has a minimal, read-only public API —
       `GET /notifications/{orderId}` — mirroring the same "smallest
       endpoint for the use case" principle ADR-0014 already applied to

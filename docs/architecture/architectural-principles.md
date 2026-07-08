@@ -83,11 +83,12 @@ found, not left in place for hypothetical future use.
 `PaymentProcessedEvent`/`PaymentEventsConsumer` entirely once confirmed
 unreachable; ADR-0005 removed orphaned `app.jwt.secret`/`jwt.secret`
 configuration from three services that never consumed it; ADR-0015 removed
-`E2ETestSupport.basicAuth(...)` once nothing called it anymore. This
-principle is aspirational, not universally applied yet: the README Roadmap
-still tracks `inventory-service`'s dead `InventoryHandler` struct, found
-but deliberately left alone as out of scope for the task that found it —
-the principle calls for its eventual removal, it just hasn't happened yet.
+`E2ETestSupport.basicAuth(...)` once nothing called it anymore;
+`inventory-service`'s dead `InventoryHandler` struct (built on gin, never
+referenced by `main.go`'s real `net/http` routes) — found during
+documentation work and initially left alone as out of scope for that
+task — was later deleted along with the `gin-gonic/gin` dependency it was
+the only user of.
 
 ## 6. Avoid unnecessary compatibility or hybrid modes
 
