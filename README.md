@@ -149,7 +149,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 21
+- [Architecture Decision Records](#architecture-decision-records) — 22
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Postman collection](postman/) — the same main flow as an importable,
@@ -177,7 +177,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 8/8 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 8/8 — `mvn test` only, no `*IT`) |
 | Billing | Spring Boot | 8085 | Implemented (tests: 6/6 — `mvn test` 5/5 unit (contract test + `HealthControllerTest` + `PaymentServiceOrderCreatedBehaviorTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
-| Notification | FastAPI + RabbitMQ | 8086 | Implemented (tests: 5 domain unit tests + 6 real-infra integration tests against Postgres/RabbitMQ/auth-service — see [ADR-0014](docs/adr/0014-notification-service.md)) |
+| Notification | FastAPI + RabbitMQ | 8086 | Implemented (tests: 5 domain unit tests + 8 real-infra integration tests against Postgres/RabbitMQ/auth-service — see [ADR-0014](docs/adr/0014-notification-service.md)) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) |
 
 "Implemented" means the service builds and runs; it does not imply full test coverage. Six services have real test source so far (see the table above); the paragraph below covers billing-service's history specifically, since it's where the original baseline audit's test-fixing work happened. billing-service has `BillingServiceApplicationIT` (a Spring Initializr default, renamed from `BillingServiceApplicationTests` under ADR-0008's Surefire/Failsafe split), and its `mvn verify` now passes against a real Postgres/RabbitMQ. Getting there required fixing three independent bugs uncovered by actually running the test: a package mismatch between the test class and `@SpringBootApplication`; a missing `rabbitmq.queue.order-created` property; and a Kafka consumer `TYPE_MAPPINGS` entry pointing at `com.easydora.orders.event.OrderCreatedEvent` (another service's class) instead of billing-service's own `OrderCreatedEvent`. That last one is a concrete instance of this project's lack of contract testing between services: each service hand-duplicates its own copy of shared event DTOs, and nothing catches it when a copy silently references the wrong service's class or a diverged field/type.
@@ -227,6 +227,7 @@ The stack split is deliberate:
 | [0019](docs/adr/0019-message-consumption-resilience.md) | Uniform message consumption resilience (limited retry, exponential backoff, dead-lettering) | Accepted | `products-service`, `orders-service`, and `billing-service` now share the same native Spring Boot listener retry policy (3 attempts, exponential backoff) and dead-letter exchange/queue per service; eight listener methods that previously swallowed exceptions internally were fixed to propagate them, so container-level retry/DLQ actually applies to business-logic failures, not just malformed messages. `auth-service` has no consumer at all, so is out of scope; `notification-service` (Python) keeps its separate, unrelated gap. |
 | [0020](docs/adr/0020-notification-domain-completion.md) | Complete the notification domain — consume `order.status-changed`, add a read-only API | Accepted | `notification-service` now consumes `order.status-changed` in addition to `order.created`, reusing the prior notification's enriched user info instead of a second synchronous call (the event carries no `userId`). Adds a read-only `GET /notifications/{orderId}`, closing the walkthrough's one direct-Postgres-access step. Found, not fixed: `billing-service` never publishes a payment outcome event, so `order.status-changed` is never emitted for a payment transition. |
 | [0021](docs/adr/0021-payment-outcome-integration.md) | Payment outcome integration — billing-service publishes `payment.approved`/`payment.failed`, orders-service reacts | Accepted | Closes the gap ADR-0020 found: `billing-service` now publishes a payment outcome event once `PaymentService.processPayment` resolves it; a new `PaymentEventsConsumer` in `orders-service` finally calls `OrderService.handlePaymentReceived`/`handlePaymentFailed` (previously unreachable since ADR-0001 removed their incorrectly-typed predecessor). Also fixed a latent bug those methods had (`previousState` hardcoded to `PENDING` instead of the order's real prior state), found by the first tests that ever exercised them. `notification-service` required no changes. |
+| [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017: its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. Now retries up to 3 times with exponential backoff (a RabbitMQ retry queue with a per-message TTL, not a sleep or poll) before dead-lettering — same numbers and conceptual behavior as the Spring services, built on different primitives since Pika has no retry-template equivalent. Found, not fixed: `products-service`'s `handleUserVerified` has no role filter, so every buyer's `user.verified` event is dead-lettered. |
 
 ## Roadmap
 
@@ -295,13 +296,15 @@ The stack split is deliberate:
       retry) were fixed to propagate them. `auth-service` has no
       `@RabbitListener` at all, so was out of scope. See
       [ADR-0019](docs/adr/0019-message-consumption-resilience.md).
-- [ ] notification-service (Python): still no retry limit/backoff/DLQ on
-      its `pika` consumer — it always acks, even on failure, so a poison
-      message is logged once and dropped rather than retried forever
-      (silent loss, unlike the infinite-requeue failure mode ADR-0019
-      closed on the Spring side). Candidate: a dead-letter queue plus a
-      bounded nack-and-requeue count. Blocked by prioritization, not a
-      technical dependency — tracked here as its own follow-up item.
+- [x] notification-service (Python) now has the same conceptual
+      retry/backoff/DLQ policy as the Spring services (limited retries,
+      exponential backoff, dead-lettering after the retry budget is
+      exhausted) — built natively on RabbitMQ (a retry queue with a
+      per-message TTL and `x-dead-letter-exchange` back to the original
+      exchange, then a terminal dead letter exchange/queue) since Pika has
+      no built-in retry template equivalent to Spring AMQP's. No message
+      is silently dropped or retried forever anymore. See
+      [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md).
 - [x] notification-service's RabbitMQ consumer and Postgres schema-init
       step now both retry a failed initial connection instead of dying
       silently — found as a real, blocking defect while validating the
@@ -366,5 +369,15 @@ The stack split is deliberate:
       the one step in that walkthrough requiring direct Postgres access;
       no direct database query is needed anywhere in that walkthrough
       anymore.
+- [ ] `products-service`'s `UserEventConsumer.handleUserVerified` has no
+      role filter, unlike its sibling `handleUserRegistered`/
+      `handleJwtCreated` (both check `isSeller()` first). Every `BUYER`'s
+      `user.verified` broadcast reaches this queue too and throws
+      `Seller not found`, now correctly dead-lettered by ADR-0019's policy
+      instead of looping forever — found by inspecting `products.dlq`'s
+      real contents while validating
+      [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md),
+      not by design. Candidate fix: add the same `isSeller()` guard the
+      other two methods already have.
 
 </details>

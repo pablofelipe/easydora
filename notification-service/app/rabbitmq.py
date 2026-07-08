@@ -23,6 +23,26 @@ ORDER_CREATED_QUEUE = "notification.order.created.queue"
 ORDER_STATUS_CHANGED_ROUTING_KEY = "order.status-changed"
 ORDER_STATUS_CHANGED_QUEUE = "notification.order.status-changed.queue"
 
+# Consumption resilience (conceptually equivalent to the Spring services'
+# retry/backoff/DLQ policy, ADR-0019 -- same numbers, different mechanism
+# since Pika has no built-in retry template). A failed message is
+# republished to RETRY_QUEUE with a per-message TTL (no queue-level TTL,
+# no manual sleep, no polling); that queue's own x-dead-letter-exchange
+# sends it back to ORDER_EXCHANGE once the TTL expires, using the same
+# routing key it was retried with, so it lands back on its original queue
+# for redelivery. After MAX_ATTEMPTS, the message is published to DLX/DLQ
+# instead and never retried again.
+MAX_ATTEMPTS = 3
+INITIAL_INTERVAL_MS = 200
+BACKOFF_MULTIPLIER = 2.0
+MAX_INTERVAL_MS = 2000
+ATTEMPTS_HEADER = "x-notification-attempts"
+
+RETRY_EXCHANGE = "notification.retry.exchange"
+RETRY_QUEUE = "notification.retry.queue"
+DLX_EXCHANGE = "notification.dlx"
+DLQ = "notification.dlq"
+
 
 def connect(rabbitmq_url: str):
     connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
@@ -44,31 +64,96 @@ def declare_topology(channel) -> None:
         queue=ORDER_STATUS_CHANGED_QUEUE, exchange=ORDER_EXCHANGE, routing_key=ORDER_STATUS_CHANGED_ROUTING_KEY
     )
 
+    # Retry queue: bound to its own exchange with "#" so it accepts a
+    # retried message under any original routing key; its
+    # x-dead-letter-exchange (no override routing key) sends an expired
+    # message back to ORDER_EXCHANGE using that same original routing key,
+    # landing it back on ORDER_CREATED_QUEUE or ORDER_STATUS_CHANGED_QUEUE
+    # for redelivery. The delay itself is set per-message (BasicProperties.expiration
+    # in _route_to_retry_or_dlq), not as a fixed queue-level TTL, so each
+    # attempt can back off further than the last.
+    channel.exchange_declare(exchange=RETRY_EXCHANGE, exchange_type="topic", durable=True)
+    channel.queue_declare(
+        queue=RETRY_QUEUE,
+        durable=True,
+        arguments={"x-dead-letter-exchange": ORDER_EXCHANGE},
+    )
+    channel.queue_bind(queue=RETRY_QUEUE, exchange=RETRY_EXCHANGE, routing_key="#")
+
+    # Terminal dead letter queue: reached only after MAX_ATTEMPTS.
+    channel.exchange_declare(exchange=DLX_EXCHANGE, exchange_type="topic", durable=True)
+    channel.queue_declare(queue=DLQ, durable=True)
+    channel.queue_bind(queue=DLQ, exchange=DLX_EXCHANGE, routing_key="#")
+
+
+def _next_attempt(properties) -> int:
+    headers = properties.headers or {}
+    return int(headers.get(ATTEMPTS_HEADER, 1))
+
+
+def _route_to_retry_or_dlq(channel, method, properties, body) -> None:
+    """Concentrates the whole resilience policy here, in the messaging
+    layer -- the business functions this is called after (process_order_created/
+    process_order_status_changed) never see a retry count or know this
+    exists. Retries up to MAX_ATTEMPTS with exponential backoff (via a
+    per-message TTL on the retry queue, not a sleep); once exhausted,
+    republishes to the dead letter exchange instead so the message is
+    never silently dropped.
+    """
+    attempt = _next_attempt(properties)
+
+    if attempt < MAX_ATTEMPTS:
+        delay_ms = min(INITIAL_INTERVAL_MS * (BACKOFF_MULTIPLIER ** (attempt - 1)), MAX_INTERVAL_MS)
+        headers = dict(properties.headers or {})
+        headers[ATTEMPTS_HEADER] = attempt + 1
+        retry_properties = pika.BasicProperties(
+            content_type=properties.content_type,
+            headers=headers,
+            expiration=str(int(delay_ms)),
+        )
+        channel.basic_publish(
+            exchange=RETRY_EXCHANGE,
+            routing_key=method.routing_key,
+            body=body,
+            properties=retry_properties,
+        )
+        logger.warning(
+            "message failed (attempt %d/%d), retrying in %dms: routing_key=%s",
+            attempt, MAX_ATTEMPTS, delay_ms, method.routing_key,
+        )
+    else:
+        channel.basic_publish(
+            exchange=DLX_EXCHANGE,
+            routing_key=method.routing_key,
+            body=body,
+            properties=properties,
+        )
+        logger.error(
+            "message exhausted %d attempts, routed to the dead letter queue: routing_key=%s",
+            MAX_ATTEMPTS, method.routing_key,
+        )
+
+    channel.basic_ack(delivery_tag=method.delivery_tag)
+
 
 def consume_forever(channel, auth_client, repository, sender) -> None:
     def on_order_created(ch, method, properties, body):
         try:
             event = json.loads(body)
             process_order_created(event, auth_client, sender)
-        except Exception:
-            # Last-resort safety net for a malformed message (process_order_created
-            # itself already turns a failed auth-service lookup into a FAILED
-            # notification, not an exception). Acked regardless, so a
-            # malformed message doesn't loop forever -- there is no
-            # retry/DLQ policy here, deliberately kept as simple as every
-            # other consumer in this project.
-            logger.exception("failed to process order.created message")
-        finally:
             ch.basic_ack(delivery_tag=method.delivery_tag)
+        except Exception:
+            logger.exception("failed to process order.created message")
+            _route_to_retry_or_dlq(ch, method, properties, body)
 
     def on_order_status_changed(ch, method, properties, body):
         try:
             event = json.loads(body)
             process_order_status_changed(event, repository, sender)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception:
             logger.exception("failed to process order.status-changed message")
-        finally:
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+            _route_to_retry_or_dlq(ch, method, properties, body)
 
     channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_order_created)
     channel.basic_consume(queue=ORDER_STATUS_CHANGED_QUEUE, on_message_callback=on_order_status_changed)

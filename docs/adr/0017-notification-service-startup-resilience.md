@@ -115,6 +115,17 @@ startup race specifically.
   directly (only the Postgres row) — unchanged from ADR-0014; a minimal
   read endpoint remains a candidate for future work, out of scope here.
 
+## Update — 2026-07-08
+
+Both limitations named above are now closed by later ADRs, not this one:
+per-message retry/backoff/dead-lettering was added by
+[ADR-0022](0022-notification-service-consumption-resilience.md); the
+read-only `GET /notifications/{orderId}` endpoint was added by
+[ADR-0020](0020-notification-domain-completion.md). This update only
+records that the gaps this ADR named are resolved elsewhere — it doesn't
+change anything this ADR itself decided about startup/reconnection
+resilience.
+
 ## References
 
 - [ADR-0014](0014-notification-service.md) — the original implementation

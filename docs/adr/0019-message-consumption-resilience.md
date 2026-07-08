@@ -137,6 +137,18 @@ these services inherits it automatically without any per-listener code.
   That remains manual/out of scope, consistent with this being a
   portfolio-scale demonstration rather than an operated production system.
 
+## Update — 2026-07-08
+
+`notification-service`'s equivalent gap, named above as unchanged, is now
+closed by [ADR-0022](0022-notification-service-consumption-resilience.md) -
+built natively on RabbitMQ (a retry queue with a per-message TTL and
+dead-lettering back to the original exchange, then a terminal DLX/DLQ)
+since Pika has no built-in retry template equivalent to the
+`SimpleRabbitListenerContainerFactoryConfigurer`/`RetryTemplate` this ADR
+uses. Same numbers (3 attempts, 200ms/2.0/2000ms), different mechanism,
+equivalent behavior - this update doesn't change anything this ADR
+decided for the Spring services.
+
 ## References
 
 - [docs/architecture/architectural-principles.md](../architecture/architectural-principles.md)
