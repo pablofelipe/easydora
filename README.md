@@ -173,7 +173,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 |---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented (tests: 5 test functions covering the circuit breaker, see ADR-0006/ADR-0009) |
 | Auth | Spring Boot + JWT | 8081 | Implemented (tests: 4/4 — `mvn test` only, no `*IT`) |
-| Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 4/4 — `mvn test` only, no `*IT`) |
+| Products | Spring Boot + PostgreSQL | 8082 | Implemented (tests: 6/6 — `mvn test` only, no `*IT`) |
 | Inventory | Go + PostgreSQL | 8083 | Implemented (tests: 8/8 passing) |
 | Orders | Spring Boot + RabbitMQ | 8084 | Implemented (tests: 8/8 — `mvn test` only, no `*IT`) |
 | Billing | Spring Boot | 8085 | Implemented (tests: 6/6 — `mvn test` 5/5 unit (contract test + `HealthControllerTest` + `PaymentServiceOrderCreatedBehaviorTest`), `mvn verify` adds 1 `*IT` real-context smoke test against Postgres/RabbitMQ) |
@@ -369,15 +369,15 @@ The stack split is deliberate:
       the one step in that walkthrough requiring direct Postgres access;
       no direct database query is needed anywhere in that walkthrough
       anymore.
-- [ ] `products-service`'s `UserEventConsumer.handleUserVerified` has no
-      role filter, unlike its sibling `handleUserRegistered`/
-      `handleJwtCreated` (both check `isSeller()` first). Every `BUYER`'s
-      `user.verified` broadcast reaches this queue too and throws
-      `Seller not found`, now correctly dead-lettered by ADR-0019's policy
-      instead of looping forever — found by inspecting `products.dlq`'s
-      real contents while validating
-      [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md),
-      not by design. Candidate fix: add the same `isSeller()` guard the
-      other two methods already have.
+- [x] `products-service`'s `UserEventConsumer.handleUserVerified` no
+      longer assumes a `Seller` row exists for every verified user.
+      `auth-service` publishes `user.verified` as a bare userId with no
+      role field (unlike `user.registered`/`jwt.created`, which carry a
+      role `handleUserRegistered`/`handleJwtCreated` filter on via
+      `isSeller()`), so a `BUYER`'s verification reaches this queue too —
+      previously dead-lettered as `Seller not found` (found while
+      validating [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md)).
+      Now treats "no matching Seller" as an expected, silent no-op instead
+      of an exception.
 
 </details>

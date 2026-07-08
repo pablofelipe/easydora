@@ -131,14 +131,20 @@ public class UserEventConsumer {
     public void handleUserVerified(Long userId) {
         logger.info("Received USER_VERIFIED_QUEUE event for user: {}", userId);
 
-        try 
-        {
-            Seller seller = sellerRepository.findById(userId.toString())
-                .orElseThrow(() -> new Exception("Seller not found: " + userId));
-                
-            seller.setActive(true); // Activate the user after verification
-
-            sellerRepository.save(seller);
+        try {
+            // auth-service publishes user.verified for every user regardless
+            // of role (the event is just a bare userId, no role field to
+            // filter on here the way user.registered/jwt.created can via
+            // isSeller()) -- a BUYER's verification reaches this queue too,
+            // so no Seller row existing yet is expected, not a failure.
+            sellerRepository.findById(userId.toString()).ifPresentOrElse(
+                seller -> {
+                    seller.setActive(true); // Activate the seller after verification
+                    sellerRepository.save(seller);
+                    logger.info("Seller activated: {}", userId);
+                },
+                () -> logger.debug("Ignoring USER_VERIFIED_QUEUE event for non-seller user: {}", userId)
+            );
         } catch (Exception e) {
             logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}",
                 userId, e);
