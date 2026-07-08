@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.12</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.easydora</groupId>
+    <artifactId>easydora-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>easydora-parent</name>
+    <description>
+        Shared parent for EasyDora's four Spring Boot services (auth-service,
+        products-service, orders-service, billing-service). Inheritance only,
+        not a reactor: there is no `modules` list here, so each service still
+        builds independently via `cd &lt;service&gt; &amp;&amp; mvn ...`, exactly
+        as before. This just centralizes what was already identical across
+        all four `pom.xml` files by hand.
+    </description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <!-- Dependencies identical across all four services today: declared
+         directly here (not just dependencyManagement) so children inherit
+         them without redeclaring anything. Each child's own pom.xml keeps
+         only what's genuinely specific to it (jjwt/h2/spring-security-crypto
+         for auth-service; spring-statemachine-core/hibernate-core/actuator
+         for orders-service; spring-boot-starter/spring-tx/
+         jakarta.persistence-api/spring-rabbit for billing-service; and each
+         service's own postgresql dependency, since auth-service/
+         billing-service pin an explicit version while products-service/
+         orders-service rely on Spring Boot's managed default). -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>1.5.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+        <!-- maven-failsafe-plugin is deliberately not declared directly
+             above: products-service has no *IT classes and no Failsafe
+             execution (ADR-0008), so only pluginManagement is provided
+             here; each of the other three children opts in by declaring
+             the plugin (without a version) in its own build/plugins. -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>
