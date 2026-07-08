@@ -2,15 +2,17 @@
 
 A linear, reproducible way to run the whole business flow from a clean
 checkout using only Docker Compose, `curl`, and the services' public HTTP
-APIs — no Postman, no external scripts, no GUI tools. Every command below
-was actually executed against a real, freshly-started stack; every response
-shown is a real response from that run (IDs, tokens, and timestamps will
-differ on your own run).
+APIs — no external scripts, no GUI tools. Every command below was actually
+executed against a real, freshly-started stack; every response shown is a
+real response from that run (IDs, tokens, and timestamps will differ on
+your own run).
 
 For the same flow as a diagram, see
 [docs/sequence-diagram.md](sequence-diagram.md). For the high-level map
 this flow fits into (services, communication, persistence), see
-[docs/architecture/overview.md](architecture/overview.md).
+[docs/architecture/overview.md](architecture/overview.md). For the same
+flow as an importable, runnable collection (automatic ID/token capture
+instead of shell variables), see [postman/](../postman/).
 
 ## Prerequisites
 

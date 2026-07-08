@@ -147,9 +147,12 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 17
+- [Architecture Decision Records](#architecture-decision-records) — 18
   ADRs, one per architectural decision made along the way, in chronological
   order.
+- [Postman collection](postman/) — the same main flow as an importable,
+  runnable collection with automatic ID/token capture, complementing the
+  walkthrough.
 - [Architectural Principles](docs/architecture/architectural-principles.md)
   — the recurring principles behind those decisions, extracted from the
   ADRs rather than declared up front.
