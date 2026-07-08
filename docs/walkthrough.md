@@ -282,9 +282,9 @@ criterion for this walkthrough.
 
 | Step | Event | Producer | Consumer | Observable effect |
 |---|---|---|---|---|
-| Signup | `user.registered` | auth-service | products-service, orders-service | inactive Seller/Buyer row |
-| Verify email | `user.verified` | auth-service | products-service | Seller activated |
-| Login | `jwt.created` | auth-service | products-service, orders-service, billing-service | token cached; Buyer created (orders-service) |
+| Signup | `user.registered` | auth-service | products-service (role=SELLER only), orders-service (either role) | inactive Seller row (products-service, SELLER only); inactive generic Buyer row (orders-service, either role) |
+| Verify email | `user.verified` | auth-service | products-service (role=SELLER only), orders-service (either role) | Seller row activated (products-service); the same user's generic Buyer row is also activated in orders-service, with no observable effect on this flow |
+| Login | `jwt.created` | auth-service | products-service (role=SELLER only), orders-service (either role), billing-service (either role) | token cached; Buyer created/updated (orders-service, either role) |
 | Create product | `product.created` | products-service | inventory-service | inventory row created |
 | Create order | `stock.reserve` / `stock.reserved` | orders-service / inventory-service | inventory-service / orders-service | order → `INVENTORY_RESERVED`, stock reserved |
 | Create order | `order.created` | orders-service | billing-service, notification-service | Payment created; notification persisted |
