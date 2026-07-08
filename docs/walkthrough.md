@@ -8,7 +8,9 @@ shown is a real response from that run (IDs, tokens, and timestamps will
 differ on your own run).
 
 For the same flow as a diagram, see
-[docs/sequence-diagram.md](sequence-diagram.md).
+[docs/sequence-diagram.md](sequence-diagram.md). For the high-level map
+this flow fits into (services, communication, persistence), see
+[docs/architecture/overview.md](architecture/overview.md).
 
 ## Prerequisites
 

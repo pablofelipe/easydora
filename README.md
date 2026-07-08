@@ -46,8 +46,9 @@ Frontend is the only remaining empty scaffold. See
   [ADR-0002](docs/adr/0002-json-schema-contract-testing.md).
 - **Cross-service JWT broadcast authentication** — auth-service issues the
   token once; every other service builds its own in-memory cache from a
-  broadcast event instead of re-verifying signatures locally. See
-  [Design notes](#design-notes).
+  broadcast event instead of re-verifying signatures locally. See the
+  Overview's [Communication](docs/architecture/overview.md#communication)
+  section.
 - **Circuit breaker at the API Gateway** — outbound proxy calls fail fast
   instead of piling up when a downstream service is down. See
   [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md) and
@@ -112,6 +113,11 @@ If `docker-compose` fails to connect:
 
 ## Architecture
 
+For the full breakdown — bounded contexts, business flows, communication,
+persistence, and the exchange/event table — see the
+[Architecture Overview](docs/architecture/overview.md). The diagram below
+is just the component topology at a glance:
+
 ```
                     ┌─────────────┐
                     │ API Gateway │  Go + Gin
@@ -136,11 +142,11 @@ If `docker-compose` fails to connect:
 Frontend (SvelteKit, planned) consumes the API Gateway.
 ```
 
-Async order flow via RabbitMQ; JWT-based cross-service authentication;
-each service independently deployable via Docker Compose.
-
 ## Documentation
 
+- [Architecture Overview](docs/architecture/overview.md) — the map: bounded
+  contexts, business flows, communication, persistence, and the
+  exchange/event table.
 - [Architecture Decision Records](#architecture-decision-records) — 17
   ADRs, one per architectural decision made along the way, in chronological
   order.

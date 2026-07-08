@@ -186,5 +186,7 @@ across all six services.
 
 - [README](../../README.md) — project overview and the ADR index these
   principles were extracted from.
+- [Architecture Overview](overview.md) — the system map (bounded contexts,
+  communication, persistence, events) these principles were applied to.
 - Individual ADRs are cited inline above per principle; see
   `docs/adr/` for the full set.

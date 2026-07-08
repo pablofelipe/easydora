@@ -4,7 +4,9 @@ Companion to [`docs/walkthrough.md`](walkthrough.md): the same flow (signup
 through order, stock reservation, payment, and notification), as a Mermaid
 sequence diagram. Every message shown here has a corresponding `curl` call
 and expected response in the walkthrough — use that document to actually
-run the flow; use this one to see the shape of it at a glance.
+run the flow; use this one to see the shape of it at a glance. For the
+higher-level map (bounded contexts, persistence, the full exchange/event
+table), see [docs/architecture/overview.md](architecture/overview.md).
 
 RabbitMQ is drawn as its own participant (not a direct service-to-service
 arrow) because that's what's actually happening: every cross-service event
