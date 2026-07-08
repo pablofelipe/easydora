@@ -2,24 +2,23 @@ FROM eclipse-temurin:17-jdk-alpine as builder
 
 RUN apk add --no-cache maven
 
-WORKDIR /app
+WORKDIR /build
 
-# Copia primeiro o POM para cache de dependências
-COPY pom.xml .
-
-# Baixa dependências (cache layer)
-RUN mvn dependency:go-offline
+# Copia primeiro os POMs (parent compartilhado + do serviço) para cache de dependências
+COPY pom.xml pom.xml
+COPY auth-service/pom.xml auth-service/pom.xml
+RUN cd auth-service && mvn dependency:go-offline
 
 # Copia o código fonte
-COPY src ./src
+COPY auth-service/src auth-service/src
 
 # Build do projeto
-RUN mvn clean package -DskipTests
+RUN cd auth-service && mvn clean package -DskipTests
 
 # Stage final
 FROM eclipse-temurin:17-jdk-alpine
 VOLUME /tmp
-COPY --from=builder /app/target/auth-service-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=builder /build/auth-service/target/auth-service-0.0.1-SNAPSHOT.jar app.jar
 
 EXPOSE 8081
 

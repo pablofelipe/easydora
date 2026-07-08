@@ -58,7 +58,9 @@ services:
 
   # Auth Service
   auth-service:
-    build: ./auth-service
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
     container_name: auth-service
     ports:
       - "8081:8081"
@@ -84,7 +86,9 @@ services:
 
   # Products Service
   products-service:
-    build: ./products-service
+    build:
+      context: .
+      dockerfile: products-service/Dockerfile
     container_name: products-service
     ports:
       - "8082:8082"
@@ -109,7 +113,9 @@ services:
 
   # Orders Service
   orders-service:
-    build: ./orders-service
+    build:
+      context: .
+      dockerfile: orders-service/Dockerfile
     container_name: orders-service
     ports:
       - "8084:8084"
@@ -162,7 +168,9 @@ services:
 
   # Billing Service
   billing-service:
-    build: ./billing-service
+    build:
+      context: .
+      dockerfile: billing-service/Dockerfile
     container_name: billing-service
     ports:
       - "8085:8085"
