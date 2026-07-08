@@ -89,7 +89,7 @@ Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
 | [0012](docs/adr/0012-ci-phase-2-real-infrastructure.md) | CI Phase 2 — real-infrastructure integration tests via service containers | Accepted | New `integration` job in CI, matrix of auth-service/orders-service/billing-service/inventory-service, each against its own fresh Postgres/RabbitMQ service-container pair. Restores three previously-removed `*IT` classes and adds new ones; every hop is tested from at most one side (producer or consumer), never both, and never across a real process boundary — see ADR-0013. |
 | [0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) | CI Phase 3 — cross-service end-to-end tests via real running processes | Accepted | Two named jobs that start multiple real services as actual processes against one shared Postgres/RabbitMQ pair, driving flows through public HTTP APIs only: `catalog-onboarding` (auth/products/inventory) and `order-lifecycle` (auth/orders/inventory/billing). Surfaced and fixed a real bug where billing-service's Basic Auth never actually worked (403 regardless of credentials). |
 | [0014](docs/adr/0014-notification-service.md) | Notification Service — first Python/FastAPI service | Accepted | Consumes `order.created` via a new RabbitMQ queue, enriches it via a real HTTP call to a new minimal auth-service endpoint (`GET /users/{id}/notification-profile`), and persists an observable notification in a new `notification_schema` — no real email/SMS provider, one `FakeNotificationSender` implementation. Found (not fixed, currently latent) the same missing-`.httpBasic()` defect class ADR-0013 fixed in billing-service, this time in auth-service. |
-| [0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md) | billing-service joins the JWT broadcast pattern; auth-service's latent `.httpBasic()` gap fixed | Accepted | auth-service gets the same one-line `.httpBasic()` fix ADR-0013 applied to billing-service. billing-service's `/api/payments/**` now authenticates via the same JWT-broadcast cache as auth/products/orders-service, fully replacing Spring Boot's default Basic Auth; new `JwtConsumerBehaviorTest`/`PaymentControllerSecurityTest`/`BillingJwtCreatedWiringIT` give this mechanism real regression coverage for the first time. |
+| [0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md) | billing-service joins the JWT broadcast pattern; auth-service's latent `.httpBasic()` gap fixed | Accepted | auth-service gets the same one-line `.httpBasic()` fix ADR-0013 applied to billing-service (currently unexercised, since every auth-service endpoint is `permitAll()`). billing-service was the only service protected solely by Spring Boot's default Basic Auth; it now authenticates via the same Bearer JWT broadcast cache already used by products-service and orders-service (auth-service is the producer of that broadcast, not a consumer of it). New `JwtConsumerBehaviorTest`/`PaymentControllerSecurityTest`/`BillingJwtCreatedWiringIT` give this mechanism real regression coverage for the first time. |
 | [0016](docs/adr/0016-shared-spring-parent-pom.md) | Shared Maven parent POM for the four Spring Boot services | Accepted | New root `pom.xml` (inheritance only, no reactor) standardizes all four services on Spring Boot 3.2.12 (previously split 3.2.0/3.2.12) and centralizes every dependency/plugin that was identical across all four by hand. Required changing Docker's build context to the repository root for all four services so the parent resolves inside each build. |
 
 ## Quick Start
@@ -219,10 +219,14 @@ The stack split is deliberate:
       neither), and a `HEALTHCHECK` for auth-service, inventory-service, and
       api-gateway (which never had one). All six services now verified
       `healthy` simultaneously.
-- [x] billing-service's `/api/payments/**` now authenticates via the same
-      cross-service JWT broadcast cache as its three sibling services,
-      fully replacing Spring Boot's default Basic Auth — see
+- [x] billing-service was the only service protected solely by Spring
+      Boot's default Basic Auth; it now authenticates via the same Bearer
+      JWT broadcast cache already used by products-service and
+      orders-service, fully replacing Basic Auth — see
       [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
+      (auth-service is the producer of that broadcast, not a consumer of
+      it, and remains on `.httpBasic()` — currently unexercised, since
+      every one of its endpoints is `permitAll()`.)
 - [x] Shared parent POM across the four Spring services (auth, products,
       orders, billing) — see
       [ADR-0016](docs/adr/0016-shared-spring-parent-pom.md). Also

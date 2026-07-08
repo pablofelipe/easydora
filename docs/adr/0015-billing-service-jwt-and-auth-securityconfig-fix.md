@@ -9,7 +9,7 @@ Accepted - 2026-07-07
 Two related debts, both in the same "missing or incomplete authentication mechanism" family already documented in this project:
 
 1. **auth-service's `SecurityConfig`** builds a custom `SecurityFilterChain` with `anyRequest().authenticated()` but never calls `.httpBasic(...)` — the exact defect class ADR-0013 found and fixed in billing-service. Confirmed by inspection: every one of auth-service's six endpoints (`/ping`, `/health`, `/signup`, `/login`, `/verify-email`, `/users/{id}/notification-profile`) is already `permitAll()`-ed, so the bug is latent, not active — nothing currently falls through to the broken fallback.
-2. **billing-service's `/api/payments/**`** has been protected only by Spring Boot's auto-generated single-user HTTP Basic auth since ADR-0013's fix — the same ADR flagged this as a residual gap: unlike its three sibling services (auth/products/orders), billing-service never joined the project's cross-service JWT-broadcast cache (`JwtConsumer` + `JwtAuthenticationFilter`, fed by `auth-service`'s `JwtCreatedEvent` over `auth.exchange`/`jwt.created`).
+2. **billing-service's `/api/payments/**`** has been protected only by Spring Boot's auto-generated single-user HTTP Basic auth since ADR-0013's fix — the same ADR flagged this as a residual gap: unlike products-service and orders-service, billing-service never joined the project's cross-service JWT-broadcast cache (`JwtConsumer` + `JwtAuthenticationFilter`, fed by `auth-service`'s `JwtCreatedEvent` over `auth.exchange`/`jwt.created`). `auth-service` itself is the *producer* of that broadcast, not a consumer of it — it has no `JwtAuthenticationFilter`/`JwtConsumer` of its own, so it was never a third sibling to compare billing-service against on this specific mechanism.
 
 ## Decision
 
@@ -30,7 +30,7 @@ Modified:
 - `RabbitMQConfig` — added the `auth.exchange`/`jwt.created`/`billing.jwt.created.queue` constants and beans, alongside the existing `order.exchange` wiring. The existing Jackson `MessageConverter` (already configured with `INFERRED` type precedence) needed no changes to deserialize `JwtEvent`.
 - `SecurityConfig` — removed `.httpBasic(Customizer.withDefaults())` entirely; added `STATELESS` session management, `.formLogin(...).disable()`, `.httpBasic(...).disable()`, and `.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)` — the same structure as products-service's `SecurityConfig`. `/ping`, `/health`, `/error` remain `permitAll()`.
 
-This was a deliberate, confirmed decision (not a default): billing-service's Basic Auth is **fully replaced**, not kept alongside JWT, for parity with the other three services — accepting that `OrderLifecycleE2ETest` and the CI `order-lifecycle` job needed matching updates (see Consequences).
+This was a deliberate, confirmed decision (not a default): billing-service's Basic Auth is **fully replaced**, not kept alongside JWT, for parity with products-service and orders-service — accepting that `OrderLifecycleE2ETest` and the CI `order-lifecycle` job needed matching updates (see Consequences).
 
 ### New test coverage this task added that ADR-0013 never had
 
@@ -54,11 +54,12 @@ ADR-0013's original billing-service Basic Auth fix was verified only live, via `
 
 ## Consequences
 
-**Positive**: billing-service now authenticates identically to auth-service/products-service/orders-service — one less special case in the codebase, and real regression tests exist for a security mechanism that previously had none. auth-service's `SecurityConfig` is no longer a landmine waiting for its first protected endpoint.
+**Positive**: billing-service now authenticates identically to products-service/orders-service — one less special case in the codebase, and real regression tests exist for a security mechanism that previously had none. auth-service's `SecurityConfig` is no longer a landmine waiting for its first protected endpoint, though it still has none today — see Consequences below.
 
 **Not fixed here / known limitations**:
 - No retry/backoff/DLQ on the new `billing.jwt.created.queue` consumer — same accepted gap as every other RabbitMQ consumer in this project.
 - A service restart still wipes billing-service's token cache in-memory, exactly like every other service using this pattern — previously-issued tokens become invalid until the next login or JWT rebroadcast. This is a pre-existing, project-wide characteristic of the broadcast-cache design (see `CLAUDE.md`'s "Cross-service auth" section), not something introduced or worsened here.
+- auth-service still has `.httpBasic(Customizer.withDefaults())` configured alongside `anyRequest().authenticated()`, even though every one of its endpoints is `permitAll()`-ed — the fix here is defensive (it's what stops a *future* protected endpoint from silently 403-ing regardless of credentials), but as of today that combination is unexercised configuration, not something actively guarding a real endpoint. Left as-is rather than simplified, since removing it now would just reintroduce the same landmine the moment a protected endpoint is added.
 
 ## References
 
