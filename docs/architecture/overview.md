@@ -62,11 +62,14 @@ other, how data is persisted, and where to go for more depth on any of it.
 - Each service owns exactly one schema (`auth_schema`, `products_schema`,
   `inventory_schema`, `orders_schema`, `billing_schema`,
   `notification_schema`) and is the only writer to its own tables.
-- No service queries another service's schema directly.
+- No service queries another service's schema directly in production
+  code (a small number of test-fixture exceptions exist, see
+  [ADR-0018](../adr/0018-persistence-strategy.md)).
 
-The rationale behind this persistence strategy is a separate discussion
-from what it currently is — see the Architecture Decision Records for
-related context, not this document.
+The rationale behind this persistence strategy — including the trade-offs
+against database-per-service and when this decision might be revisited —
+is documented separately in
+[ADR-0018](../adr/0018-persistence-strategy.md), not here.
 
 ## Exchanges & Events
 
