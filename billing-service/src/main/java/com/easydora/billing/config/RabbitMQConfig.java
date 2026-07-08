@@ -19,12 +19,19 @@ public class RabbitMQConfig {
 
     // Exchange do orders-service
     public static final String ORDER_EXCHANGE = "order.exchange";
-    
+
     // Routing keys para consumir
     public static final String ORDER_CREATED_KEY = "order.created";
 
     // Queues do billing-service
     public static final String ORDER_CREATED_QUEUE = "billing.order.created.queue";
+
+    // Exchange do auth-service (broadcast de JwtCreatedEvent)
+    public static final String AUTH_EXCHANGE = "auth.exchange";
+
+    public static final String JWT_ROUTING_KEY = "jwt.created";
+
+    public static final String JWT_CREATED_QUEUE = "billing.jwt.created.queue";
 
     @Bean
     public TopicExchange orderExchange() {
@@ -41,6 +48,23 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(orderCreatedQueue)
                 .to(orderExchange)
                 .with(ORDER_CREATED_KEY);
+    }
+
+    @Bean
+    public TopicExchange authExchange() {
+        return new TopicExchange(AUTH_EXCHANGE);
+    }
+
+    @Bean
+    public Queue jwtCreatedQueue() {
+        return new Queue(JWT_CREATED_QUEUE, true);
+    }
+
+    @Bean
+    public Binding jwtCreatedBinding(Queue jwtCreatedQueue, TopicExchange authExchange) {
+        return BindingBuilder.bind(jwtCreatedQueue)
+                .to(authExchange)
+                .with(JWT_ROUTING_KEY);
     }
 
     @Bean
