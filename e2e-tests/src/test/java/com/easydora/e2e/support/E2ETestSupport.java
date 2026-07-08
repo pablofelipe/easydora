@@ -9,7 +9,6 @@ import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.Map;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -34,11 +33,6 @@ public abstract class E2ETestSupport {
 
     protected Map<String, String> bearer(String token) {
         return Map.of("Authorization", "Bearer " + token);
-    }
-
-    protected Map<String, String> basicAuth(String username, String password) {
-        String encoded = Base64.getEncoder().encodeToString((username + ":" + password).getBytes());
-        return Map.of("Authorization", "Basic " + encoded);
     }
 
     protected HttpResponse<String> postJson(String baseUrl, String path, Object body, Map<String, String> headers)

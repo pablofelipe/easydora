@@ -39,8 +39,6 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
     private static final String AUTH_URL = envOrDefault("AUTH_BASE_URL", "http://localhost:8081");
     private static final String ORDERS_URL = envOrDefault("ORDERS_BASE_URL", "http://localhost:8084");
     private static final String BILLING_URL = envOrDefault("BILLING_BASE_URL", "http://localhost:8085");
-    private static final String BILLING_USER = envOrDefault("BILLING_BASIC_AUTH_USER", "admin");
-    private static final String BILLING_PASSWORD = envOrDefault("BILLING_BASIC_AUTH_PASSWORD", "local_dev_placeholder");
 
     @Test
     void orderLifecycleFlowsThroughAuthInventoryAndBilling() throws Exception {
@@ -109,10 +107,12 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
         assertEquals("INVENTORY_FAILED", failedState,
                 "order " + failedOrderId + " should reach INVENTORY_FAILED via the real stock.insufficient publish");
 
-        // --- Order Created -> Billing: a real Payment for the first order ---
+        // --- Order Created -> Billing: a real Payment for the first order.
+        // billing-service now authenticates via the same JWT broadcast cache
+        // as orders-service (ADR-0015), so the token already obtained from
+        // login above is reused here instead of Basic Auth credentials. ---
         HttpResponse<String> paymentResponse = awaitHttp(Duration.ofSeconds(10),
-                () -> getJson(BILLING_URL, "/api/payments/order/" + reservedOrderId,
-                        basicAuth(BILLING_USER, BILLING_PASSWORD)),
+                () -> getJson(BILLING_URL, "/api/payments/order/" + reservedOrderId, bearer(token)),
                 r -> r.statusCode() == 200);
         assertEquals(200, paymentResponse.statusCode(),
                 "billing-service should have created a Payment for order " + reservedOrderId

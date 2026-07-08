@@ -354,14 +354,6 @@ jobs:
           DB_PASSWORD: local_dev_placeholder
           RABBITMQ_PASSWORD: local_dev_placeholder
           SPRING_PROFILES_ACTIVE: dev
-          # billing-service has no JWT broadcast integration yet (ADR-0010) --
-          # its API still sits behind Spring Boot's default single-user Basic
-          # Auth, so this fixes that user's credentials to a known,
-          # non-secret placeholder instead of the randomly generated default,
-          # the same way every other credential in this pipeline is a fixed
-          # placeholder rather than a real secret.
-          SPRING_SECURITY_USER_NAME: admin
-          SPRING_SECURITY_USER_PASSWORD: local_dev_placeholder
         run: |
           JAR=$(ls target/*.jar | grep -v original- | head -n1)
           nohup java -jar "$JAR" > /tmp/billing-service.log 2>&1 &
