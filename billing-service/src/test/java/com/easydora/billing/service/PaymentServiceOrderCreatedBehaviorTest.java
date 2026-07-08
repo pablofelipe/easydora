@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -35,12 +36,14 @@ class PaymentServiceOrderCreatedBehaviorTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private RabbitTemplate rabbitTemplate;
 
     @Test
     void orderCreatedEventCreatesAPendingPayment() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.empty());
 
-        PaymentService paymentService = new PaymentService(paymentRepository);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
@@ -62,7 +65,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventIsIgnoredWhenAPaymentAlreadyExistsForTheOrder() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.of(new Payment()));
 
-        PaymentService paymentService = new PaymentService(paymentRepository);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");

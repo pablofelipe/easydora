@@ -195,31 +195,33 @@ public class OrderService {
     public void handlePaymentReceived(String orderId) {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        
+
+        OrderState previousState = order.getState();
         boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.PAYMENT_RECEIVED);
-        
+
         if (eventSent) {
             OrderState newState = stateMachineService.getCurrentState(orderId);
             order.setState(newState);
             orderRepository.save(order);
-            
-            publishOrderStatusChanged(orderId, OrderState.PENDING, newState);
+
+            publishOrderStatusChanged(orderId, previousState, newState);
         }
     }
-    
+
     @Transactional
     public void handlePaymentFailed(String orderId) {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        
+
+        OrderState previousState = order.getState();
         boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.PAYMENT_FAILED);
-        
+
         if (eventSent) {
             OrderState newState = stateMachineService.getCurrentState(orderId);
             order.setState(newState);
             orderRepository.save(order);
-            
-            publishOrderStatusChanged(orderId, OrderState.PENDING, newState);
+
+            publishOrderStatusChanged(orderId, previousState, newState);
         }
     }
     

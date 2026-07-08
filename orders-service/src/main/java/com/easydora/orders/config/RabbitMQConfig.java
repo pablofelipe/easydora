@@ -59,6 +59,16 @@ public class RabbitMQConfig {
     public static final String STOCK_INSUFFICIENT_QUEUE = "orders.stock.insufficient.queue";
     public static final String STOCK_INSUFFICIENT_ROUTING_KEY = "stock.insufficient";
 
+    // payment.* outcome events - published by billing-service once a
+    // payment resolves to APPROVED/FAILED, consumed here to drive the same
+    // state machine transitions OrderService.handlePaymentReceived/
+    // handlePaymentFailed already implement (see ADR-0001, finding 5, and
+    // ADR-0020's Roadmap follow-up)
+    public static final String PAYMENT_APPROVED_QUEUE = "orders.payment.approved.queue";
+    public static final String PAYMENT_APPROVED_ROUTING_KEY = "payment.approved";
+    public static final String PAYMENT_FAILED_QUEUE = "orders.payment.failed.queue";
+    public static final String PAYMENT_FAILED_ROUTING_KEY = "payment.failed";
+
     // Dead letter routing - every listener queue in this service
     // shares one DLX/DLQ pair; RepublishMessageRecoverer republishes using
     // the original received routing key, so the DLQ binds on "#" to catch
@@ -112,6 +122,16 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue paymentApprovedQueue() {
+        return new Queue(PAYMENT_APPROVED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue paymentFailedQueue() {
+        return new Queue(PAYMENT_FAILED_QUEUE, true);
+    }
+
+    @Bean
     public Binding userVerifiedBinding(Queue userVerifiedQueue, TopicExchange authExchange) {
         return BindingBuilder.bind(userVerifiedQueue)
                 .to(authExchange)
@@ -158,6 +178,20 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(stockInsufficientQueue)
                 .to(orderExchange)
                 .with(STOCK_INSUFFICIENT_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding paymentApprovedBinding(Queue paymentApprovedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(paymentApprovedQueue)
+                .to(orderExchange)
+                .with(PAYMENT_APPROVED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding paymentFailedBinding(Queue paymentFailedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(paymentFailedQueue)
+                .to(orderExchange)
+                .with(PAYMENT_FAILED_ROUTING_KEY);
     }
 
     @Bean

@@ -29,6 +29,13 @@ public class RabbitMQConfig {
     // Queues do billing-service
     public static final String ORDER_CREATED_QUEUE = "billing.order.created.queue";
 
+    // Routing keys para publicar o resultado do processamento do pagamento
+    // (consumidos por orders-service - ver PaymentEventsConsumer). Publicados
+    // na mesma order.exchange já declarada acima, sem exchange/fila novas
+    // aqui, já que este serviço só produz esses dois eventos.
+    public static final String PAYMENT_APPROVED_KEY = "payment.approved";
+    public static final String PAYMENT_FAILED_KEY = "payment.failed";
+
     // Exchange do auth-service (broadcast de JwtCreatedEvent)
     public static final String AUTH_EXCHANGE = "auth.exchange";
 

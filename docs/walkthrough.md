@@ -273,14 +273,69 @@ notification's `payload`) is implemented directly in code
 prioritizes simplicity and readability over a runtime-configurable
 templating mechanism it has no present need for.
 
-## 10. Final state
+## 10. Process the payment
 
-At this point you have, driven entirely by 6 HTTP calls plus 5 read-only
-checks:
+```bash
+curl -s -X POST "http://localhost:8085/api/payments/process?orderId=$ORDER_ID&amount=499.80" \
+  -H "Authorization: Bearer $BUYER_TOKEN"
+```
+
+Response (real example):
+```json
+{"id":30,"orderId":"d35207ec-b9bd-44db-b62e-2aa31c5f8e68","userId":26,"amount":15.00,"status":"APPROVED","transactionId":"4910d986-13ae-4383-ab48-9ac15536a778","failureReason":null,"createdAt":"2026-07-08T17:59:35.022814","processedAt":"2026-07-08T17:59:42.000457217"}
+```
+
+This endpoint (`PaymentService.processPayment`) simulates payment
+processing with a random 90% approval chance — `status` in the response
+will be `APPROVED` or `FAILED` depending on the outcome. It always
+operates on the same order's existing `Payment` row, so it's safe to call
+again if you want to see the other branch.
+
+**Event published**: `billing-service` publishes a `PaymentEvent` on
+`order.exchange`/`payment.approved` (or `payment.failed`) once the
+outcome resolves.
+**Who consumes it**: `orders-service`.
+**Observable effect**: the order's state moves to `PAYMENT_APPROVED` (or
+`PAYMENT_FAILED`, which also releases the reserved stock) — the same
+`OrderService.handlePaymentReceived`/`handlePaymentFailed` state-machine
+transitions that existed before this event was wired up to call them
+(see [ADR-0021](adr/0021-payment-outcome-integration.md)). `orders-service`
+then publishes `order.status-changed` through the exact same path step 7's
+stock reservation already used, so `notification-service` reacts with no
+payment-specific changes at all.
+**How to confirm it** (public APIs):
+
+```bash
+curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+```
+
+Expected: `"state":"PAYMENT_APPROVED"` (or `PAYMENT_FAILED`) (real example
+confirmed).
+
+```bash
+curl -s http://localhost:8086/notifications/$ORDER_ID
+```
+
+Response (real example, `APPROVED` case):
+```json
+[
+  {"eventType":"order.created","status":"SENT","payload":{"email":"buyer-e19b-1783533570@example.com","userId":26,"firstName":"Bea","lastName":"Buyer","totalAmount":15.0},"createdAt":"2026-07-08T17:59:35.034452+00:00"},
+  {"eventType":"order.status-changed","status":"SENT","payload":{"email":"buyer-e19b-1783533570@example.com","userId":26,"firstName":"Bea","lastName":"Buyer","previousState":"PROCESSING","newState":"INVENTORY_RESERVED"},"createdAt":"2026-07-08T17:59:38.422602+00:00"},
+  {"eventType":"order.status-changed","status":"SENT","payload":{"email":"buyer-e19b-1783533570@example.com","userId":26,"firstName":"Bea","lastName":"Buyer","previousState":"INVENTORY_RESERVED","newState":"PAYMENT_APPROVED"},"createdAt":"2026-07-08T17:59:42.091826+00:00"}
+]
+```
+
+Three notifications now exist for this order — one per relevant event, in
+order. This is the same read-only endpoint step 9 already used; nothing
+about it changed to support the payment outcome.
+
+## 11. Final state
+
+At this point you have, driven entirely by public HTTP APIs:
 - 1 verified seller, 1 active product, 1 verified buyer
-- 1 order in `INVENTORY_RESERVED`
-- 1 `Payment` in `PENDING`
-- 2 persisted notifications (`order.created`, `order.status-changed`), both `SENT`
+- 1 order in `PAYMENT_APPROVED` (or `PAYMENT_FAILED`)
+- 1 `Payment` in `APPROVED` (or `FAILED`)
+- 3 persisted notifications (`order.created`, and two `order.status-changed`), all `SENT`
 
 ```bash
 curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
@@ -302,6 +357,8 @@ criterion for this walkthrough.
 | Create order | `stock.reserve` / `stock.reserved` | orders-service / inventory-service | inventory-service / orders-service | order → `INVENTORY_RESERVED`, stock reserved |
 | Create order | `order.created` | orders-service | billing-service, notification-service | Payment created; notification persisted |
 | Stock reserved | `order.status-changed` | orders-service | notification-service | second notification persisted (`PROCESSING` → `INVENTORY_RESERVED`), reusing the `order.created` notification's enriched user info |
+| Process payment | `payment.approved` / `payment.failed` | billing-service | orders-service | order → `PAYMENT_APPROVED`/`PAYMENT_FAILED` |
+| Process payment | `order.status-changed` | orders-service | notification-service | third notification persisted (`INVENTORY_RESERVED` → `PAYMENT_APPROVED`/`PAYMENT_FAILED`) |
 
 ## Troubleshooting
 

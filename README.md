@@ -149,7 +149,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 20
+- [Architecture Decision Records](#architecture-decision-records) — 21
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Postman collection](postman/) — the same main flow as an importable,
@@ -226,6 +226,7 @@ The stack split is deliberate:
 | [0018](docs/adr/0018-persistence-strategy.md) | Persistence strategy — shared PostgreSQL instance, schema-per-service ownership | Accepted | Formally registers a decision that was implicit since the project's first commit: one Postgres instance, one schema per service, ownership enforced by convention rather than by database ACLs. Argues the architectural boundary is data ownership, not the physical instance, and that every property this project demonstrates already holds without database-per-service. |
 | [0019](docs/adr/0019-message-consumption-resilience.md) | Uniform message consumption resilience (limited retry, exponential backoff, dead-lettering) | Accepted | `products-service`, `orders-service`, and `billing-service` now share the same native Spring Boot listener retry policy (3 attempts, exponential backoff) and dead-letter exchange/queue per service; eight listener methods that previously swallowed exceptions internally were fixed to propagate them, so container-level retry/DLQ actually applies to business-logic failures, not just malformed messages. `auth-service` has no consumer at all, so is out of scope; `notification-service` (Python) keeps its separate, unrelated gap. |
 | [0020](docs/adr/0020-notification-domain-completion.md) | Complete the notification domain — consume `order.status-changed`, add a read-only API | Accepted | `notification-service` now consumes `order.status-changed` in addition to `order.created`, reusing the prior notification's enriched user info instead of a second synchronous call (the event carries no `userId`). Adds a read-only `GET /notifications/{orderId}`, closing the walkthrough's one direct-Postgres-access step. Found, not fixed: `billing-service` never publishes a payment outcome event, so `order.status-changed` is never emitted for a payment transition. |
+| [0021](docs/adr/0021-payment-outcome-integration.md) | Payment outcome integration — billing-service publishes `payment.approved`/`payment.failed`, orders-service reacts | Accepted | Closes the gap ADR-0020 found: `billing-service` now publishes a payment outcome event once `PaymentService.processPayment` resolves it; a new `PaymentEventsConsumer` in `orders-service` finally calls `OrderService.handlePaymentReceived`/`handlePaymentFailed` (previously unreachable since ADR-0001 removed their incorrectly-typed predecessor). Also fixed a latent bug those methods had (`previousState` hardcoded to `PENDING` instead of the order's real prior state), found by the first tests that ever exercised them. `notification-service` required no changes. |
 
 ## Roadmap
 
@@ -246,14 +247,16 @@ The stack split is deliberate:
       auth-service call. Every event produces its own new notification
       row — none are ever overwritten. See
       [ADR-0020](docs/adr/0020-notification-domain-completion.md).
-- [ ] `billing-service` still doesn't publish payment outcome events,
-      therefore the payment lifecycle never reaches its final business
-      state (`APPROVED`/`FAILED`) and `order.status-changed` is never
-      emitted for payment transitions. `orders-service`'s own
-      `handlePaymentReceived`/`handlePaymentFailed` (which would publish
-      exactly that) have no caller anywhere in the codebase today — found
-      while completing the notification domain, see
-      [ADR-0020](docs/adr/0020-notification-domain-completion.md).
+- [x] `billing-service` now publishes `payment.approved`/`payment.failed`
+      once a payment resolves; `orders-service`'s own
+      `handlePaymentReceived`/`handlePaymentFailed` (previously unreachable
+      dead-code-adjacent methods — see ADR-0001, finding 5) finally have a
+      real caller (`PaymentEventsConsumer`), driving the order into
+      `PAYMENT_APPROVED`/`PAYMENT_FAILED` and publishing
+      `order.status-changed` through the same path stock reservation
+      already used. `notification-service` required no changes to react
+      to it. See
+      [ADR-0021](docs/adr/0021-payment-outcome-integration.md).
 - [ ] SvelteKit frontend
 - [x] End-to-end integration tests across the implemented services — see CI
       Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and

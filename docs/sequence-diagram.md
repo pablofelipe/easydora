@@ -103,14 +103,30 @@ sequenceDiagram
     Notif->>Notif: persist a second notification row (SENT or FAILED)
     end
 
+    rect rgb(240, 235, 255)
+    Note over Client,Notif: Payment processing -> order status change -> notification
+    Client->>Billing: POST /api/payments/process (Bearer BUYER_TOKEN)
+    Billing->>Billing: resolve Payment to APPROVED or FAILED (random simulation)
+    Billing-->>Client: 200 Payment status=APPROVED|FAILED
+    Billing->>MQ: publish PaymentEvent (payment.approved | payment.failed, order.exchange)
+
+    MQ->>Orders: payment.approved | payment.failed
+    Orders->>Orders: state machine -> PAYMENT_APPROVED | PAYMENT_FAILED
+    Orders->>MQ: publish OrderStatusChangedEvent (order.status-changed, order.exchange)
+
+    MQ->>Notif: order.status-changed
+    Notif->>Notif: reuse this order's order.created notification's email/name
+    Notif->>Notif: persist a third notification row (SENT or FAILED)
+    end
+
     rect rgb(245, 245, 245)
     Note over Client,Notif: Final state validation (public APIs only)
     Client->>Orders: GET /{orderId} (Bearer BUYER_TOKEN)
-    Orders-->>Client: state=INVENTORY_RESERVED
+    Orders-->>Client: state=PAYMENT_APPROVED|PAYMENT_FAILED
     Client->>Billing: GET /api/payments/order/{orderId} (Bearer BUYER_TOKEN)
-    Billing-->>Client: Payment status=PENDING
+    Billing-->>Client: Payment status=APPROVED|FAILED
     Client->>Notif: GET /notifications/{orderId}
-    Notif-->>Client: [order.created, order.status-changed]
+    Notif-->>Client: [order.created, order.status-changed, order.status-changed]
     end
 ```
 
@@ -167,16 +183,18 @@ sequenceDiagram
 - `notification-service`'s notification message content is implemented
   directly in code, not as an externalized template — deliberately, to
   keep this stage simple and readable rather than runtime-configurable.
-- This diagram stops at the same point `docs/walkthrough.md` does — Payment
-  in `PENDING`, order in `INVENTORY_RESERVED`. `billing-service` does expose
-  `POST /api/payments/process` (`PaymentService.processPayment`, a random
-  90%-approval simulation) to advance a payment to `APPROVED`/`FAILED`, and
-  `POST /api/payments/{orderId}/retry` to reset a `FAILED` one back to
-  `PENDING` — neither is part of the documented flow or triggered by any
-  event consumer, so neither appears in this diagram. If either were wired
-  up to publish an order.status-changed transition (e.g. `PAYMENT_APPROVED`/
-  `PAYMENT_FAILED`), notification-service would already be able to consume
-  it with no further changes — but no such transition is currently
-  triggered from the payment side of the system (only `handlePaymentReceived`/
-  `handlePaymentFailed` in `orders-service` call it today, and neither is
-  invoked by anything in this flow).
+- **The payment outcome closes the loop the same way the stock outcome
+  does**: `billing-service`'s `POST /api/payments/process`
+  (`PaymentService.processPayment`, a random 90%-approval simulation)
+  now publishes `payment.approved`/`payment.failed` once it resolves,
+  and `orders-service`'s `PaymentEventsConsumer` reacts by calling
+  `OrderService.handlePaymentReceived`/`handlePaymentFailed` — the same
+  state-machine methods that existed before this diagram's payment block
+  was added, previously unreachable (removed as dead, incorrectly-typed
+  code in [ADR-0001](adr/0001-messaging-wiring-audit.md), finding 5;
+  wired up correctly here). `notification-service` required zero changes
+  to react to the resulting `order.status-changed` — it already consumes
+  that routing key regardless of which service's state transition
+  produced it. `POST /api/payments/{orderId}/retry` (resets a `FAILED`
+  payment back to `PENDING`) is not part of the documented flow and still
+  doesn't appear in this diagram.

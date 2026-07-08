@@ -13,8 +13,8 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **auth-service** | Identity: accounts, credentials, JWT issuance | `user.registered`, `user.verified`, `jwt.created` | — |
 | **products-service** | Catalog: sellers and products | `product.created`, `product.updated`, `product.deleted` | `user.registered`, `user.verified`, `jwt.created` (role `SELLER` only) |
 | **inventory-service** | Stock: quantity and reservation per product | `stock.reserved`, `stock.insufficient` | `product.created`/`updated`/`deleted`, `stock.reserve`, `stock.release` |
-| **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient` |
-| **billing-service** | Payment: simulated processing per order | — | `jwt.created`, `order.created` |
+| **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed` |
+| **billing-service** | Payment: simulated processing per order | `payment.approved`, `payment.failed` | `jwt.created`, `order.created` |
 | **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
 | **frontend** | Planned, empty scaffold — no responsibility yet | — | — |
@@ -36,8 +36,14 @@ other, how data is persisted, and where to go for more depth on any of it.
   and a notification record in notification-service. Every subsequent
   order state transition (`order.status-changed`) produces its own
   additional notification record, queryable via notification-service's
-  `GET /notifications/{orderId}` — never replacing an earlier one. See the
-  [walkthrough](../walkthrough.md) and the
+  `GET /notifications/{orderId}` — never replacing an earlier one. The
+  payment outcome itself closes this loop the same way: once
+  billing-service resolves a payment to `APPROVED`/`FAILED`, it publishes
+  `payment.approved`/`payment.failed`; orders-service consumes it, drives
+  the same state machine into `PAYMENT_APPROVED`/`PAYMENT_FAILED`, and
+  publishes `order.status-changed` through the same path stock reservation
+  already used — notification-service needs no payment-domain knowledge at
+  all to react to it. See the [walkthrough](../walkthrough.md) and the
   [sequence diagram](../sequence-diagram.md).
 
 ## Communication
@@ -91,6 +97,8 @@ is documented separately in
 | `order.exchange` | `stock.insufficient` | inventory-service | orders-service |
 | `order.exchange` | `order.created` | orders-service | billing-service, notification-service |
 | `order.exchange` | `order.status-changed` | orders-service | notification-service |
+| `order.exchange` | `payment.approved` | billing-service | orders-service |
+| `order.exchange` | `payment.failed` | billing-service | orders-service |
 
 ## Architectural Principles
 

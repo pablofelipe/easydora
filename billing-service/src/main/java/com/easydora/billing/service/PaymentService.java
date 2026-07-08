@@ -1,12 +1,15 @@
 package com.easydora.billing.service;
 
+import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
+import com.easydora.billing.messaging.events.PaymentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,9 +26,11 @@ public class PaymentService {
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
     
     private final PaymentRepository paymentRepository;
-    
-    public PaymentService(PaymentRepository paymentRepository) {
+    private final RabbitTemplate rabbitTemplate;
+
+    public PaymentService(PaymentRepository paymentRepository, RabbitTemplate rabbitTemplate) {
         this.paymentRepository = paymentRepository;
+        this.rabbitTemplate = rabbitTemplate;
     }
     
     // ========== METHODS FOR ORDER-CREATED EVENTS (RabbitMQ) ==========
@@ -137,6 +142,7 @@ public class PaymentService {
             }
 
             Payment savedPayment = paymentRepository.save(payment);
+            publishPaymentEvent(savedPayment);
             return convertToDTO(savedPayment);
 
         } catch (Exception e) {
@@ -145,8 +151,37 @@ public class PaymentService {
             payment.setFailureReason("Internal error: " + e.getMessage());
             payment.setProcessedAt(LocalDateTime.now());
             Payment savedPayment = paymentRepository.save(payment);
+            publishPaymentEvent(savedPayment);
             return convertToDTO(savedPayment);
         }
+    }
+
+    /**
+     * Publishes the payment outcome on order.exchange (payment.approved /
+     * payment.failed) so orders-service can react via its own
+     * PaymentEventsConsumer -- OrderService.handlePaymentReceived/
+     * handlePaymentFailed already exist and already drive the state
+     * machine into order.status-changed; this is the missing link that
+     * finally calls them (see ADR-0001, finding 5, and ADR-0020's Roadmap
+     * follow-up). Not called for a payment still PENDING -- only once it
+     * has actually resolved to APPROVED or FAILED.
+     */
+    void publishPaymentEvent(Payment payment) {
+        if (payment.getStatus() != PaymentStatus.APPROVED && payment.getStatus() != PaymentStatus.FAILED) {
+            return;
+        }
+
+        PaymentEvent event = new PaymentEvent();
+        event.setOrderId(payment.getOrderId());
+        event.setTransactionId(payment.getTransactionId());
+        event.setFailureReason(payment.getFailureReason());
+
+        String routingKey = payment.getStatus() == PaymentStatus.APPROVED
+                ? RabbitMQConfig.PAYMENT_APPROVED_KEY
+                : RabbitMQConfig.PAYMENT_FAILED_KEY;
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event);
+        logger.info("PaymentEvent published: order={}, routingKey={}", payment.getOrderId(), routingKey);
     }
     
     @Transactional
