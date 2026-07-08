@@ -157,12 +157,10 @@ services:
       - RABBITMQ_USER=admin
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
     depends_on:
-        orders-service:
-          condition: service_healthy
-        postgres:
-          condition: service_healthy
-        rabbitmq:
-          condition: service_healthy
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - easydora-network
 
