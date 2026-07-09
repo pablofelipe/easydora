@@ -148,8 +148,22 @@ library, or configuration mechanism was introduced to get here.
   Acceptable at this project's scale; revisit if the notification volume
   per order or the number of API consumers grows.
 
+## Update — 2026-07-08
+
+The payment-outcome gap named above (`billing-service` never publishing
+any event once a payment resolves, so `order.status-changed` was never
+emitted for a payment transition) was closed the same day by
+[ADR-0021](0021-payment-outcome-integration.md): `billing-service` now
+publishes `payment.approved`/`payment.failed`, and `orders-service`'s
+previously-uncalled `handlePaymentReceived`/`handlePaymentFailed` finally
+have a real caller. `notification-service` required no changes to react to
+the resulting `order.status-changed` events — it already consumes that
+routing key regardless of which transition produced it.
+
 ## References
 
+- [ADR-0021](0021-payment-outcome-integration.md) — closes the
+  payment-outcome gap this ADR found and left open.
 - [ADR-0001](0001-messaging-wiring-audit.md) — where `order.status-changed`'s
   destination was originally settled.
 - [ADR-0014](0014-notification-service.md) — the original notification-service

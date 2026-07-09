@@ -189,13 +189,25 @@ side) is positioned to catch.
   `order-lifecycle` only has one combined "Auth → Orders" flow to prove, not
   two separate ones the way seller onboarding does.
 
+## Update — 2026-07-07
+
+The Basic-Auth gap named above (`billing-service`'s `/api/payments/**`
+using Spring Boot's single fixed user instead of the cross-service JWT
+broadcast) was closed the same day by
+[ADR-0015](0015-billing-service-jwt-and-auth-securityconfig-fix.md):
+`billing-service` now authenticates via the same Bearer JWT broadcast
+cache as `products-service`/`orders-service`, fully replacing Basic Auth.
+`OrderLifecycleE2ETest`'s Basic Auth call was updated to a Bearer token
+accordingly.
+
 ## References
 
 - [ADR-0012](0012-ci-phase-2-real-infrastructure.md) — Phase 2, whose
   consumer-only, hand-built-message tests this phase complements rather than
   replaces (Phase 2 keeps running; nothing in it was removed).
 - [ADR-0010](0010-uniform-service-healthchecks.md) — the `/health` endpoints
-  Phase 3's readiness polling depends on, and billing-service's still-open
-  Basic Auth gap referenced above.
+  Phase 3's readiness polling depends on.
+- [ADR-0015](0015-billing-service-jwt-and-auth-securityconfig-fix.md) —
+  closes the Basic-Auth gap this ADR found and referenced above.
 - [ADR-0007](0007-remove-kafka-broker.md) — the RabbitMQ-only messaging model
   every Phase 3 flow runs against.

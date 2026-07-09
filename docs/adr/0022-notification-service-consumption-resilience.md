@@ -15,7 +15,7 @@ for a genuinely unexpected reason (a malformed body, an unhandled
 exception) was logged once and silently dropped — never retried, never
 parked anywhere for inspection.
 
-Before writing anything, this etapa re-confirmed that gap still existed:
+Before writing anything, this change re-confirmed that gap still existed:
 `app/rabbitmq.py`'s `on_order_created`/`on_order_status_changed`
 callbacks both called `ch.basic_ack(...)` unconditionally in a `finally`
 block, regardless of whether the `try` body raised. In practice this
@@ -32,8 +32,8 @@ Spring AMQP's `SimpleRabbitListenerContainerFactoryConfigurer`/
 to configure. The policy has to be built directly on RabbitMQ's own
 primitives instead. This project has exactly one Python message
 consumer, so a generic, reusable "retry framework" would be solving a
-problem this codebase doesn't have — the etapa's own instructions were
-explicit about this, and the same "prefer a small, direct, one-off
+problem this codebase doesn't have — this change was deliberately scoped
+narrowly to avoid exactly that, and the same "prefer a small, direct, one-off
 implementation over a generalized mechanism" principle already governs
 the rest of this project's simplicity choices (see
 [architectural-principles.md](../architecture/architectural-principles.md)).
@@ -43,7 +43,7 @@ the rest of this project's simplicity choices (see
 **Same numbers as ADR-0019, for direct conceptual comparability**: 3 max
 attempts, 200ms initial backoff, 2.0 multiplier, 2000ms cap. Not a
 requirement of Pika or RabbitMQ — a deliberate choice to make the two
-services' policies easy to compare, since the etapa asked for equivalent
+services' policies easy to compare, since the goal was equivalent
 *behavior*, not equivalent *implementation*.
 
 **RabbitMQ-native retry via a wait queue with per-message TTL**, not a
@@ -142,6 +142,17 @@ mechanism appropriate to the library actually available in Python.
 - Like ADR-0019's dead letter queues, `notification.dlq` is a terminal
   parking spot, not a replay mechanism — nothing currently re-drives a
   message off it.
+
+## Update — 2026-07-09
+
+The `products-service` `handleUserVerified` gap named above as unfixed has
+since been closed: `UserEventConsumer.handleUserVerified` now treats "no
+matching Seller row" as an expected no-op (`ifPresentOrElse`) instead of
+throwing, since `auth-service` publishes `user.verified` as a bare userId
+with no role field to filter on. See the README Roadmap for the closing
+entry; this fix did not warrant its own ADR, as it corrects a single
+consumer method to match the behavior its siblings already had, rather
+than introducing a new architectural decision.
 
 ## References
 

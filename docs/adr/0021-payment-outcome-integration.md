@@ -20,9 +20,9 @@ UUID — the types could never have matched). That ADR explicitly left
 `handlePaymentReceived`/`handlePaymentFailed` in place, noting they were
 "unreachable now, until wired by some other means." ADR-0020 (completing
 the notification domain) re-confirmed the gap while investigating a
-different question, and deferred fixing it to its own etapa.
+different question, and deferred fixing it to this ADR.
 
-Before writing anything, this etapa re-verified both halves of that
+Before writing anything, this change re-verified both halves of that
 finding still held: no producer of any payment outcome event exists
 anywhere in `billing-service`, and `handlePaymentReceived`/
 `handlePaymentFailed` still have zero callers in the codebase. No

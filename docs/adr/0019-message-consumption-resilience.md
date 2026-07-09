@@ -47,8 +47,8 @@ here:
 mechanism - it always acks, even on failure, so a poison message is
 logged once and dropped rather than retried forever (silent loss instead
 of infinite loop). That consumer is explicitly out of scope for this ADR;
-it is tracked separately in the README Roadmap and will be addressed in
-its own etapa.
+it is tracked separately in the README Roadmap and was addressed by a
+later change (see [ADR-0022](0022-notification-service-consumption-resilience.md)).
 
 ## Decision
 

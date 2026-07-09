@@ -6,7 +6,7 @@ Accepted - 2026-07-03
 
 ## Context
 
-The Etapa 2 JSON Schema contract-testing effort (ADR-0002) audited every event/command DTO in the repository for *schema drift* — field-name and type mismatches between publisher and consumer. That audit's byproduct was a full inventory of every Kafka topic and RabbitMQ queue/exchange/routing-key wired up across auth-service, products-service, orders-service, billing-service and inventory-service.
+The JSON Schema contract-testing effort (ADR-0002) audited every event/command DTO in the repository for *schema drift* — field-name and type mismatches between publisher and consumer. That audit's byproduct was a full inventory of every Kafka topic and RabbitMQ queue/exchange/routing-key wired up across auth-service, products-service, orders-service, billing-service and inventory-service.
 
 Reading that wiring closely surfaced a different class of bug: not schema drift, but routing, field-naming and listener mistakes that happened to keep "working" in a way that silently dropped data or silently dropped messages entirely, with nothing in the codebase (no test, no log, no telemetry) to reveal it. This ADR documents that follow-up audit — six findings, verified against live RabbitMQ/Kafka (docker-compose), not inferred from reading code alone.
 

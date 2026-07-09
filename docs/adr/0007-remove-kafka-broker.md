@@ -121,8 +121,8 @@ already does elsewhere in the same project.
   inventory-service's `go.mod` (`segmentio/kafka-go`), and the existing Kafka
   integration test (`kafka_stock_events_integration_test.go`) all become
   obsolete. None of that is done by this ADR — it records and designs the
-  decision only; implementation is the immediate next step of Etapa 4,
-  covered by its own PRs/commits.
+  decision only; implementation is a separate follow-up
+  step, covered by its own PRs/commits.
 
 ## Migration Strategy
 

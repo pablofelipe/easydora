@@ -40,7 +40,16 @@ Table-driven Go tests in `api-gateway/main_test.go`, each downstream simulated l
 - The failure signal (checking for the proxy's own `502`) is a status-code heuristic, not a first-class error return from `createReverseProxy`. It's accurate today because `502` is only ever written by this codebase's own `ErrorHandler`, but it would misfire if a real backend ever legitimately returned `502` itself.
 - Thresholds (5 failures / 30s) are fixed, given values — not validated against this project's actual traffic patterns or measured failure-recovery times, since none exist yet for a portfolio-scale deployment.
 
+## Update — 2026-07-04
+
+`billing-service`'s exclusion from this ADR's scope, named above as an
+open Roadmap item, was closed the same week by
+[ADR-0009](0009-billing-circuit-breaker.md): the same `sony/gobreaker`
+pattern (5 failures / 30s cooldown) applied to `billing`'s gateway route,
+using the identical wrapper structure this ADR established.
+
 ## References
 
 - Baseline audit (2026-07-03 entry in this repo's history) — original catalogue of "no circuit breaker/retry anywhere in the codebase."
-- README Roadmap — the open item tracking billing-service's exclusion from this ADR's scope.
+- [ADR-0009](0009-billing-circuit-breaker.md) — closes the billing-service
+  gap this ADR left open.

@@ -130,8 +130,8 @@ racing its internal queue declaration — a topic exchange drops a message
 outright (it does not buffer it) if no queue is bound yet at publish time.
 Fixed by having the test declare/bind the real production queue name
 itself, synchronously, before starting the consumer goroutine — not by
-adding a retry or a sleep, per this etapa's explicit "investigate before
-adding retries" instruction.
+adding a retry or a sleep, per this project's standing "investigate before
+adding retries" discipline.
 
 ## Consequences
 
@@ -175,7 +175,7 @@ out-of-scope on architectural grounds, just not reached in this pass:
 - `auth.exchange`/`user.registered` and `user.verified` consumption by
   products-service and orders-service (`UserEventConsumer`/
   `UserEventsConsumer`) has no real-infrastructure test at all, before or
-  after this etapa.
+  after this ADR.
 - products-service has no real-infrastructure test of its own kind,
   anywhere — not scaled back from something bigger, never attempted. It's
   the only one of the four Spring services with neither an `*IT` class nor

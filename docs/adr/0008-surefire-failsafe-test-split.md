@@ -37,11 +37,11 @@ One real flake surfaced and diagnosed during this verification, not a defect in 
 ## Consequences
 
 **Positive**: `mvn test` is now fast and hermetic across all four services — no live Postgres/RabbitMQ required, and it can't silently fail from infrastructure being down. `mvn verify` is the one command that runs everything, matching normal Maven/CI expectations. The `*IT` suffix is now a reliable, greppable signal for "this test needs real infrastructure," which the pre-existing `*IntegrationTest` naming was not consistently applied.
-- Not fixed here: this repository has no CI configured anywhere (per the README status line), so this split's main near-term benefit is local developer ergonomics, not an automated gate.
+- Not fixed here: at the time of this ADR, this repository had no CI configured anywhere (per the README status line then), so this split's main near-term benefit was local developer ergonomics, not an automated gate — see the 2026-07-06 (2) update below for how CI Phase 2 later gave the `*IT` classes somewhere to actually run.
 
 ## Update — 2026-07-06
 
-Etapa 5 of the Kafka-to-RabbitMQ migration ([ADR-0007](0007-remove-kafka-broker.md)) revisited three of the four `*IT` classes named above and replaced them with broker-agnostic behavior tests, validating the same outcomes without requiring live infrastructure to compile or pass:
+A later step of the Kafka-to-RabbitMQ migration ([ADR-0007](0007-remove-kafka-broker.md)) revisited three of the four `*IT` classes named above and replaced them with broker-agnostic behavior tests, validating the same outcomes without requiring live infrastructure to compile or pass:
 
 - `VerifyEmailOutboxIT` and `VerifyEmailOutboxHappyPathIT` (auth-service) → replaced by `VerifyEmailOutboxBehaviorTest`, which mocks `RabbitMQProducerService`/`OutboxEventRepository` directly.
 - `JwtCreatedFanoutIT` (orders-service) → replaced by `JwtCreatedFanoutBehaviorTest`, which calls `JwtConsumer`/`UserEventsConsumer` directly against mocked collaborators.
@@ -52,8 +52,8 @@ This doesn't reverse the decision above — Surefire for unit tests, Failsafe fo
 
 ## Update — 2026-07-06 (2)
 
-Etapa 9 ([ADR-0012](0012-ci-phase-2-real-infrastructure.md)) added a CI
-Phase 2 with real Postgres/RabbitMQ service containers, which gave
+A later CI hardening pass ([ADR-0012](0012-ci-phase-2-real-infrastructure.md)) added
+a CI Phase 2 with real Postgres/RabbitMQ service containers, which gave
 `VerifyEmailOutboxIT`/`VerifyEmailOutboxHappyPathIT` and `JwtCreatedFanoutIT`
 somewhere to actually run. Both classes were restored verbatim from the
 commit that removed them, and `maven-failsafe-plugin` was added back to
