@@ -146,7 +146,9 @@ cross-service database access) without requiring any exception to them.
   other RabbitMQ consumer in this project (see README Roadmap).
 - No Alembic or other versioned migration tool for the Python service —
   `scripts/init.sql` is idempotent but not versioned, matching
-  `inventory-service`'s own level of simplicity, not Flyway's.
+  `inventory-service`'s own level of simplicity, not Flyway's. Formally
+  reviewed and kept as a deliberate decision, not an oversight, by
+  [ADR-0023](0023-notification-service-persistence-evolution-strategy.md).
 - `auth-service`'s `SecurityConfig` is missing `.httpBasic()` (or any other
   auth mechanism) for its `anyRequest().authenticated()` fallback — currently
   latent (no endpoint reaches it), but will misbehave exactly like
@@ -158,6 +160,9 @@ cross-service database access) without requiring any exception to them.
 
 ## References
 
+- [ADR-0023](0023-notification-service-persistence-evolution-strategy.md) —
+  formally reviews and closes the "no Alembic" gap named above as a
+  deliberate decision, with concrete criteria for revisiting it.
 - [ADR-0007](0007-remove-kafka-broker.md) — the RabbitMQ topic-exchange model
   this service's consumer follows exactly (`order.exchange`/`order.created`).
 - [ADR-0010](0010-uniform-service-healthchecks.md) — the uniform
