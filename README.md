@@ -149,7 +149,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 22
+- [Architecture Decision Records](#architecture-decision-records) — 23
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Postman collection](postman/) — the same main flow as an importable,
@@ -229,7 +229,8 @@ The stack split is deliberate:
 | [0019](docs/adr/0019-message-consumption-resilience.md) | Uniform message consumption resilience (limited retry, exponential backoff, dead-lettering) | Accepted | `products-service`, `orders-service`, and `billing-service` now share the same native Spring Boot listener retry policy (3 attempts, exponential backoff) and dead-letter exchange/queue per service; eight listener methods that previously swallowed exceptions internally were fixed to propagate them, so container-level retry/DLQ actually applies to business-logic failures, not just malformed messages. `auth-service` has no consumer at all, so is out of scope; `notification-service` (Python) keeps its separate, unrelated gap. |
 | [0020](docs/adr/0020-notification-domain-completion.md) | Complete the notification domain — consume `order.status-changed`, add a read-only API | Accepted | `notification-service` now consumes `order.status-changed` in addition to `order.created`, reusing the prior notification's enriched user info instead of a second synchronous call (the event carries no `userId`). Adds a read-only `GET /notifications/{orderId}`, closing the walkthrough's one direct-Postgres-access step. Found, not fixed: `billing-service` never publishes a payment outcome event, so `order.status-changed` is never emitted for a payment transition. |
 | [0021](docs/adr/0021-payment-outcome-integration.md) | Payment outcome integration — billing-service publishes `payment.approved`/`payment.failed`, orders-service reacts | Accepted | Closes the gap ADR-0020 found: `billing-service` now publishes a payment outcome event once `PaymentService.processPayment` resolves it; a new `PaymentEventsConsumer` in `orders-service` finally calls `OrderService.handlePaymentReceived`/`handlePaymentFailed` (previously unreachable since ADR-0001 removed their incorrectly-typed predecessor). Also fixed a latent bug those methods had (`previousState` hardcoded to `PENDING` instead of the order's real prior state), found by the first tests that ever exercised them. `notification-service` required no changes. |
-| [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017: its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. Now retries up to 3 times with exponential backoff (a RabbitMQ retry queue with a per-message TTL, not a sleep or poll) before dead-lettering — same numbers and conceptual behavior as the Spring services, built on different primitives since Pika has no retry-template equivalent. Found, not fixed: `products-service`'s `handleUserVerified` has no role filter, so every buyer's `user.verified` event is dead-lettered. |
+| [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017: its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. Now retries up to 3 times with exponential backoff (a RabbitMQ retry queue with a per-message TTL, not a sleep or poll) before dead-lettering — same numbers and conceptual behavior as the Spring services, built on different primitives since Pika has no retry-template equivalent. Found, and since fixed (see ADR-0022's Update): `products-service`'s `handleUserVerified` had no role filter, so every buyer's `user.verified` event was dead-lettered. |
+| [0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md) | Notification Service Persistence Evolution Strategy | Accepted | Formally reviews and closes the "no Alembic" gap left open since ADR-0014. `scripts/init.sql` hasn't changed once across four ADRs of functional growth, and a comparison against `inventory-service` (whose own idempotent init.sql *has* evolved twice, safely, with no versioned tool) shows the current approach has headroom beyond what notification-service has needed. Keeps the idempotent script, documents concrete criteria for reopening the decision if the schema outgrows it. |
 
 ## Roadmap
 
@@ -314,11 +315,16 @@ The stack split is deliberate:
       [ADR-0017](docs/adr/0017-notification-service-startup-resilience.md).
       Distinct from the per-message retry/DLQ gap above: this was about
       the consumer never even getting a chance to process *any* message.
-- [ ] notification-service has no versioned migration tool (no Alembic
-      equivalent to Flyway) — `scripts/init.sql` is idempotent but not
-      versioned, matching inventory-service's (Go) level of simplicity, not
-      the four Spring services'. Acceptable for a single-table schema today;
-      revisit if the schema grows. See [ADR-0014](docs/adr/0014-notification-service.md).
+- [x] notification-service's lack of a versioned migration tool (no
+      Alembic equivalent to Flyway) was formally reviewed, not left as an
+      indefinite gap: `scripts/init.sql` hasn't changed once across four
+      ADRs of functional growth, and a comparison against
+      inventory-service (whose own idempotent init.sql *has* evolved
+      twice, safely, with no versioned tool) shows the current approach
+      has headroom beyond what notification-service has needed so far.
+      Decision kept as-is, with concrete criteria for reopening it if the
+      schema outgrows this approach — see
+      [ADR-0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md).
 - [x] auth-service's `SecurityConfig` was missing `.httpBasic(...)` (the same
       defect class ADR-0013 found and fixed in billing-service) — fixed,
       see [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
