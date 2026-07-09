@@ -1,5 +1,7 @@
 package com.easydora.products.config;
 
+import com.easydora.correlation.CorrelationIdFilter;
+
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -84,7 +86,13 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            // JwtAuthenticationFilter must be registered first so Spring
+            // Security knows its position before CorrelationIdFilter is
+            // anchored relative to it below.
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            // Runs before the JWT filter so CorrelationId/RequestId are in
+            // MDC before anything else in the chain logs.
+            .addFilterBefore(new CorrelationIdFilter(), JwtAuthenticationFilter.class);
             
         return http.build();
     }

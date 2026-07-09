@@ -2,13 +2,19 @@ package com.easydora.products.consumer;
 
 import com.easydora.products.config.JwtAuthenticationFilter;
 import com.easydora.products.config.RabbitMQConfig;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 import com.easydora.products.entity.Seller;
 import com.easydora.products.entity.UserRole;
 import com.easydora.products.event.UserEvent;
 import com.easydora.products.repository.SellerRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 
 
@@ -27,38 +33,49 @@ public class UserEventConsumer {
     }
     
     @RabbitListener(queues = RabbitMQConfig.USER_REGISTERED_QUEUE)
-    public void handleUserRegistered(UserEvent userEvent) {
-        logger.info("Received USER_REGISTERED event for user: {}", userEvent.getUserId());
-        
+    public void handleUserRegistered(
+            UserEvent userEvent,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
         try {
+            BusinessEventLog.info(logger, "user.registered.received", userEvent.getUserId(), "Received USER_REGISTERED event");
 
-            if (!isSeller(userEvent)) {
-                logger.debug("Ignoring non-SELLER registration: {} as {}", 
-                    userEvent.getUserId(), userEvent.getRole());
-                return;
-            }
-            
-            Seller seller = sellerRepository.findById(userEvent.getUserId().toString())
-                .orElse(new Seller());
+            try {
 
-            seller.setUserId(userEvent.getUserId().toString());
-            seller.setEmail(userEvent.getEmail());
-            seller.setName(userEvent.getFullName());
-            seller.setRole(UserRole.SELLER);
-            seller.setName(userEvent.getFullName());
-            seller.setActive(false); // Inactive until email is activated
-            
-            if (seller.getCreatedAt() == null) {
-                seller.setCreatedAt(java.time.LocalDateTime.now());
+                if (!isSeller(userEvent)) {
+                    logger.debug("Ignoring non-SELLER registration: {} as {}",
+                        userEvent.getUserId(), userEvent.getRole());
+                    return;
+                }
+
+                Seller seller = sellerRepository.findById(userEvent.getUserId().toString())
+                    .orElse(new Seller());
+
+                seller.setUserId(userEvent.getUserId().toString());
+                seller.setEmail(userEvent.getEmail());
+                seller.setName(userEvent.getFullName());
+                seller.setRole(UserRole.SELLER);
+                seller.setName(userEvent.getFullName());
+                seller.setActive(false); // Inactive until email is activated
+
+                if (seller.getCreatedAt() == null) {
+                    seller.setCreatedAt(java.time.LocalDateTime.now());
+                }
+                seller.setUpdatedAt(java.time.LocalDateTime.now());
+
+                sellerRepository.save(seller);
+
+            } catch (Exception e) {
+                logger.error("Error processing USER_REGISTERED event for user: {}",
+                    userEvent.getUserId(), e);
+                throw new RuntimeException("Failed to process USER_REGISTERED event for user " + userEvent.getUserId(), e);
             }
-            seller.setUpdatedAt(java.time.LocalDateTime.now());
-            
-            sellerRepository.save(seller);
-            
-        } catch (Exception e) {
-            logger.error("Error processing USER_REGISTERED event for user: {}",
-                userEvent.getUserId(), e);
-            throw new RuntimeException("Failed to process USER_REGISTERED event for user " + userEvent.getUserId(), e);
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
 
@@ -68,34 +85,45 @@ public class UserEventConsumer {
     }
 
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
-    public void handleJwtCreated(UserEvent userEvent) {
-        logger.info("Received JWT_CREATED event for user: {}", userEvent.getUserId());
-        
+    public void handleJwtCreated(
+            UserEvent userEvent,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
         try {
-            if (!isSeller(userEvent)) {
-                logger.debug("Ignoring non-SELLER JWT event: {} as {}", 
-                    userEvent.getUserId(), userEvent.getRole());
-                return;
-            }
+            BusinessEventLog.info(logger, "jwt.created.received", userEvent.getUserId(), "Received JWT_CREATED event");
 
-            addValidToken(userEvent);
-
-            sellerRepository.findById(userEvent.getUserId().toString()).ifPresentOrElse(
-                seller -> {
-                    updateSellerFromJwtEvent(seller, userEvent);
-                    sellerRepository.save(seller);
-                    logger.info("User updated: {} as {}", userEvent.getUserId(), seller.getRole());
-                },
-                () -> {
-                    createSellerFromJwtEvent(userEvent);
-                    logger.info("New user created: {} as {}", userEvent.getUserId(), userEvent.getRole());
+            try {
+                if (!isSeller(userEvent)) {
+                    logger.debug("Ignoring non-SELLER JWT event: {} as {}",
+                        userEvent.getUserId(), userEvent.getRole());
+                    return;
                 }
-            );
-            
-        } catch (Exception e) {
-            logger.error("Error processing JWT_CREATED event for user: {}",
-                userEvent.getUserId(), e);
-            throw new RuntimeException("Failed to process JWT_CREATED event for user " + userEvent.getUserId(), e);
+
+                addValidToken(userEvent);
+
+                sellerRepository.findById(userEvent.getUserId().toString()).ifPresentOrElse(
+                    seller -> {
+                        updateSellerFromJwtEvent(seller, userEvent);
+                        sellerRepository.save(seller);
+                        logger.info("User updated: {} as {}", userEvent.getUserId(), seller.getRole());
+                    },
+                    () -> {
+                        createSellerFromJwtEvent(userEvent);
+                        logger.info("New user created: {} as {}", userEvent.getUserId(), userEvent.getRole());
+                    }
+                );
+
+            } catch (Exception e) {
+                logger.error("Error processing JWT_CREATED event for user: {}",
+                    userEvent.getUserId(), e);
+                throw new RuntimeException("Failed to process JWT_CREATED event for user " + userEvent.getUserId(), e);
+            }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
     
@@ -128,27 +156,38 @@ public class UserEventConsumer {
     }
 
     @RabbitListener(queues = RabbitMQConfig.USER_VERIFIED_QUEUE)
-    public void handleUserVerified(Long userId) {
-        logger.info("Received USER_VERIFIED_QUEUE event for user: {}", userId);
-
+    public void handleUserVerified(
+            Long userId,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
         try {
-            // auth-service publishes user.verified for every user regardless
-            // of role (the event is just a bare userId, no role field to
-            // filter on here the way user.registered/jwt.created can via
-            // isSeller()) -- a BUYER's verification reaches this queue too,
-            // so no Seller row existing yet is expected, not a failure.
-            sellerRepository.findById(userId.toString()).ifPresentOrElse(
-                seller -> {
-                    seller.setActive(true); // Activate the seller after verification
-                    sellerRepository.save(seller);
-                    logger.info("Seller activated: {}", userId);
-                },
-                () -> logger.debug("Ignoring USER_VERIFIED_QUEUE event for non-seller user: {}", userId)
-            );
-        } catch (Exception e) {
-            logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}",
-                userId, e);
-            throw new RuntimeException("Failed to process USER_VERIFIED_QUEUE event for user " + userId, e);
+            BusinessEventLog.info(logger, "user.verified.received", userId, "Received USER_VERIFIED_QUEUE event");
+
+            try {
+                // auth-service publishes user.verified for every user regardless
+                // of role (the event is just a bare userId, no role field to
+                // filter on here the way user.registered/jwt.created can via
+                // isSeller()) -- a BUYER's verification reaches this queue too,
+                // so no Seller row existing yet is expected, not a failure.
+                sellerRepository.findById(userId.toString()).ifPresentOrElse(
+                    seller -> {
+                        seller.setActive(true); // Activate the seller after verification
+                        sellerRepository.save(seller);
+                        BusinessEventLog.info(logger, "seller.activated", userId, "Seller activated");
+                    },
+                    () -> logger.debug("Ignoring USER_VERIFIED_QUEUE event for non-seller user: {}", userId)
+                );
+            } catch (Exception e) {
+                logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}",
+                    userId, e);
+                throw new RuntimeException("Failed to process USER_VERIFIED_QUEUE event for user " + userId, e);
+            }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
 

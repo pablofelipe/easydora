@@ -12,6 +12,11 @@
     <description>Microserviço de produtos</description>
     <dependencies>
         <dependency>
+            <groupId>com.easydora</groupId>
+            <artifactId>correlation-commons</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
         </dependency>

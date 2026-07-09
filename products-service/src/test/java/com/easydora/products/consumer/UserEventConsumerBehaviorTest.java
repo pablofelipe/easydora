@@ -40,7 +40,7 @@ class UserEventConsumerBehaviorTest {
         when(sellerRepository.findById("42")).thenReturn(Optional.of(seller));
 
         UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
-        consumer.handleUserVerified(42L);
+        consumer.handleUserVerified(42L, "corr-1", "msg-1");
 
         verify(sellerRepository).save(seller);
         org.assertj.core.api.Assertions.assertThat(seller.getActive()).isTrue();
@@ -52,7 +52,7 @@ class UserEventConsumerBehaviorTest {
 
         UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
 
-        assertThatCode(() -> consumer.handleUserVerified(99L)).doesNotThrowAnyException();
+        assertThatCode(() -> consumer.handleUserVerified(99L, "corr-2", "msg-2")).doesNotThrowAnyException();
         verify(sellerRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 }

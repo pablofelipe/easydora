@@ -13,6 +13,8 @@ import com.easydora.products.repository.SellerRepository;
 import com.easydora.products.exception.*;
 
 import com.easydora.products.config.RabbitMQConfig;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationMessaging;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,8 +87,8 @@ public class ProductService {
             event.setInitialStock(initialStock);
             event.setCreatedAt(Instant.now().toString());
 
-            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_CREATED_KEY, event);
-            logger.info("ProductCreatedEvent published successfully - Product: {}", product.getId());
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_CREATED_KEY, event, CorrelationMessaging.withCorrelation());
+            BusinessEventLog.info(logger, "product.created.published", product.getId(), "ProductCreatedEvent published successfully");
 
         } catch (Exception e) {
             logger.error("Error publishing ProductCreatedEvent for product: {}", product.getId(), e);
@@ -160,8 +162,8 @@ public class ProductService {
             event.setActive(product.getActive());
             event.setUpdatedAt(Instant.now().toString());
 
-            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_UPDATED_KEY, event);
-            logger.info("ProductUpdatedEvent published successfully - Product: {}", product.getId());
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_UPDATED_KEY, event, CorrelationMessaging.withCorrelation());
+            BusinessEventLog.info(logger, "product.updated.published", product.getId(), "ProductUpdatedEvent published successfully");
 
         } catch (Exception e) {
             logger.error("Error publishing ProductUpdatedEvent for product: {}", product.getId(), e);
@@ -193,8 +195,8 @@ public class ProductService {
             event.setProductId(product.getId().toString());
             event.setDeletedAt(Instant.now().toString());
 
-            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_DELETED_KEY, event);
-            logger.info("ProductDeletedEvent published successfully - Product: {}", product.getId());
+            rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, RabbitMQConfig.PRODUCT_DELETED_KEY, event, CorrelationMessaging.withCorrelation());
+            BusinessEventLog.info(logger, "product.deleted.published", product.getId(), "ProductDeletedEvent published successfully");
 
         } catch (Exception e) {
             logger.error("Error publishing ProductDeletedEvent for product: {}", product.getId(), e);
