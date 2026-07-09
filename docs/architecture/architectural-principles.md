@@ -134,8 +134,8 @@ for this ADR, not assumed from the prior catalogue"; every finding
 reproduced against a live broker); ADR-0006/0009's live container
 verification steps (stopping a real service, measuring real response
 times and status codes); ADR-0012's investigation of a real race condition
-"per this etapa's explicit 'investigate before adding retries'
-instruction" instead of papering over a flaky test with a sleep.
+"per this project's standing 'investigate before adding retries'
+discipline" instead of papering over a flaky test with a sleep.
 
 ## 9. TDD as the change driver
 
