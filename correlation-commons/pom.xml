@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.easydora</groupId>
+        <artifactId>easydora-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>correlation-commons</artifactId>
+    <name>correlation-commons</name>
+    <description>
+        Shared CorrelationId/RequestId/MessageId tracing infrastructure (HTTP
+        filter, RabbitMQ MessagePostProcessor, Outbox envelope codec,
+        structured logging helper) used by all four Spring Boot services.
+
+        Deliberately not built/installed as part of any service's own build
+        (no reactor `modules` list added to easydora-parent, keeping ADR-0016's
+        decision intact) -- `mvn install` this module once locally, and each
+        Dockerfile installs it in its own build stage before building the
+        service, exactly like a normal Maven dependency resolved from the
+        local repository.
+
+        This is a deliberate, scoped exception to this project's general
+        "no shared library between services" convention (see CLAUDE.md and
+        architectural-principles.md): that convention is about business event
+        DTOs, where each service keeping its own copy preserves independent
+        polyglot evolution. This module has no business/domain meaning at
+        all -- it is pure cross-cutting tracing infrastructure that must stay
+        byte-for-byte identical across all four Spring services for the
+        CorrelationId contract to hold, so duplicating it four times would
+        only add maintenance risk (a fix applied to three copies and
+        forgotten in the fourth) with no corresponding independence benefit.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- This module is a plain library JAR, not a runnable Spring
+                 Boot app: skip the parent's inherited repackage goal,
+                 which otherwise fails looking for a main class. -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
