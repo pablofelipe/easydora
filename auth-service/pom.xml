@@ -13,6 +13,11 @@
 	<description>Microserviço de autenticação</description>
 	<dependencies>
 		<dependency>
+			<groupId>com.easydora</groupId>
+			<artifactId>correlation-commons</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>
 			<scope>runtime</scope>

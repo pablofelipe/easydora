@@ -1,6 +1,7 @@
 package com.easydora.authservice.service;
 
 import com.easydora.authservice.config.RabbitMQConfig;
+import com.easydora.correlation.CorrelationMessaging;
 import com.easydora.authservice.dto.JwtCreatedEvent;
 import com.easydora.authservice.event.UserRegisteredEvent;
 
@@ -22,21 +23,23 @@ public class RabbitMQProducerService {
 
     public void sendJwtCreatedEvent(String token, String userId, String email, String firstName, String lastName, String role, Long expiresIn) {
         JwtCreatedEvent event = new JwtCreatedEvent(token, userId, email, firstName, lastName, role, LocalDateTime.now(), expiresIn);
-        
+
         rabbitTemplate.convertAndSend(
             exchange.getName(),
             RabbitMQConfig.JWT_ROUTING_KEY,
-            event
+            event,
+            CorrelationMessaging.withCorrelation()
         );
     }
 
     public void sendUserRegisteredEvent(Long userId, String email, String firstName, String lastName, String role, String verificationToken) {
         UserRegisteredEvent event = new UserRegisteredEvent(userId, email, firstName, lastName, role, verificationToken);
-        
+
         rabbitTemplate.convertAndSend(
             exchange.getName(),
             RabbitMQConfig.USER_REGISTERED_KEY,
-            event
+            event,
+            CorrelationMessaging.withCorrelation()
         );
     }
 }

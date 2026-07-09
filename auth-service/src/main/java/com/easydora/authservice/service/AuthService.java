@@ -1,17 +1,22 @@
 package com.easydora.authservice.service;
 
+import com.easydora.correlation.BusinessEventLog;
 import com.easydora.authservice.dto.LoginResponse;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserStatus;
 
 import java.time.LocalDateTime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class AuthService {
+
+    private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private final JwtService jwtService;
     private final RabbitMQProducerService rabbitMQProducerService;
@@ -45,7 +50,8 @@ public class AuthService {
         Long expiresIn = jwtService.getExpirationTime();
         
         rabbitMQProducerService.sendJwtCreatedEvent(token, userId, user.getEmail(), user.getFirstName(),user.getLastName(), role, expiresIn);
-        
+        BusinessEventLog.info(logger, "jwt.created.published", user.getId(), "JWT created event published");
+
         // Create response
         return new LoginResponse(
             token,

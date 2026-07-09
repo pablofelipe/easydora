@@ -1,5 +1,7 @@
 package com.easydora.authservice.service;
 
+import com.easydora.correlation.OutboxEnvelope;
+import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.repository.OutboxEventRepository;
 
@@ -47,9 +49,13 @@ public class OutboxPublisher {
 
         for (OutboxEvent event : pending) {
             try {
+                OutboxEnvelope envelope = OutboxEnvelopeCodec.unwrap(event.getPayload());
+
                 MessageProperties properties = new MessageProperties();
                 properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
-                Message message = new Message(event.getPayload().getBytes(StandardCharsets.UTF_8), properties);
+                properties.setCorrelationId(envelope.correlationId());
+                properties.setMessageId(envelope.messageId());
+                Message message = new Message(envelope.body().getBytes(StandardCharsets.UTF_8), properties);
 
                 rabbitTemplate.send(event.getExchange(), event.getRoutingKey(), message);
 

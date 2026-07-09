@@ -1,6 +1,9 @@
 package com.easydora.authservice.service;
 
 import com.easydora.authservice.config.RabbitMQConfig;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationContext;
+import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.authservice.dto.SignupRequest;
 import com.easydora.authservice.dto.SignupResponse;
 import com.easydora.authservice.entity.OutboxEvent;
@@ -10,6 +13,8 @@ import com.easydora.authservice.entity.UserStatus;
 import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,7 +28,9 @@ import java.net.URLEncoder;
 @Service
 @Transactional
 public class UserService {
-    
+
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final RabbitMQProducerService rabbitMQProducerService;
@@ -65,6 +72,7 @@ public class UserService {
             signupRequest.getRole(),
             verificationToken
         );
+        BusinessEventLog.info(logger, "user.registered.published", savedUser.getId(), "User registered event published");
 
         return mapToSignupResponse(savedUser, verificationToken);
     }
@@ -149,10 +157,17 @@ public class UserService {
 
         userRepository.save(user);
 
+        String envelopedPayload = OutboxEnvelopeCodec.wrap(
+            CorrelationContext.currentOrNewCorrelationId(),
+            CorrelationContext.newMessageId(),
+            String.valueOf(user.getId())
+        );
+
         outboxEventRepository.save(new OutboxEvent(
             RabbitMQConfig.EXCHANGE_NAME,
             RabbitMQConfig.USER_VERIFIED_KEY,
-            String.valueOf(user.getId())
+            envelopedPayload
         ));
+        BusinessEventLog.info(logger, "user.verified.outboxed", user.getId(), "User verified event recorded in outbox");
     }
 }

@@ -1,6 +1,8 @@
 package com.easydora.authservice.service;
 
 import com.easydora.authservice.config.RabbitMQConfig;
+import com.easydora.correlation.OutboxEnvelope;
+import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserStatus;
@@ -94,7 +96,10 @@ class VerifyEmailOutboxHappyPathIT {
         OutboxEvent savedEvent = captor.getValue();
         assertThat(savedEvent.getExchange()).isEqualTo(RabbitMQConfig.EXCHANGE_NAME);
         assertThat(savedEvent.getRoutingKey()).isEqualTo(RabbitMQConfig.USER_VERIFIED_KEY);
-        assertThat(savedEvent.getPayload()).isEqualTo("888");
+
+        OutboxEnvelope envelope = OutboxEnvelopeCodec.unwrap(savedEvent.getPayload());
+        assertThat(envelope.body()).isEqualTo("888");
+
         assertThat(savedEvent.getPublishedAt()).isNull();
 
         OutboxEventRepository pollerOutboxRepository = mock(OutboxEventRepository.class);

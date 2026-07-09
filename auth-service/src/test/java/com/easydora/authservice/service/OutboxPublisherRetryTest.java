@@ -1,5 +1,6 @@
 package com.easydora.authservice.service;
 
+import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.repository.OutboxEventRepository;
 
@@ -33,7 +34,8 @@ class OutboxPublisherRetryTest {
 
     @Test
     void pendingEventStaysUnpublishedUntilBrokerAcceptsIt() {
-        OutboxEvent event = new OutboxEvent("auth.exchange", "user.verified", "555");
+        OutboxEvent event = new OutboxEvent("auth.exchange", "user.verified",
+                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", "555"));
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
         when(outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc())
                 .thenReturn(List.of(event));
