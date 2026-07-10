@@ -14,6 +14,13 @@ this flow fits into (services, communication, persistence), see
 flow as an importable, runnable collection (automatic ID/token capture
 instead of shell variables), see [postman/](../postman/).
 
+This walkthrough goes through the API Gateway (port 8080) as the primary
+entry point — every call below uses the same self-namespaced segment the
+Gateway forwards unchanged (`/auth`, `/products`, `/orders`, `/billing`,
+`/inventory`; see [ADR-0025](adr/0025-gateway-transparent-routing.md)).
+`notification-service` has no Gateway route yet, so step 9 (and every
+later reference to it) still calls it directly on port 8086.
+
 ## Prerequisites
 
 - Docker Desktop (Windows/Mac) or Docker Engine (Linux) + Docker Compose
@@ -58,7 +65,7 @@ docker compose logs -f <service-name>
 ## 3. Create a seller and authenticate
 
 ```bash
-curl -s -X POST http://localhost:8081/signup \
+curl -s -X POST http://localhost:8080/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"email":"seller-demo@example.com","password":"Sup3rSecret","firstName":"Sam","lastName":"Seller","role":"SELLER"}'
 ```
@@ -76,7 +83,7 @@ cannot create a product yet.
 Verify the email (use the exact `verificationToken` from your own response):
 
 ```bash
-curl -s "http://localhost:8081/verify-email?token=<verificationToken>"
+curl -s "http://localhost:8080/auth/verify-email?token=<verificationToken>"
 ```
 
 Expected: `{"message":"Email verified successfully","status":"ACTIVE"}`.
@@ -86,7 +93,7 @@ consumes to flip the `Seller` row's `active` flag to `true`.
 Log in:
 
 ```bash
-curl -s -X POST http://localhost:8081/login \
+curl -s -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"seller-demo@example.com","password":"Sup3rSecret"}'
 ```
@@ -111,7 +118,7 @@ return `403` (no cached token yet).
 ## 4. Create a product
 
 ```bash
-curl -s -X POST http://localhost:8082/createProduct \
+curl -s -X POST http://localhost:8080/products/createProduct \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SELLER_TOKEN" \
   -H "X-User-Id: 8" \
@@ -133,7 +140,7 @@ Save the product id: `PRODUCT_ID=<id from the response above>`.
 **How to confirm it** (public API):
 
 ```bash
-curl -s http://localhost:8083/inventory/$PRODUCT_ID
+curl -s http://localhost:8080/inventory/$PRODUCT_ID
 ```
 
 Expected: `{"productId":"...","quantity":10,"reserved":0,"available":true,...}`.
@@ -143,12 +150,12 @@ Expected: `{"productId":"...","quantity":10,"reserved":0,"available":true,...}`.
 Same three calls as step 3, with a different email and `"role":"BUYER"`:
 
 ```bash
-curl -s -X POST http://localhost:8081/signup -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:8080/auth/signup -H "Content-Type: application/json" \
   -d '{"email":"buyer-demo@example.com","password":"Sup3rSecret","firstName":"Bea","lastName":"Buyer","role":"BUYER"}'
 
-curl -s "http://localhost:8081/verify-email?token=<verificationToken>"
+curl -s "http://localhost:8080/auth/verify-email?token=<verificationToken>"
 
-curl -s -X POST http://localhost:8081/login -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" \
   -d '{"email":"buyer-demo@example.com","password":"Sup3rSecret"}'
 ```
 
@@ -163,7 +170,7 @@ orders-service" step exists.
 ## 6. Create an order
 
 ```bash
-curl -s -X POST http://localhost:8084/createOrder \
+curl -s -X POST http://localhost:8080/orders/createOrder \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $BUYER_TOKEN" \
   -H "X-User-Id: 9" \
@@ -191,13 +198,13 @@ and the product's `reserved` count goes up by the ordered quantity.
 **How to confirm it** (public APIs, wait a couple of seconds first):
 
 ```bash
-curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
 ```
 
 Expected: `"state":"INVENTORY_RESERVED"` (real example confirmed).
 
 ```bash
-curl -s http://localhost:8083/inventory/$PRODUCT_ID
+curl -s http://localhost:8080/inventory/$PRODUCT_ID
 ```
 
 Expected: `"quantity":10,"reserved":2` (real example confirmed).
@@ -217,7 +224,7 @@ the reservation above also does this).
 **How to confirm it** (public API):
 
 ```bash
-curl -s http://localhost:8085/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
+curl -s http://localhost:8080/billing/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 Response (real example):
@@ -231,7 +238,7 @@ works here too, with no separate billing-specific login. Calling this
 endpoint without a token confirms the other direction:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8085/api/payments/order/$ORDER_ID
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/billing/api/payments/order/$ORDER_ID
 # expected: 403
 ```
 
@@ -244,8 +251,10 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8085/api/payments/orde
 **Observable effect**: one persisted notification row per event — never
 replacing a previous one, so an order accumulates a new row each time a
 relevant event fires. For `order.created`, `notification-service` calls
-`auth-service`'s `GET /users/{id}/notification-profile` to enrich the
-event. `order.status-changed` carries no `userId` of its own, so it
+`auth-service`'s `GET /auth/users/{id}/notification-profile` directly
+(port 8081, not through the Gateway — this is the one synchronous
+inter-service HTTP call in the system) to enrich the event.
+`order.status-changed` carries no `userId` of its own, so it
 reuses the email/name already captured by that same order's
 `order.created` notification instead of a second enrichment call.
 **How to confirm it** (public API):
@@ -276,7 +285,7 @@ templating mechanism it has no present need for.
 ## 10. Process the payment
 
 ```bash
-curl -s -X POST "http://localhost:8085/api/payments/process?orderId=$ORDER_ID&amount=499.80" \
+curl -s -X POST "http://localhost:8080/billing/api/payments/process?orderId=$ORDER_ID&amount=499.80" \
   -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
@@ -306,7 +315,7 @@ payment-specific changes at all.
 **How to confirm it** (public APIs):
 
 ```bash
-curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
 ```
 
 Expected: `"state":"PAYMENT_APPROVED"` (or `PAYMENT_FAILED`) (real example
@@ -338,8 +347,8 @@ At this point you have, driven entirely by public HTTP APIs:
 - 3 persisted notifications (`order.created`, and two `order.status-changed`), all `SENT`
 
 ```bash
-curl -s http://localhost:8084/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
-curl -s http://localhost:8085/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/billing/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 curl -s http://localhost:8086/notifications/$ORDER_ID
 ```
 
@@ -356,7 +365,7 @@ five services this flow touches instead of correlating by order id and
 timestamps:
 
 ```bash
-curl -s -X POST http://localhost:8081/signup \
+curl -s -X POST http://localhost:8080/auth/signup \
   -H "Content-Type: application/json" \
   -H "X-Correlation-Id: my-walkthrough-trace" \
   -d '{"email":"seller-demo@example.com", ...}'

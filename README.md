@@ -55,6 +55,12 @@ Frontend is the only remaining empty scaffold. See
   instead of piling up when a downstream service is down. See
   [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md) and
   [ADR-0009](docs/adr/0009-billing-circuit-breaker.md).
+- **Transparent Gateway routing** — the Gateway forwards every request's
+  path unchanged; it never rewrites a service's contract. Every service
+  is self-namespaced under its own Gateway segment (`/auth`, `/products`,
+  `/orders`, `/billing`, `/inventory`), so a direct call and a call
+  proxied through the Gateway hit the exact same path. See
+  [ADR-0025](docs/adr/0025-gateway-transparent-routing.md).
 - **Three-phase CI**: unit tests with no infrastructure (Phase 1),
   integration tests against real Postgres/RabbitMQ service containers
   (Phase 2), and cross-service end-to-end tests driven through public HTTP
@@ -157,7 +163,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 24
+- [Architecture Decision Records](#architecture-decision-records) — 25
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Observability](docs/architecture/observability.md) — how one business
@@ -243,6 +249,7 @@ The stack split is deliberate:
 | [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017: its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. Now retries up to 3 times with exponential backoff (a RabbitMQ retry queue with a per-message TTL, not a sleep or poll) before dead-lettering — same numbers and conceptual behavior as the Spring services, built on different primitives since Pika has no retry-template equivalent. Found, and since fixed (see ADR-0022's Update): `products-service`'s `handleUserVerified` had no role filter, so every buyer's `user.verified` event was dead-lettered. |
 | [0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md) | Notification Service Persistence Evolution Strategy | Accepted | Formally reviews and closes the "no Alembic" gap left open since ADR-0014. `scripts/init.sql` hasn't changed once across four ADRs of functional growth, and a comparison against `inventory-service` (whose own idempotent init.sql *has* evolved twice, safely, with no versioned tool) shows the current approach has headroom beyond what notification-service has needed. Keeps the idempotent script, documents concrete criteria for reopening the decision if the schema outgrows it. |
 | [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagated through HTTP headers and native AMQP message properties (not a new wire format), logged in a consistent structured format across all seven services. Two small shared modules (`correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services) — a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. |
+| [0025](docs/adr/0025-gateway-transparent-routing.md) | Gateway transparent routing — every service is self-namespaced | Accepted | Closes the `inventory-service` 404-through-the-gateway bug ADR-0024 found. The Gateway no longer strips any service prefix — it forwards the incoming path unchanged — and `auth-service`/`products-service`/`orders-service`/`billing-service` each gained a `server.servlet.context-path` matching their own Gateway segment (`inventory-service` was already self-namespaced). Every direct caller of those four services (Dockerfile `HEALTHCHECK`s, CI readiness checks, `e2e-tests`, the Postman collection) was updated in lockstep; the Postman collection now has parallel `Via Gateway (primary)` and `Direct (debug)` folder trees. |
 
 ## Roadmap
 
@@ -402,17 +409,15 @@ The stack split is deliberate:
       across all seven services — see
       [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)
       and [docs/architecture/observability.md](docs/architecture/observability.md).
-- [ ] `api-gateway`'s reverse proxy strips the service prefix before
-      forwarding (e.g. `/inventory/{id}` becomes `{id}` on the upstream
-      request), but `inventory-service`'s own routes are themselves
-      namespaced under `/inventory` (`GET /inventory/{productId}`) — so a
-      request routed through the gateway 404s where the same call made
-      directly against port 8083 succeeds. Found while live-validating
-      ADR-0024's CorrelationId propagation through the gateway; out of
-      scope for that work (unrelated to tracing) and left unfixed. Every
-      other implemented route happens to work today only because those
-      services' own routes aren't self-namespaced the same way
-      inventory-service's are.
+- [x] `api-gateway`'s reverse proxy no longer strips the service prefix
+      before forwarding — it forwards the incoming path unchanged, and
+      every service (`auth-service`, `products-service`, `orders-service`,
+      `billing-service` via `server.servlet.context-path`;
+      `inventory-service` already this way) is self-namespaced under its
+      own Gateway segment. Closes the `inventory-service` 404 found while
+      live-validating ADR-0024's CorrelationId propagation through the
+      gateway. See
+      [ADR-0025](docs/adr/0025-gateway-transparent-routing.md).
 
 </details>
 
