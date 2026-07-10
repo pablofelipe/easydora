@@ -196,13 +196,13 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 
 | Service | Stack | Port | Status | Test Coverage |
 |---|---|---|---|---|
-| API Gateway | Go + Gin | 8080 | Implemented | 8 tests — 5 circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)) + 3 correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)) |
-| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 11 tests — 9 unit + 2 `*IT` (Outbox, real Postgres/RabbitMQ) |
-| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 6 unit tests |
+| API Gateway | Go + Gin | 8080 | Implemented | 9 test functions — circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)), correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)), and transparent routing across all 6 services ([ADR-0025](docs/adr/0025-gateway-transparent-routing.md)) |
+| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 19 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
+| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 13 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 18 tests — 10 unit + 8 `*IT` (real Postgres/RabbitMQ) |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 19 tests — 13 unit + 6 `*IT` (real Postgres/RabbitMQ) |
-| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 27 tests — 19 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 23 tests — unit + `*IT` (real Postgres/RabbitMQ), including 5 covering self-purchase prevention |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 14 tests — unit + `*IT` (real Postgres/RabbitMQ) |
+| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 28 tests — 20 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
