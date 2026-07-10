@@ -7,8 +7,10 @@ class StubAuthClient:
     def __init__(self, profile=None, error=None):
         self._profile = profile
         self._error = error
+        self.received_correlation_ids = []
 
-    def get_notification_profile(self, user_id):
+    def get_notification_profile(self, user_id, correlation_id=""):
+        self.received_correlation_ids.append(correlation_id)
         if self._error:
             raise self._error
         return self._profile
@@ -51,6 +53,16 @@ def test_successful_enrichment_produces_sent_notification():
     assert notification.event_type == "order.created"
     assert notification.payload["email"] == "buyer@example.com"
     assert sender.sent == [notification]
+
+
+def test_correlation_id_is_forwarded_to_the_auth_client_call():
+    profile = UserNotificationProfile(user_id=42, email="buyer@example.com", first_name="Casey", last_name="Buyer")
+    auth_client = StubAuthClient(profile=profile)
+    sender = RecordingSender()
+
+    process_order_created(ORDER_CREATED_EVENT, auth_client, sender, correlation_id="corr-xyz")
+
+    assert auth_client.received_correlation_ids == ["corr-xyz"]
 
 
 def test_profile_not_found_produces_failed_notification_without_raising():

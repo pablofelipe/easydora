@@ -1,17 +1,18 @@
-import logging
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from app.auth_client import AuthServiceClient
 from app.config import load_settings
+from app.correlation import CORRELATION_ID_HEADER, REQUEST_ID_HEADER, correlation_scope, new_id
+from app.logging_config import configure_logging
 from app.rabbitmq import run_consumer
 from app.repository import NotificationRepository
 from app.schema import ensure_schema
 from app.sender import FakeNotificationSender
 
-logging.basicConfig(level=logging.INFO)
+configure_logging()
 
 settings = load_settings()
 repository = NotificationRepository(settings.db_dsn)
@@ -34,6 +35,24 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="notification-service", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def correlation_middleware(request: Request, call_next):
+    """Birthplace of a business operation's CorrelationId for this
+    service's own HTTP surface: reused from the client if present,
+    generated otherwise. RequestId is always freshly generated, once per
+    request. Mirrors the Java services' CorrelationIdFilter."""
+    incoming = request.headers.get(CORRELATION_ID_HEADER)
+    correlation_id = incoming if incoming else new_id()
+    request_id = new_id()
+
+    with correlation_scope(correlation_id=correlation_id, request_id=request_id):
+        response = await call_next(request)
+
+    response.headers[CORRELATION_ID_HEADER] = correlation_id
+    response.headers[REQUEST_ID_HEADER] = request_id
+    return response
 
 
 @app.get("/health")

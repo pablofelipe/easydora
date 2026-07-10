@@ -1,5 +1,6 @@
 import httpx
 
+from app.correlation import CORRELATION_ID_HEADER
 from app.models import UserNotificationProfile
 
 
@@ -23,10 +24,11 @@ class AuthServiceClient:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
 
-    def get_notification_profile(self, user_id: int) -> UserNotificationProfile:
+    def get_notification_profile(self, user_id: int, correlation_id: str = "") -> UserNotificationProfile:
         url = f"{self._base_url}/users/{user_id}/notification-profile"
+        headers = {CORRELATION_ID_HEADER: correlation_id} if correlation_id else {}
         try:
-            response = httpx.get(url, timeout=self._timeout_seconds)
+            response = httpx.get(url, headers=headers, timeout=self._timeout_seconds)
         except httpx.HTTPError as exc:
             raise ProfileLookupError(f"error calling auth-service for user {user_id}: {exc}") from exc
 

@@ -5,6 +5,7 @@ import time
 import pika
 
 from app.consumer import process_order_created, process_order_status_changed
+from app.correlation import correlation_scope, current_or_new_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,8 @@ def _route_to_retry_or_dlq(channel, method, properties, body) -> None:
             content_type=properties.content_type,
             headers=headers,
             expiration=str(int(delay_ms)),
+            correlation_id=properties.correlation_id,
+            message_id=properties.message_id,
         )
         channel.basic_publish(
             exchange=RETRY_EXCHANGE,
@@ -136,24 +139,35 @@ def _route_to_retry_or_dlq(channel, method, properties, body) -> None:
     channel.basic_ack(delivery_tag=method.delivery_tag)
 
 
+def _scope_from_properties(properties) -> correlation_scope:
+    """Builds the logging scope for one delivery: CorrelationId is reused
+    from the message's own property if the publisher set one, generated
+    otherwise -- this service should never invent a new CorrelationId when
+    a perfectly good one already arrived on the message."""
+    correlation_id = properties.correlation_id or current_or_new_correlation_id()
+    return correlation_scope(correlation_id=correlation_id, message_id=properties.message_id or "")
+
+
 def consume_forever(channel, auth_client, repository, sender) -> None:
     def on_order_created(ch, method, properties, body):
-        try:
-            event = json.loads(body)
-            process_order_created(event, auth_client, sender)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception:
-            logger.exception("failed to process order.created message")
-            _route_to_retry_or_dlq(ch, method, properties, body)
+        with _scope_from_properties(properties):
+            try:
+                event = json.loads(body)
+                process_order_created(event, auth_client, sender, correlation_id=properties.correlation_id or "")
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+            except Exception:
+                logger.exception("failed to process order.created message")
+                _route_to_retry_or_dlq(ch, method, properties, body)
 
     def on_order_status_changed(ch, method, properties, body):
-        try:
-            event = json.loads(body)
-            process_order_status_changed(event, repository, sender)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception:
-            logger.exception("failed to process order.status-changed message")
-            _route_to_retry_or_dlq(ch, method, properties, body)
+        with _scope_from_properties(properties):
+            try:
+                event = json.loads(body)
+                process_order_status_changed(event, repository, sender)
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+            except Exception:
+                logger.exception("failed to process order.status-changed message")
+                _route_to_retry_or_dlq(ch, method, properties, body)
 
     channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_order_created)
     channel.basic_consume(queue=ORDER_STATUS_CHANGED_QUEUE, on_message_callback=on_order_status_changed)
