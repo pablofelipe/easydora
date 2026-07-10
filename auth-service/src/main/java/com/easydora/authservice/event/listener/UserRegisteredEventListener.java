@@ -39,7 +39,7 @@ public class UserRegisteredEventListener {
     
     private void logVerificationCurlCommand(String token) {
         String curlCommand = String.format(
-            "curl -X GET \"http://localhost:8081/verify-email?token=%s\"",
+            "curl -X GET \"http://localhost:8081/auth/verify-email?token=%s\"",
             token
         );
         
