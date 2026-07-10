@@ -415,3 +415,37 @@ The stack split is deliberate:
       inventory-service's are.
 
 </details>
+
+## License
+
+This repository is licensed under the [Apache License 2.0](LICENSE). You are
+free to use, modify, and distribute this code, including for commercial
+purposes, subject to the terms of that license. See the [NOTICE](NOTICE)
+file for a summary of the practices this project demonstrates and the
+attribution requirements that carry over into derivative works.
+
+Easydora is primarily an educational and portfolio project: it exists to
+demonstrate distributed-systems architecture and engineering practices,
+not to be adopted as a dependency or a production platform. Contributions
+(bug reports, fixes, documentation improvements) are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). The author retains copyright over the
+original work as stated in [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Disclaimer
+
+This repository was built for learning and portfolio purposes, to
+demonstrate event-driven microservices architecture, testing discipline,
+and the kind of decision-making documented throughout the ADR set. It is
+**not** intended to be a production-ready commercial platform.
+
+Some external integrations are intentionally simplified: notification-service
+sends no real email/SMS (see [ADR-0014](docs/adr/0014-notification-service.md)),
+billing-service's payment provider is not a real payment gateway, and
+credentials/secrets in this repository's local `.env.example` are meant for
+local development only, never for production use.
+
+Architectural decisions throughout this project prioritize demonstrating
+sound engineering practices — resilience, observability, testing, contract
+validation — over full business completeness. Known gaps are tracked
+openly in the [Roadmap](#roadmap) and in each ADR's own Consequences
+section rather than hidden.
