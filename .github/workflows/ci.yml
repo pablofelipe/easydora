@@ -261,7 +261,7 @@ jobs:
 
       - name: wait for services to be healthy
         run: |
-          for url in http://localhost:8081/health http://localhost:8082/health http://localhost:8083/health; do
+          for url in http://localhost:8081/auth/health http://localhost:8082/products/health http://localhost:8083/inventory/health; do
             for i in $(seq 1 60); do
               if curl -sf "$url" > /dev/null; then
                 echo "$url is healthy"
@@ -385,7 +385,7 @@ jobs:
 
       - name: wait for services to be healthy
         run: |
-          for url in http://localhost:8081/health http://localhost:8083/health http://localhost:8084/health http://localhost:8085/health; do
+          for url in http://localhost:8081/auth/health http://localhost:8083/inventory/health http://localhost:8084/orders/health http://localhost:8085/billing/health; do
             for i in $(seq 1 60); do
               if curl -sf "$url" > /dev/null; then
                 echo "$url is healthy"
@@ -478,7 +478,7 @@ jobs:
       - name: wait for auth-service to be healthy
         run: |
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:8081/health > /dev/null; then
+            if curl -sf http://localhost:8081/auth/health > /dev/null; then
               echo "auth-service is healthy"
               break
             fi
