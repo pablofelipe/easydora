@@ -199,6 +199,53 @@ func TestPlainProxy_DoesNotShortCircuit(t *testing.T) {
 // special-cased in setupServiceRoutes to keep the plain, breaker-less proxy
 // (see ADR-0006's open Roadmap item), so this test fails against that
 // special case and passes once it's removed.
+// TestSetupServiceRoutes_ForwardsPathUnchanged proves the Gateway acts as a
+// transparent routing layer (see ADR-0025): the full incoming path,
+// including the service's own routing segment (/auth, /products, /orders,
+// /billing, /inventory), must reach the downstream service byte-for-byte.
+// Before this fix, setupServiceRoutes stripped that segment before
+// forwarding, which happened to still work for four services only because
+// their own routes were mounted bare (not self-namespaced) -- this test
+// fails against that old behavior for every service, not just inventory.
+func TestSetupServiceRoutes_ForwardsPathUnchanged(t *testing.T) {
+	tests := []struct {
+		servicePath string
+		requestPath string
+	}{
+		{"auth", "/auth/signup"},
+		{"products", "/products/sellers/42"},
+		{"orders", "/orders/createOrder"},
+		{"billing", "/billing/api/payments/process"},
+		{"inventory", "/inventory/123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.servicePath, func(t *testing.T) {
+			var receivedPath string
+			downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer downstream.Close()
+
+			original := services[tt.servicePath]
+			services[tt.servicePath] = ServiceConfig{URL: downstream.URL, Name: original.Name, Implemented: true}
+			defer func() { services[tt.servicePath] = original }()
+
+			router := gin.New()
+			setupServiceRoutes(router)
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			doRequest(t, server, tt.requestPath)
+
+			if receivedPath != tt.requestPath {
+				t.Fatalf("expected downstream to receive %s unchanged, got %s", tt.requestPath, receivedPath)
+			}
+		})
+	}
+}
+
 func TestSetupServiceRoutes_BillingUsesBreaker(t *testing.T) {
 	downURL := closedPortURL(t)
 	original := services["billing"]

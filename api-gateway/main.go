@@ -186,15 +186,18 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		}
 
 		originalPath := c.Request.URL.Path
-		proxyPath := c.Param("proxyPath")
 
 		correlation.Info(gatewayLogger, c.Request.Context(), "proxying request",
 			"event", "gateway.proxy", "aggregateId", originalPath,
-			"method", c.Request.Method, "target", targetURL.Host+proxyPath)
+			"method", c.Request.Method, "target", targetURL.Host+originalPath)
 
 		c.Request.URL.Scheme = targetURL.Scheme
 		c.Request.URL.Host = targetURL.Host
-		c.Request.URL.Path = proxyPath
+		// The Gateway is a transparent routing layer (ADR-0025): the
+		// incoming path -- including the /auth, /products, /orders,
+		// /billing, /inventory segment -- is forwarded byte-for-byte.
+		// Every service is expected to expose that same segment itself, so
+		// no rewrite happens here.
 		c.Request.Host = targetURL.Host
 
 		// Headers for tracing
