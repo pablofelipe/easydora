@@ -15,13 +15,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-
-import java.io.IOException;
 import java.util.List;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -37,6 +32,13 @@ public class SecurityConfig {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
+    // The frontend calls this service exclusively through the Gateway
+    // with an Authorization header, which makes every request a
+    // non-simple CORS request -- the browser sends a preflight OPTIONS
+    // first. This bean used to be defined but never wired into the filter
+    // chain below, so it had no effect; a preflight to any endpoint under
+    // anyRequest().authenticated() was rejected before Spring MVC's own
+    // CORS handling ever ran.
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
@@ -44,26 +46,16 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(false);
-        
+        // Response headers are NOT readable by browser JS unless explicitly
+        // exposed, regardless of allowedHeaders (which only governs the
+        // *request* side of a preflight) -- without this, fetch()'s
+        // response.headers.get('X-Correlation-Id') always returns null in a
+        // real browser even though curl (not subject to CORS) sees it fine.
+        configuration.setExposedHeaders(List.of("X-Correlation-Id", "X-Request-Id"));
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
-    }
-
-    protected void doFilterInternal(HttpServletRequest request, 
-                                HttpServletResponse response, 
-                                FilterChain filterChain) throws ServletException, IOException {
-        
-        String requestURI = request.getRequestURI();
-
-        // Log for debugging
-        logger.info("Request URI: {}", requestURI);
-        logger.info("Method: {}", request.getMethod());
-
-        // TEMPORARILY ALLOW ALL REQUESTS FOR DEBUGGING
-        logger.warn("ALLOWING ALL REQUESTS - DEBUG MODE");
-        filterChain.doFilter(request, response);
-        return;
     }
 
     @Bean
@@ -72,7 +64,12 @@ public class SecurityConfig {
             .sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(authz -> authz
+                // CORS preflight carries no Authorization header by design;
+                // it must be let through before the authenticated() rule
+                // below or the browser never gets to send the real request.
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // Public endpoints
                 .requestMatchers(
                     "/ping",
@@ -91,7 +88,7 @@ public class SecurityConfig {
             // anchored relative to it below.
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new CorrelationIdFilter(), JwtAuthenticationFilter.class);
-            
+
         return http.build();
     }
 
