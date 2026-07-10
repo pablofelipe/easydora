@@ -437,6 +437,97 @@ The stack split is deliberate:
       as part of [ADR-0026](docs/adr/0026-frontend-thin-client.md); closed
       the same day as a natural domain evolution, not a new architectural
       decision — no new ADR.
+- [ ] **Opened 2026-07-10 (Critical).** `orders-service` and
+      `products-service` trust the `X-User-Id` header directly, with no
+      cross-check against the authenticated JWT's own claims
+      (`OrderController.createOrder`/`getOrder`,
+      `ProductController.createProduct`). Any request carrying a valid
+      token can claim to be any other `userId` simply by setting a
+      different header value — the backend never verifies the two match.
+      This single gap invalidates several things that look correct on
+      the surface: IDOR protection on order lookups, product ownership on
+      writes, and the self-purchase check added this same day (it
+      compares `X-User-Id` against `seller_id`, but `X-User-Id` itself
+      isn't trustworthy). Found via a targeted review, not by normal
+      development flow; fixing it means deriving `userId`/`role` from the
+      authenticated principal the JWT filter already populates, never
+      from a client-supplied header.
+- [ ] **Opened 2026-07-10 (High).** `docker-compose.yml` sets
+      `SPRING_JPA_HIBERNATE_DDL_AUTO=update` for all four Spring services
+      (auth, products, orders, billing) — a Spring Boot environment
+      variable overrides the same property in `application.properties`,
+      so the actual running containers use `update`, not the
+      `validate` that `application.properties`, the README, and
+      [ADR-0004](docs/adr/0004-auth-service-schema-authority-fix.md)/
+      [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md)
+      all claim. This is exactly the kind of README-vs-code divergence
+      this project says it treats seriously — Flyway is not actually the
+      sole schema authority at runtime today, only in the properties file
+      nobody overrides locally. Fix: remove the compose override and
+      resolve whatever baseline/drift issue originally motivated adding
+      it, rather than deleting the override and assuming Flyway alone
+      already handles it.
+- [ ] **Opened 2026-07-10 (High).** `notification-service`'s
+      `GET /notifications/{orderId}` has no authentication or
+      authorization check at all — anyone who knows or guesses an
+      `orderId` (a UUID) can read that order's notification history,
+      including the buyer's name and email captured from
+      `order.created`.
+- [ ] **Opened 2026-07-10 (High).** `billing-service`'s `PaymentController`
+      has no ownership checks on any endpoint: `GET /api/payments`
+      returns every payment in the system with no filtering at all;
+      `GET /api/payments/{id}` and `GET /api/payments/order/{orderId}`
+      never confirm the caller is the order's buyer; `DELETE
+      /api/payments/{id}` permanently deletes any payment record with no
+      check whatsoever. Compounds directly with the `X-User-Id` trust gap
+      above once that's fixed for read paths, but the missing ownership
+      check on write/delete is a separate, additional gap.
+- [ ] **Opened 2026-07-10 (High).** `products-service`'s `SecurityConfig`
+      has `/debug/**` fully `permitAll()`, with no environment gating
+      (dev-only vs. always-on). `GET /debug/tokens` is reachable by
+      anyone and triggers `JwtAuthenticationFilter.listTokens()`, which
+      writes every cached user's email (paired with a truncated token
+      prefix) to the service's own logs on demand — a public,
+      unauthenticated way to enumerate who currently has an active
+      session.
+- [ ] **Opened 2026-07-10 (Medium).**
+      `OrderStateMachineConfig` wires real transitions for `SHIPPED`/
+      `DELIVERED` (`SHIP_ORDER`/`DELIVER_ORDER`), but no code anywhere in
+      `orders-service` ever sends either event — both states are
+      configured but structurally unreachable. Separately,
+      `OrderService.canCancel()` allows attempting a cancellation from
+      `PAYMENT_APPROVED`, but the state machine's real transition table
+      only accepts `CANCEL_ORDER` from `PENDING`/`PROCESSING`/
+      `INVENTORY_RESERVED` — a cancel attempt from `PAYMENT_APPROVED`
+      isn't cleanly rejected upfront, it fails later with "event not
+      accepted" once the mismatch is hit. Two different sources of truth
+      for the same business rule, and they disagree; needs one decision
+      (implement shipping/delivery for real, or delete the dead states;
+      align `canCancel()` to whatever the state machine actually allows).
+- [ ] **Opened 2026-07-10 (Medium).** `billing-service` has a
+      `PaymentProvider` interface and a `PaymentMockService` implementing
+      it (`service/provider/`), but `PaymentService.processPayment` never
+      calls either — it inlines `Math.random() < 0.9` directly instead.
+      The abstraction is dead code, and the actual approval logic is
+      non-deterministic with no seam to make it reproducible, which is
+      why `docs/walkthrough.md` can only describe the payment step as
+      "accepts either outcome" rather than asserting one.
+- [ ] **Opened 2026-07-10 (Architectural note).** `orders-service`'s
+      Spring State Machine usage
+      (`OrderStateMachineService.sendEvent`) rebuilds and rehydrates a
+      brand new state machine instance from the database on every single
+      event, reads the resulting state back out, writes it to
+      `Order.state`, then stops and discards the machine — the actual
+      persisted source of truth is always the `Order.state` column, never
+      the machine itself, which never stays alive between calls. This
+      pays the full complexity cost of a state machine framework
+      (factory, accessor, context reset boilerplate) without the benefit
+      state machines are supposed to provide (a live authority you query,
+      not just a disposable transition validator). Worth revisiting as
+      one of two clean options: make the state machine the actual live
+      authority, or drop the framework for a validated plain transition
+      table — keeping both halves of the current hybrid is the one option
+      that isn't defensible.
 
 </details>
 
