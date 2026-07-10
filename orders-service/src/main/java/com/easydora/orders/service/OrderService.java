@@ -11,6 +11,7 @@ import com.easydora.orders.event.OrderCreatedEvent;
 import com.easydora.orders.event.ReserveStockCommand;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.ProductOwnershipRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
 import com.easydora.orders.config.RabbitMQConfig;
@@ -35,27 +36,33 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final OrderStateMachineService stateMachineService;
     private final RabbitTemplate rabbitTemplate;
+    private final ProductOwnershipRepository productOwnershipRepository;
 
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
 
     public OrderService(BuyerRepository buyerRepository,
                         OrderRepository orderRepository,
                        OrderStateMachineService stateMachineService,
-                       RabbitTemplate rabbitTemplate) {
+                       RabbitTemplate rabbitTemplate,
+                       ProductOwnershipRepository productOwnershipRepository) {
         this.buyerRepository = buyerRepository;
         this.orderRepository = orderRepository;
         this.stateMachineService = stateMachineService;
         this.rabbitTemplate = rabbitTemplate;
+        this.productOwnershipRepository = productOwnershipRepository;
     }
-    
+
     public OrderResponse createOrder(OrderRequest request, Long userId) {
 
         Buyer buyer = buyerRepository.findById(userId)
             .orElseThrow(() -> new RuntimeException("Buyer not found: " + userId));
-        
+
         if (!buyer.isActive()) {
             throw new RuntimeException("Buyer account is not active");
         }
+
+        rejectSelfPurchase(request, userId);
+
         // Create order
         Order order = new Order();
         order.setId(UUID.randomUUID().toString());
@@ -276,6 +283,31 @@ public class OrderService {
         }
     }
     
+    // Fraud-prevention rule: a SELLER may buy anything except their own
+    // product; a BUYER is unaffected either way. Runs before any write
+    // (order row, state machine, published event) so a rejection has zero
+    // side effects -- no reservation, no payment, nothing to unwind.
+    //
+    // HTTP status: this throws a plain RuntimeException, which
+    // GlobalExceptionHandler maps to 400 Bad Request -- the same mapping
+    // every other business-rule rejection in this class already uses
+    // ("Buyer not found", "Buyer account is not active", "Cannot cancel
+    // order in state X"). 403 Forbidden is arguably a more precise HTTP
+    // semantic for "authenticated, but not allowed to act on this
+    // resource", but this service has no existing precedent for
+    // status-per-rule-type differentiation; introducing one just for this
+    // rule would break that consistency for no real benefit here.
+    private void rejectSelfPurchase(OrderRequest request, Long userId) {
+        String buyerId = String.valueOf(userId);
+        for (OrderItemRequest item : request.getItems()) {
+            productOwnershipRepository.findById(item.getProductId())
+                .filter(ownership -> buyerId.equals(ownership.getSellerId()))
+                .ifPresent(ownership -> {
+                    throw new RuntimeException("Cannot purchase your own product");
+                });
+        }
+    }
+
     private void publishOrderCreatedEvent(Order order) {
         try {
             OrderCreatedEvent event = new OrderCreatedEvent();

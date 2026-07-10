@@ -59,6 +59,13 @@ public class RabbitMQConfig {
     public static final String STOCK_INSUFFICIENT_QUEUE = "orders.stock.insufficient.queue";
     public static final String STOCK_INSUFFICIENT_ROUTING_KEY = "stock.insufficient";
 
+    // products-service's product.exchange (ADR-0026's Etapa 27): only
+    // product.created is consumed today -- ownership is set once, at
+    // creation time, and never anticipated to move. See ProductCreatedEvent.
+    public static final String PRODUCT_EXCHANGE = "product.exchange";
+    public static final String PRODUCT_CREATED_QUEUE = "orders.product.created.queue";
+    public static final String PRODUCT_CREATED_ROUTING_KEY = "product.created";
+
     // payment.* outcome events - published by billing-service once a
     // payment resolves to APPROVED/FAILED, consumed here to drive the same
     // state machine transitions OrderService.handlePaymentReceived/
@@ -84,6 +91,11 @@ public class RabbitMQConfig {
     @Bean
     public TopicExchange orderExchange() {
         return new TopicExchange(ORDER_EXCHANGE);
+    }
+
+    @Bean
+    public TopicExchange productExchange() {
+        return new TopicExchange(PRODUCT_EXCHANGE);
     }
 
     @Bean
@@ -129,6 +141,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue paymentFailedQueue() {
         return new Queue(PAYMENT_FAILED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue productCreatedQueue() {
+        return new Queue(PRODUCT_CREATED_QUEUE, true);
     }
 
     @Bean
@@ -192,6 +209,13 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(paymentFailedQueue)
                 .to(orderExchange)
                 .with(PAYMENT_FAILED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding productCreatedBinding(Queue productCreatedQueue, TopicExchange productExchange) {
+        return BindingBuilder.bind(productCreatedQueue)
+                .to(productExchange)
+                .with(PRODUCT_CREATED_ROUTING_KEY);
     }
 
     @Bean

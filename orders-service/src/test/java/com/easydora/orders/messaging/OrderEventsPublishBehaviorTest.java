@@ -6,6 +6,7 @@ import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.ProductOwnershipRepository;
 import com.easydora.orders.service.OrderService;
 import com.easydora.orders.service.OrderStateMachineService;
 import com.easydora.orders.statemachine.OrderEvent;
@@ -73,6 +74,8 @@ class OrderEventsPublishBehaviorTest {
     private OrderRepository orderRepository;
     @Mock
     private OrderStateMachineService stateMachineService;
+    @Mock
+    private ProductOwnershipRepository productOwnershipRepository;
 
     @Test
     void creatingAnOrderPublishesAnOrderCreatedEvent() {
@@ -86,7 +89,8 @@ class OrderEventsPublishBehaviorTest {
 
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate);
+                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
+                productOwnershipRepository);
 
         OrderItemRequest item = new OrderItemRequest();
         item.setProductId("prod-1");
@@ -115,7 +119,8 @@ class OrderEventsPublishBehaviorTest {
 
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate);
+                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
+                productOwnershipRepository);
 
         orderService.handleInventoryReserved("order-1");
 
