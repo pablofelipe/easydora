@@ -346,6 +346,32 @@ curl -s http://localhost:8086/notifications/$ORDER_ID
 All three calls succeeding with the states above is the end-to-end success
 criterion for this walkthrough.
 
+## Tracing this whole flow with one CorrelationId
+
+Every `curl` call above can carry an `X-Correlation-Id` header. Add the
+same value to every call in this walkthrough (step 3 onward) and every
+service's logs — and every RabbitMQ message published along the way —
+carry that exact same id, letting you grep one identifier across all
+five services this flow touches instead of correlating by order id and
+timestamps:
+
+```bash
+curl -s -X POST http://localhost:8081/signup \
+  -H "Content-Type: application/json" \
+  -H "X-Correlation-Id: my-walkthrough-trace" \
+  -d '{"email":"seller-demo@example.com", ...}'
+```
+
+If you don't send one, each service generates its own on first contact
+and echoes it back as a response header (`X-Correlation-Id`) — so it's
+always visible, whether you supplied it or not. A `X-Request-Id` header
+is also always present, but is regenerated fresh at every hop (it
+identifies one HTTP request, not the whole operation) — it's
+`X-Correlation-Id` that stays constant end to end. See
+[docs/architecture/observability.md](architecture/observability.md) for
+the full design, including a worked example from a real run of this
+exact flow.
+
 ## Event flow summary
 
 | Step | Event | Producer | Consumer | Observable effect |

@@ -69,6 +69,14 @@ Frontend is the only remaining empty scaffold. See
   validated against real containers. See the
   [walkthrough](docs/walkthrough.md) and
   [sequence diagram](docs/sequence-diagram.md).
+- **Distributed tracing via propagated identifiers** — a CorrelationId
+  born at the first HTTP request (or reused from the client) rides every
+  hop's HTTP headers and native AMQP message properties unchanged, so one
+  business operation can be followed through every service's logs with a
+  single grep, in three languages, with no tracing backend. See
+  [docs/architecture/observability.md](docs/architecture/observability.md)
+  and
+  [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md).
 
 ## Quick Start
 
@@ -149,9 +157,12 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 23
+- [Architecture Decision Records](#architecture-decision-records) — 24
   ADRs, one per architectural decision made along the way, in chronological
   order.
+- [Observability](docs/architecture/observability.md) — how one business
+  operation is traced end to end through every service's logs via a
+  propagated CorrelationId, without a tracing backend.
 - [Postman collection](postman/) — the same main flow as an importable,
   runnable collection with automatic ID/token capture, complementing the
   walkthrough.
@@ -171,13 +182,13 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 
 | Service | Stack | Port | Status | Test Coverage |
 |---|---|---|---|---|
-| API Gateway | Go + Gin | 8080 | Implemented | 5 unit tests (circuit breaker) — [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md) |
-| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 9 tests — 7 unit + 2 `*IT` (Outbox, real Postgres/RabbitMQ) |
+| API Gateway | Go + Gin | 8080 | Implemented | 8 tests — 5 circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)) + 3 correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)) |
+| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 11 tests — 9 unit + 2 `*IT` (Outbox, real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 6 unit tests |
-| Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — unit, integration, and concurrency (`go test -race`) |
+| Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
 | Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 18 tests — 10 unit + 8 `*IT` (real Postgres/RabbitMQ) |
 | Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 19 tests — 13 unit + 6 `*IT` (real Postgres/RabbitMQ) |
-| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 17 tests — 9 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
+| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 27 tests — 19 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit | 3000 | Planned (empty scaffold) | — |
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
@@ -231,6 +242,7 @@ The stack split is deliberate:
 | [0021](docs/adr/0021-payment-outcome-integration.md) | Payment outcome integration — billing-service publishes `payment.approved`/`payment.failed`, orders-service reacts | Accepted | Closes the gap ADR-0020 found: `billing-service` now publishes a payment outcome event once `PaymentService.processPayment` resolves it; a new `PaymentEventsConsumer` in `orders-service` finally calls `OrderService.handlePaymentReceived`/`handlePaymentFailed` (previously unreachable since ADR-0001 removed their incorrectly-typed predecessor). Also fixed a latent bug those methods had (`previousState` hardcoded to `PENDING` instead of the order's real prior state), found by the first tests that ever exercised them. `notification-service` required no changes. |
 | [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017: its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. Now retries up to 3 times with exponential backoff (a RabbitMQ retry queue with a per-message TTL, not a sleep or poll) before dead-lettering — same numbers and conceptual behavior as the Spring services, built on different primitives since Pika has no retry-template equivalent. Found, and since fixed (see ADR-0022's Update): `products-service`'s `handleUserVerified` had no role filter, so every buyer's `user.verified` event was dead-lettered. |
 | [0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md) | Notification Service Persistence Evolution Strategy | Accepted | Formally reviews and closes the "no Alembic" gap left open since ADR-0014. `scripts/init.sql` hasn't changed once across four ADRs of functional growth, and a comparison against `inventory-service` (whose own idempotent init.sql *has* evolved twice, safely, with no versioned tool) shows the current approach has headroom beyond what notification-service has needed. Keeps the idempotent script, documents concrete criteria for reopening the decision if the schema outgrows it. |
+| [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagated through HTTP headers and native AMQP message properties (not a new wire format), logged in a consistent structured format across all seven services. Two small shared modules (`correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services) — a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. |
 
 ## Roadmap
 

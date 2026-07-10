@@ -66,6 +66,12 @@ other, how data is persisted, and where to go for more depth on any of it.
   `order.status-changed`, added later, deliberately avoids a second one by
   reusing the enrichment already captured in that order's `order.created`
   notification instead of calling auth-service again.
+- **Every hop carries a CorrelationId**, born at the first HTTP request
+  (or reused from the client) and propagated unchanged through every
+  subsequent HTTP header and native AMQP message property, so one
+  business operation is traceable across every service's logs without a
+  tracing backend. See [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md)
+  and [Observability](observability.md).
 
 ## Persistence
 
@@ -117,6 +123,9 @@ and the decisions each one is drawn from.
   entirely by `curl`, with real requests and responses.
 - [Sequence diagram](../sequence-diagram.md) — the same flow as a Mermaid
   diagram.
+- [Observability](observability.md) — how one business operation is
+  traced end to end through every service's logs via a propagated
+  CorrelationId.
 - [Architectural Principles](architectural-principles.md) — the
   philosophy behind the decisions summarized here.
 - `docs/adr/` — one ADR per architectural decision, with full context and
