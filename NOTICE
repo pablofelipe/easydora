@@ -1,0 +1,20 @@
+Easydora
+Copyright (c) 2026 Pablo Felipe
+
+This project is maintained as an educational and portfolio project
+demonstrating modern software architecture practices, including:
+
+  * Event-Driven Architecture
+  * Microservices
+  * Domain-Driven Design
+  * Outbox Pattern
+  * RabbitMQ messaging
+  * Integration Testing
+  * CI/CD
+  * Docker
+  * PostgreSQL
+  * API Gateway
+  * Authentication
+  * Distributed Systems
+
+The software is licensed under the Apache License 2.0.
