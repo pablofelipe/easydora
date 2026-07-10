@@ -1,14 +1,20 @@
 package com.easydora.orders.consumer;
 
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 import com.easydora.orders.config.JwtAuthenticationFilter;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.event.JwtEvent;
 import com.easydora.orders.service.BuyerService;
 
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 @Component
 public class JwtConsumer {
@@ -23,52 +29,50 @@ public class JwtConsumer {
     }
 
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
-    public void receiveJwtCreated(JwtEvent event) {
+    public void receiveJwtCreated(
+            JwtEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
         try {
-            logger.info("--- JWT EVENT RECEIVED ---");
-            logger.info("Event: {}", event.toString());
+            BusinessEventLog.info(logger, "jwt.created.received", event.getUserId(), "JWT created event received");
 
-            String token = event.getToken();
-            Long userId = event.getUserId();
-            String email = event.getEmail();
-            String firstName = event.getFirstName();
-            String lastName = event.getLastName();
-            String role = event.getRole();
+            try {
+                String token = event.getToken();
+                Long userId = event.getUserId();
+                String email = event.getEmail();
+                String firstName = event.getFirstName();
+                String lastName = event.getLastName();
+                String role = event.getRole();
 
-            if (token == null || token.trim().isEmpty()) {
-                logger.error("Token not found in event");
-                return;
+                if (token == null || token.trim().isEmpty()) {
+                    logger.error("Token not found in event");
+                    return;
+                }
+
+                // Create the userInfo object
+                JwtAuthenticationFilter.JwtUserInfo userInfo =
+                    new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role, false);
+
+                // Add the token
+                jwtAuthenticationFilter.addValidToken(token, userInfo);
+
+                buyerService.createBuyerIfNotExists(
+                    event.getUserId(),
+                    event.getEmail(),
+                    event.getFirstName() + " " + event.getLastName(),
+                    event.getRole()
+                );
+
+            } catch (Exception e) {
+                logger.error("ERROR processing JwtEvent: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to process JwtEvent", e);
             }
-
-            logger.info("Token extracted (first 20 chars): {}...",
-                token.substring(0, Math.min(20, token.length())));
-            logger.info("User data: userId={}, email={}, role={}", userId, email, role);
-
-            // Create the userInfo object
-            JwtAuthenticationFilter.JwtUserInfo userInfo =
-                new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role, false);
-
-            // Add the token
-            jwtAuthenticationFilter.addValidToken(token, userInfo);
-
-            logger.info("TOKEN STORED SUCCESSFULLY!");
-            logger.info("User: {}", email);
-            logger.info("Role: {}", role);
-            logger.info("Total stored tokens: {}",
-                jwtAuthenticationFilter.getClass()
-                    .getDeclaredMethod("getValidTokensSize")
-                    .invoke(jwtAuthenticationFilter));
-            
-            buyerService.createBuyerIfNotExists(
-                event.getUserId(),
-                event.getEmail(),
-                event.getFirstName() + " " + event.getLastName(),
-                event.getRole()
-            );
-
-        } catch (Exception e) {
-            logger.error("ERROR processing JwtEvent: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to process JwtEvent", e);
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
 }

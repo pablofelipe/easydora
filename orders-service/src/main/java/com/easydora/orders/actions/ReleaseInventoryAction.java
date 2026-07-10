@@ -1,5 +1,7 @@
 package com.easydora.orders.actions;
 
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationMessaging;
 import com.easydora.orders.event.ReleaseStockCommand;
 import com.easydora.orders.entity.Order;
 import com.easydora.orders.entity.OrderItem;
@@ -46,14 +48,21 @@ public class ReleaseInventoryAction implements Action<OrderState, OrderEvent> {
             // Create the release command
             ReleaseStockCommand command = createReleaseCommand(order);
 
-            // Send to RabbitMQ
+            // Send to RabbitMQ. CorrelationMessaging reads MDC, which -- as
+            // long as this action runs synchronously on the same thread as
+            // the RabbitMQ consumer or HTTP request that triggered this
+            // state transition (Spring State Machine's default sendEvent
+            // is blocking) -- still carries that triggering operation's
+            // CorrelationId, with no explicit threading through the state
+            // machine's own event/headers needed.
             rabbitTemplate.convertAndSend(
                 "order.exchange",
                 "stock.release",
-                command
+                command,
+                CorrelationMessaging.withCorrelation()
             );
 
-            log.info("Stock released for order: {}", orderId);
+            BusinessEventLog.info(log, "stock.release.published", orderId, "Stock released");
 
         } catch (Exception e) {
             log.error("Error releasing stock: {}", e.getMessage(), e);

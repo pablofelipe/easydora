@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
  * question without any broker: does each consumer perform its own,
  * independent side effect when handed the same logical event? It cannot
  * catch a regression to a single shared queue (that's a wiring fact, not a
- * behavior one) — see Etapa 5 report for that trade-off.
+ * behavior one) — a known, accepted trade-off of this test's shape.
  */
 @ExtendWith(MockitoExtension.class)
 class JwtCreatedFanoutBehaviorTest {
@@ -51,7 +51,7 @@ class JwtCreatedFanoutBehaviorTest {
         event.setLastName("Silva");
         event.setRole("BUYER");
 
-        jwtConsumer.receiveJwtCreated(event);
+        jwtConsumer.receiveJwtCreated(event, "corr-1", "msg-1");
 
         verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), any());
         verify(buyerService).createBuyerIfNotExists(1L, "buyer@example.com", "Ana Silva", "BUYER");
@@ -70,7 +70,7 @@ class JwtCreatedFanoutBehaviorTest {
         event.setLastName("Silva");
         event.setRole("BUYER");
 
-        userEventsConsumer.handleJwtCreated(event);
+        userEventsConsumer.handleJwtCreated(event, "corr-2", "msg-2");
 
         verify(buyerRepository).save(any(Buyer.class));
     }

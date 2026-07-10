@@ -1,5 +1,8 @@
 package com.easydora.orders.consumer;
 
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.config.JwtAuthenticationFilter;
 import com.easydora.orders.entity.Buyer;
@@ -8,7 +11,10 @@ import com.easydora.orders.event.UserEvent;
 import com.easydora.orders.repository.BuyerRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -26,9 +32,16 @@ public class UserEventsConsumer {
     }
     
     @RabbitListener(queues = RabbitMQConfig.USER_REGISTERED_QUEUE)
-    public void handleUserRegistered(UserEvent userEvent) {
-        logger.info("Received USER_REGISTERED event for user: {}", userEvent.getUserId());
-        
+    public void handleUserRegistered(
+            UserEvent userEvent,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+        BusinessEventLog.info(logger, "user.registered.received", userEvent.getUserId(), "Received USER_REGISTERED event");
+
         try {
             // For orders-service, we're mainly interested in BUYERS
             // But we may also have SELLERS making purchases
@@ -72,11 +85,22 @@ public class UserEventsConsumer {
                 userEvent.getUserId(), e);
             throw new RuntimeException("Failed to process USER_REGISTERED event for user " + userEvent.getUserId(), e);
         }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
     }
-    
+
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_PROFILE_QUEUE)
-    public void handleJwtCreated(UserEvent userEvent) {
-        logger.info("Received JWT_CREATED event for user: {}", userEvent.getUserId());
+    public void handleJwtCreated(
+            UserEvent userEvent,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+        BusinessEventLog.info(logger, "jwt.created.received", userEvent.getUserId(), "Received JWT_CREATED event");
         
         try {
             // For orders-service, we're mainly interested in BUYERS
@@ -119,26 +143,41 @@ public class UserEventsConsumer {
                 userEvent.getUserId(), e);
             throw new RuntimeException("Failed to process JWT_CREATED event for user " + userEvent.getUserId(), e);
         }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
     }
-    
+
     @RabbitListener(queues = RabbitMQConfig.USER_VERIFIED_QUEUE)
-    public void handleUserVerified(Long userId) {
-        logger.info("Received USER_VERIFIED_QUEUE event for user: {}", userId);
+    public void handleUserVerified(
+            Long userId,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+        BusinessEventLog.info(logger, "user.verified.received", userId, "Received USER_VERIFIED_QUEUE event");
 
         try {
             Buyer buyer = buyerRepository.findById(userId)
                 .orElseThrow(() -> new Exception("Buyer not found: " + userId));
-                
+
             buyer.setActive(true); // Activate the user after verification
             buyer.setUpdatedAt(java.time.LocalDateTime.now());
-            
+
             buyerRepository.save(buyer);
-            logger.info("Buyer activated: {}", userId);
-            
+            BusinessEventLog.info(logger, "buyer.activated", userId, "Buyer activated");
+
         } catch (Exception e) {
             logger.error("Error processing USER_VERIFIED_QUEUE event for user: {}",
                 userId, e);
             throw new RuntimeException("Failed to process USER_VERIFIED_QUEUE event for user " + userId, e);
+        }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
 

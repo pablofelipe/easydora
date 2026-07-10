@@ -14,6 +14,8 @@ import com.easydora.orders.repository.OrderRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
 import com.easydora.orders.config.RabbitMQConfig;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationMessaging;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -285,8 +287,8 @@ public class OrderService {
                 .collect(Collectors.toList()));
             event.setCreatedAt(order.getCreatedAt());
             
-            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event);
-            logger.info("OrderCreatedEvent published: {}", order.getId());
+            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event, CorrelationMessaging.withCorrelation());
+            BusinessEventLog.info(logger, "order.created.published", order.getId(), "OrderCreatedEvent published");
 
         } catch (Exception e) {
             logger.error("Error publishing OrderCreatedEvent: {}", e.getMessage(), e);
@@ -310,7 +312,8 @@ public class OrderService {
         event.setPreviousState(previousState);
         event.setNewState(newState);
         
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_STATUS_CHANGED_KEY, event);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_STATUS_CHANGED_KEY, event, CorrelationMessaging.withCorrelation());
+        BusinessEventLog.info(logger, "order.status-changed.published", orderId, "OrderStatusChangedEvent published: " + previousState + " -> " + newState);
     }
     
     private void sendReserveStockCommand(Order order) {
@@ -335,13 +338,13 @@ public class OrderService {
                 "order.exchange",
                 "stock.reserve",
                 command,
-                message -> {
+                CorrelationMessaging.composedWith(message -> {
                     message.getMessageProperties().setContentType("application/json");
                     message.getMessageProperties().setPriority(0);
                     return message;
-                }
+                })
             );
-            logger.info("ReserveStockCommand sent for order: {}", order.getId());
+            BusinessEventLog.info(logger, "stock.reserve.published", order.getId(), "ReserveStockCommand sent");
 
         } catch (Exception e) {
             logger.error("Error sending ReserveStockCommand: {}", e.getMessage(), e);

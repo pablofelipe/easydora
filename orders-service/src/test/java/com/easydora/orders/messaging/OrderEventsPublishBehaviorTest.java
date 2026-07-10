@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -55,6 +56,12 @@ class OrderEventsPublishBehaviorTest {
 
         @Override
         public void convertAndSend(String exchange, String routingKey, Object object) {
+            routingKeys.add(routingKey);
+            payloads.add(object);
+        }
+
+        @Override
+        public void convertAndSend(String exchange, String routingKey, Object object, MessagePostProcessor messagePostProcessor) {
             routingKeys.add(routingKey);
             payloads.add(object);
         }

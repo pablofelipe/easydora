@@ -30,7 +30,7 @@ class PaymentEventsConsumerBehaviorTest {
         event.setOrderId("order-123");
         event.setTransactionId("txn-1");
 
-        consumer.onPaymentApproved(event);
+        consumer.onPaymentApproved(event, "corr-1", "msg-1");
 
         verify(orderService).handlePaymentReceived("order-123");
     }
@@ -43,7 +43,7 @@ class PaymentEventsConsumerBehaviorTest {
         event.setOrderId("order-456");
         event.setFailureReason("Payment declined by the processor");
 
-        consumer.onPaymentFailed(event);
+        consumer.onPaymentFailed(event, "corr-2", "msg-2");
 
         verify(orderService).handlePaymentFailed("order-456");
     }

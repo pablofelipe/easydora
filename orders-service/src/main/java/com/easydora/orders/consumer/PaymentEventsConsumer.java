@@ -1,12 +1,18 @@
 package com.easydora.orders.consumer;
 
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.event.PaymentEvent;
 import com.easydora.orders.service.OrderService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -30,15 +36,37 @@ public class PaymentEventsConsumer {
     }
 
     @RabbitListener(queues = RabbitMQConfig.PAYMENT_APPROVED_QUEUE)
-    public void onPaymentApproved(PaymentEvent event) {
-        logger.info("[RABBITMQ] PaymentEvent (approved) received: orderId={}", event.getOrderId());
-        orderService.handlePaymentReceived(event.getOrderId());
+    public void onPaymentApproved(
+            PaymentEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "payment.approved.received", event.getOrderId(), "PaymentEvent (approved) received");
+            orderService.handlePaymentReceived(event.getOrderId());
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
     }
 
     @RabbitListener(queues = RabbitMQConfig.PAYMENT_FAILED_QUEUE)
-    public void onPaymentFailed(PaymentEvent event) {
-        logger.info("[RABBITMQ] PaymentEvent (failed) received: orderId={}, reason={}",
-                event.getOrderId(), event.getFailureReason());
-        orderService.handlePaymentFailed(event.getOrderId());
+    public void onPaymentFailed(
+            PaymentEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "payment.failed.received", event.getOrderId(),
+                    "PaymentEvent (failed) received: reason=" + event.getFailureReason());
+            orderService.handlePaymentFailed(event.getOrderId());
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
     }
 }
