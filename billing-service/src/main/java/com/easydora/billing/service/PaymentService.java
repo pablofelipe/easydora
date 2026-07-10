@@ -1,6 +1,8 @@
 package com.easydora.billing.service;
 
 import com.easydora.billing.config.RabbitMQConfig;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationMessaging;
 import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
@@ -180,8 +182,8 @@ public class PaymentService {
                 ? RabbitMQConfig.PAYMENT_APPROVED_KEY
                 : RabbitMQConfig.PAYMENT_FAILED_KEY;
 
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event);
-        logger.info("PaymentEvent published: order={}, routingKey={}", payment.getOrderId(), routingKey);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event, CorrelationMessaging.withCorrelation());
+        BusinessEventLog.info(logger, routingKey + ".published", payment.getOrderId(), "PaymentEvent published");
     }
     
     @Transactional

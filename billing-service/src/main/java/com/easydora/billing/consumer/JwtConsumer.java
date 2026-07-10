@@ -3,10 +3,16 @@ package com.easydora.billing.consumer;
 import com.easydora.billing.config.JwtAuthenticationFilter;
 import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.billing.event.JwtEvent;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,16 +33,27 @@ public class JwtConsumer {
     }
 
     @RabbitListener(queues = RabbitMQConfig.JWT_CREATED_QUEUE)
-    public void receiveJwtCreated(JwtEvent event) {
-        String token = event.getToken();
-        if (token == null || token.isBlank()) {
-            logger.warn("Received jwt.created event with no token, ignoring: {}", event);
-            return;
-        }
+    public void receiveJwtCreated(
+            JwtEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            String token = event.getToken();
+            if (token == null || token.isBlank()) {
+                logger.warn("Received jwt.created event with no token, ignoring: {}", event);
+                return;
+            }
 
-        JwtAuthenticationFilter.JwtUserInfo userInfo = new JwtAuthenticationFilter.JwtUserInfo(
-                event.getUserId(), event.getEmail(), event.getFirstName(), event.getLastName(), event.getRole());
-        jwtAuthenticationFilter.addValidToken(token, userInfo);
-        logger.info("Cached broadcast token for user: {}", event.getEmail());
+            JwtAuthenticationFilter.JwtUserInfo userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                    event.getUserId(), event.getEmail(), event.getFirstName(), event.getLastName(), event.getRole());
+            jwtAuthenticationFilter.addValidToken(token, userInfo);
+            BusinessEventLog.info(logger, "jwt.created.received", event.getUserId(), "Cached broadcast token for " + event.getEmail());
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
     }
 }

@@ -36,7 +36,7 @@ class JwtConsumerBehaviorTest {
         event.setLastName("Silva");
         event.setRole("BUYER");
 
-        jwtConsumer.receiveJwtCreated(event);
+        jwtConsumer.receiveJwtCreated(event, "corr-1", "msg-1");
 
         verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), any());
     }
@@ -49,7 +49,7 @@ class JwtConsumerBehaviorTest {
         event.setUserId(1L);
         event.setEmail("buyer@example.com");
 
-        jwtConsumer.receiveJwtCreated(event);
+        jwtConsumer.receiveJwtCreated(event, "corr-2", "msg-2");
 
         verify(jwtAuthenticationFilter, org.mockito.Mockito.never()).addValidToken(any(), any());
     }

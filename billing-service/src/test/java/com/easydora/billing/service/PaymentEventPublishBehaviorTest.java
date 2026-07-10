@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.MessagePostProcessor;
 
 import java.math.BigDecimal;
 
@@ -50,7 +51,7 @@ class PaymentEventPublishBehaviorTest {
         paymentService.publishPaymentEvent(payment);
 
         ArgumentCaptor<PaymentEvent> captor = ArgumentCaptor.forClass(PaymentEvent.class);
-        verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq(RabbitMQConfig.PAYMENT_APPROVED_KEY), captor.capture());
+        verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq(RabbitMQConfig.PAYMENT_APPROVED_KEY), captor.capture(), any(MessagePostProcessor.class));
         assertThat(captor.getValue().getOrderId()).isEqualTo("order-123");
         assertThat(captor.getValue().getTransactionId()).isEqualTo("txn-1");
         assertThat(captor.getValue().getFailureReason()).isNull();
@@ -68,7 +69,7 @@ class PaymentEventPublishBehaviorTest {
         paymentService.publishPaymentEvent(payment);
 
         ArgumentCaptor<PaymentEvent> captor = ArgumentCaptor.forClass(PaymentEvent.class);
-        verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq(RabbitMQConfig.PAYMENT_FAILED_KEY), captor.capture());
+        verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.ORDER_EXCHANGE), eq(RabbitMQConfig.PAYMENT_FAILED_KEY), captor.capture(), any(MessagePostProcessor.class));
         assertThat(captor.getValue().getOrderId()).isEqualTo("order-456");
         assertThat(captor.getValue().getFailureReason()).isEqualTo("Payment declined by the processor");
     }

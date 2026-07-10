@@ -2,38 +2,55 @@ package com.easydora.billing.listener;
 
 import com.easydora.billing.service.PaymentService;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
+import com.easydora.correlation.BusinessEventLog;
+import com.easydora.correlation.CorrelationConstants;
+import com.easydora.correlation.CorrelationContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 @Component
 public class OrderEventListener {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(OrderEventListener.class);
-    
+
     private final PaymentService paymentService;
-    
+
     public OrderEventListener(PaymentService paymentService) {
         this.paymentService = paymentService;
     }
-    
+
     @RabbitListener(queues = "${rabbitmq.queue.order-created}")
-    public void handleOrderCreated(OrderCreatedEvent event) {
-        logger.info("[RabbitMQ] Received OrderCreatedEvent - Order: {}", event.getOrderId());
-
+    public void handleOrderCreated(
+            OrderCreatedEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
         try {
-            // Check whether a payment already exists
-            boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
+            BusinessEventLog.info(logger, "order.created.received", event.getOrderId(), "Received OrderCreatedEvent");
 
-            if (!paymentExists) {
-                // Create the pending payment
-                paymentService.createPendingPayment(event);
-                logger.info("[RabbitMQ] Pending payment created for order: {}", event.getOrderId());
+            try {
+                // Check whether a payment already exists
+                boolean paymentExists = paymentService.checkIfPaymentExists(event.getOrderId().toString());
+
+                if (!paymentExists) {
+                    // Create the pending payment
+                    paymentService.createPendingPayment(event);
+                    BusinessEventLog.info(logger, "payment.pending.created", event.getOrderId(), "Pending payment created");
+                }
+            } catch (Exception e) {
+                logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to process OrderCreatedEvent for order " + event.getOrderId(), e);
             }
-        } catch (Exception e) {
-            logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to process OrderCreatedEvent for order " + event.getOrderId(), e);
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.easydora.billing.config;
 
+import com.easydora.correlation.CorrelationIdFilter;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -29,7 +31,11 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            // JwtAuthenticationFilter must be registered first so Spring
+            // Security knows its position before CorrelationIdFilter is
+            // anchored relative to it below.
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new CorrelationIdFilter(), JwtAuthenticationFilter.class);
 
         return http.build();
     }
