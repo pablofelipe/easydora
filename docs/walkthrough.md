@@ -125,7 +125,6 @@ return `403` (no cached token yet).
 curl -s -X POST http://localhost:8080/products/createProduct \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SELLER_TOKEN" \
-  -H "X-User-Id: 8" \
   -d '{"name":"Mechanical Keyboard","description":"Hot-swappable, brown switches","price":249.90,"initialStock":10}'
 ```
 
@@ -177,7 +176,6 @@ orders-service" step exists.
 curl -s -X POST http://localhost:8080/orders/createOrder \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $BUYER_TOKEN" \
-  -H "X-User-Id: 9" \
   -d "{\"items\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":2,\"unitPrice\":249.90}]}"
 ```
 
@@ -202,7 +200,7 @@ and the product's `reserved` count goes up by the ordered quantity.
 **How to confirm it** (public APIs, wait a couple of seconds first):
 
 ```bash
-curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 Expected: `"state":"INVENTORY_RESERVED"` (real example confirmed).
@@ -261,10 +259,10 @@ inter-service HTTP call in the system) to enrich the event.
 `order.status-changed` carries no `userId` of its own, so it
 reuses the email/name already captured by that same order's
 `order.created` notification instead of a second enrichment call.
-**How to confirm it** (public API):
+**How to confirm it** (requires the buyer's own token -- see ADR-0028):
 
 ```bash
-curl -s http://localhost:8086/notifications/$ORDER_ID
+curl -s http://localhost:8086/notifications/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 Response (real example):
@@ -319,14 +317,14 @@ payment-specific changes at all.
 **How to confirm it** (public APIs):
 
 ```bash
-curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 Expected: `"state":"PAYMENT_APPROVED"` (or `PAYMENT_FAILED`) (real example
 confirmed).
 
 ```bash
-curl -s http://localhost:8086/notifications/$ORDER_ID
+curl -s http://localhost:8086/notifications/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 Response (real example, `APPROVED` case):
@@ -351,9 +349,9 @@ At this point you have, driven entirely by public HTTP APIs:
 - 3 persisted notifications (`order.created`, and two `order.status-changed`), all `SENT`
 
 ```bash
-curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN" -H "X-User-Id: 9"
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 curl -s http://localhost:8080/billing/api/payments/order/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
-curl -s http://localhost:8086/notifications/$ORDER_ID
+curl -s http://localhost:8086/notifications/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
 All three calls succeeding with the states above is the end-to-end success

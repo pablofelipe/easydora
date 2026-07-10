@@ -88,10 +88,14 @@ ticket's scope needs:
   default, `VITE_GATEWAY_URL` to override) — no module anywhere references
   a service's own port.
 - **Single HTTP layer** (`src/lib/api/client.ts`): every call goes through
-  one `apiFetch` wrapper that attaches `Authorization`/`X-User-Id` when a
-  session exists (mirroring the backend's own header-based auth, not a
-  token-verification scheme of its own) and records the response's
-  `X-Correlation-Id`/`X-Request-Id` into a store. Per-service modules
+  one `apiFetch` wrapper that attaches `Authorization` when a session
+  exists and records the response's `X-Correlation-Id`/`X-Request-Id`
+  into a store. It originally also sent an `X-User-Id` header, mirroring
+  the backend's header-based identity of the time -- that was a real
+  security gap (the header was trusted with no cross-check against the
+  JWT), closed by
+  [ADR-0027](0027-jwt-principal-as-sole-identity-source.md), and the
+  header is no longer sent. Per-service modules
   (`auth.ts`, `products.ts`, `orders.ts`, `notifications.ts`, `billing.ts`)
   are thin — no business logic, just typed request/response shapes.
 - **SSR disabled** (`export const ssr = false` in the root `+layout.ts`):

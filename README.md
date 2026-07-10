@@ -198,11 +198,11 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 |---|---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented | 9 test functions — circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)), correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)), and transparent routing across all 6 services ([ADR-0025](docs/adr/0025-gateway-transparent-routing.md)) |
 | Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 19 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
-| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 13 unit tests |
+| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 23 tests — unit + `*IT` (real Postgres/RabbitMQ), including 5 covering self-purchase prevention |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 14 tests — unit + `*IT` (real Postgres/RabbitMQ) |
-| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 28 tests — 20 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 27 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 26 tests — unit + `*IT` (real Postgres/RabbitMQ) |
+| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
@@ -259,6 +259,8 @@ The stack split is deliberate:
 | [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagated through HTTP headers and native AMQP message properties (not a new wire format), logged in a consistent structured format across all seven services. Two small shared modules (`correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services) — a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. |
 | [0025](docs/adr/0025-gateway-transparent-routing.md) | Gateway transparent routing — every service is self-namespaced | Accepted | Closes the `inventory-service` 404-through-the-gateway bug ADR-0024 found. The Gateway no longer strips any service prefix — it forwards the incoming path unchanged — and `auth-service`/`products-service`/`orders-service`/`billing-service` each gained a `server.servlet.context-path` matching their own Gateway segment (`inventory-service` was already self-namespaced). Every direct caller of those four services (Dockerfile `HEALTHCHECK`s, CI readiness checks, `e2e-tests`, the Postman collection) was updated in lockstep; the Postman collection now has parallel `Via Gateway (primary)` and `Direct (debug)` folder trees. |
 | [0026](docs/adr/0026-frontend-thin-client.md) | SvelteKit frontend as a thin client over the API Gateway | Accepted | New `frontend/` (SvelteKit + TypeScript, SSR disabled, `adapter-node`) consumes only the Gateway. Building it surfaced and fixed four real defects no prior `curl`-based client could catch: CORS wired but shadowed by Spring Security in two services and entirely missing in four; `products-service`'s JWT filter terminating requests before `permitAll()` paths could ever be reached; its catalog endpoints unreachable by any buyer token by design; and the Gateway echoing `X-Correlation-Id`/`X-Request-Id` twice under one header. `notification-service` gains a Gateway route, closing the one gap ADR-0025 left open. |
+| [0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md) | JWT principal as the sole identity source for orders/products | Accepted | Closes a Critical Roadmap item: `orders-service`/`products-service` derived business identity from a client-supplied `X-User-Id` header instead of the authenticated JWT principal, letting any valid token impersonate any other user by changing one header — confirmed live with a real two-buyer impersonation before the fix. Both controllers now derive identity exclusively from `@AuthenticationPrincipal`; `X-User-Id` no longer exists anywhere in either service's request path. Its 2026-07-10 Update extends the same pattern to `billing-service`'s `PaymentController` (all four endpoints, closing a separate High Roadmap item). |
+| [0028](docs/adr/0028-notification-service-authentication.md) | notification-service authentication and ownership check | Accepted | Closes a High Roadmap item (a real IDOR): `GET /notifications/{orderId}` had no authentication at all. notification-service gains its own JWT broadcast cache (consuming `jwt.created` for the first time, same pattern as every Spring service's `JwtConsumer`) and now requires the caller to be the order's own buyer, read from that order's real `order.created` payload — 403 otherwise. Confirmed live with a real two-buyer test. |
 
 ## Roadmap
 
@@ -437,59 +439,79 @@ The stack split is deliberate:
       as part of [ADR-0026](docs/adr/0026-frontend-thin-client.md); closed
       the same day as a natural domain evolution, not a new architectural
       decision — no new ADR.
-- [ ] **Opened 2026-07-10 (Critical).** `orders-service` and
-      `products-service` trust the `X-User-Id` header directly, with no
-      cross-check against the authenticated JWT's own claims
-      (`OrderController.createOrder`/`getOrder`,
-      `ProductController.createProduct`). Any request carrying a valid
-      token can claim to be any other `userId` simply by setting a
-      different header value — the backend never verifies the two match.
-      This single gap invalidates several things that look correct on
-      the surface: IDOR protection on order lookups, product ownership on
-      writes, and the self-purchase check added this same day (it
-      compares `X-User-Id` against `seller_id`, but `X-User-Id` itself
-      isn't trustworthy). Found via a targeted review, not by normal
-      development flow; fixing it means deriving `userId`/`role` from the
-      authenticated principal the JWT filter already populates, never
-      from a client-supplied header.
-- [ ] **Opened 2026-07-10 (High).** `docker-compose.yml` sets
-      `SPRING_JPA_HIBERNATE_DDL_AUTO=update` for all four Spring services
-      (auth, products, orders, billing) — a Spring Boot environment
-      variable overrides the same property in `application.properties`,
-      so the actual running containers use `update`, not the
-      `validate` that `application.properties`, the README, and
-      [ADR-0004](docs/adr/0004-auth-service-schema-authority-fix.md)/
-      [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md)
-      all claim. This is exactly the kind of README-vs-code divergence
-      this project says it treats seriously — Flyway is not actually the
-      sole schema authority at runtime today, only in the properties file
-      nobody overrides locally. Fix: remove the compose override and
-      resolve whatever baseline/drift issue originally motivated adding
-      it, rather than deleting the override and assuming Flyway alone
-      already handles it.
-- [ ] **Opened 2026-07-10 (High).** `notification-service`'s
-      `GET /notifications/{orderId}` has no authentication or
-      authorization check at all — anyone who knows or guesses an
-      `orderId` (a UUID) can read that order's notification history,
-      including the buyer's name and email captured from
-      `order.created`.
-- [ ] **Opened 2026-07-10 (High).** `billing-service`'s `PaymentController`
-      has no ownership checks on any endpoint: `GET /api/payments`
-      returns every payment in the system with no filtering at all;
-      `GET /api/payments/{id}` and `GET /api/payments/order/{orderId}`
-      never confirm the caller is the order's buyer; `DELETE
-      /api/payments/{id}` permanently deletes any payment record with no
-      check whatsoever. Compounds directly with the `X-User-Id` trust gap
-      above once that's fixed for read paths, but the missing ownership
-      check on write/delete is a separate, additional gap.
-- [ ] **Opened 2026-07-10 (High).** `products-service`'s `SecurityConfig`
-      has `/debug/**` fully `permitAll()`, with no environment gating
-      (dev-only vs. always-on). `GET /debug/tokens` is reachable by
-      anyone and triggers `JwtAuthenticationFilter.listTokens()`, which
-      writes every cached user's email (paired with a truncated token
-      prefix) to the service's own logs on demand — a public,
-      unauthenticated way to enumerate who currently has an active
-      session.
+- [x] **Opened 2026-07-10 (Critical).** `orders-service` and
+      `products-service` trusted the `X-User-Id` header directly, with no
+      cross-check against the authenticated JWT's own claims. Any request
+      carrying a valid token could claim to be any other `userId` simply
+      by setting a different header value. Fixed by deriving identity
+      exclusively from `@AuthenticationPrincipal` (the principal
+      `JwtAuthenticationFilter` already populates) in both controllers,
+      removing `X-User-Id` from the request path entirely — see
+      [ADR-0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md),
+      which includes a live before/after reproduction of the
+      impersonation this closes.
+- [x] **Opened 2026-07-10.** `docker-compose.yml` set
+      `SPRING_JPA_HIBERNATE_DDL_AUTO=update` for all four Spring services,
+      overriding `application.properties`' `validate` at runtime — the
+      containers never actually ran under Flyway-only schema management,
+      contradicting [ADR-0004](docs/adr/0004-auth-service-schema-authority-fix.md)/
+      [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md).
+      Root cause traced via git history: the override was added in commit
+      `5fbdad5` (2025-10-19), months before Flyway existed in this project
+      at all (ADR-0004 landed 2026-07-04) — orphaned pre-Flyway scaffolding
+      nobody audited when the properties files were switched to `validate`.
+      Not a compensating fix for any real migration/entity gap. Fixed by
+      removing the override; empirically validated by wiping the dev
+      Postgres volume and running `docker compose up --build` for all four
+      services — each ran its Flyway migrations from an empty schema and
+      started cleanly under `validate`, with no Hibernate schema error. No
+      new ADR: this corrects the running containers to match a decision
+      ADR-0004/ADR-0011 already made, not a new one.
+- [x] **Opened 2026-07-10.** `notification-service`'s
+      `GET /notifications/{orderId}` had no authentication or
+      authorization check at all — anyone who knew or guessed an
+      `orderId` (a UUID) could read that order's notification history,
+      including the buyer's name and email. Fixed by giving
+      notification-service its own JWT broadcast cache (consuming
+      `jwt.created` for the first time) and requiring the caller to be
+      the order's own buyer (compared against the real `order.created`
+      notification's `userId`, never a client header) — 403 otherwise.
+      See [ADR-0028](docs/adr/0028-notification-service-authentication.md).
+- [x] **Opened 2026-07-10.** `billing-service`'s `PaymentController`
+      had no ownership checks on any endpoint: `GET /api/payments`
+      returned every payment in the system; `GET /api/payments/{id}`
+      and `GET /api/payments/order/{orderId}` never confirmed the caller
+      was the payment's own buyer; `DELETE /api/payments/{id}` deleted
+      any payment with no check. Fixed by scoping `GET /api/payments` to
+      the authenticated principal's own payments and adding an
+      ownership check (403 for a non-owner) to the other three —
+      extends [ADR-0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md)'s
+      JWT-principal-as-sole-identity-source pattern to billing-service
+      (see that ADR's Update section).
+- [x] **Opened 2026-07-10.** `products-service`'s `SecurityConfig`
+      had `/debug/**` fully `permitAll()`, and `GET /debug/tokens`
+      triggered `JwtAuthenticationFilter.listTokens()`, logging every
+      cached user's email — an anonymous way to enumerate active
+      sessions. Fixed by removing `DebugController` and the `/debug/**`
+      permitAll rule entirely (chosen over profile-gating or admin auth
+      for the smallest attack surface and simplest fix consistent with
+      this project's minimalism); an anonymous request now gets 403
+      before Spring MVC would even resolve a handler. No new ADR: a
+      removal, not a new architectural decision. A structurally
+      identical `/debug/tokens` (plus `/debug/buyers`, which dumps every
+      buyer row, and a no-op `/debug/clear-tokens`) exists in
+      `orders-service`'s `OrderDebugController` under the same
+      `permitAll()` pattern — found while fixing this item, out of its
+      scope, not fixed here; tracked below as a new item.
+- [ ] **Opened 2026-07-10 (High).** `orders-service`'s
+      `OrderDebugController` has the same unauthenticated `/debug/**`
+      surface products-service just had fixed above: `GET /debug/tokens`
+      (logs cached user emails, same as products-service's since-removed
+      version), `GET /debug/buyers` (returns every buyer row — real PII,
+      not just a count), and a no-op `POST /debug/clear-tokens` that
+      claims to work but does nothing. Found while fixing the
+      products-service item above; out of that item's scope, so not
+      fixed here.
 - [ ] **Opened 2026-07-10 (Medium).**
       `OrderStateMachineConfig` wires real transitions for `SHIPPED`/
       `DELIVERED` (`SHIP_ORDER`/`DELIVER_ORDER`), but no code anywhere in

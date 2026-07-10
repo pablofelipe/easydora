@@ -319,10 +319,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{seller_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{seller_id}}"
 									}
 								],
 								"body": {
@@ -573,10 +569,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"body": {
@@ -631,10 +623,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"url": {
@@ -837,10 +825,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"url": {
@@ -1332,10 +1316,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{seller_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{seller_id}}"
 									}
 								],
 								"body": {
@@ -1582,10 +1562,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"body": {
@@ -1639,10 +1615,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"url": {
@@ -1876,10 +1848,6 @@
 									{
 										"key": "Authorization",
 										"value": "Bearer {{buyer_token}}"
-									},
-									{
-										"key": "X-User-Id",
-										"value": "{{buyer_id}}"
 									}
 								],
 								"url": {

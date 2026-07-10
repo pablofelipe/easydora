@@ -16,7 +16,7 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **inventory-service** | Stock: quantity and reservation per product | `stock.reserved`, `stock.insufficient` | `product.created`/`updated`/`deleted`, `stock.reserve`, `stock.release` |
 | **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed`, `product.created` |
 | **billing-service** | Payment: simulated processing per order | `payment.approved`, `payment.failed` | `jwt.created`, `order.created` |
-| **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed` |
+| **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed`, `jwt.created` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
 | **frontend** | Thin client: browses and drives the business flow through the Gateway, no business logic of its own | — | — |
 
@@ -96,7 +96,7 @@ is documented separately in
 |---|---|---|---|
 | `auth.exchange` | `user.registered` | auth-service | products-service (SELLER only), orders-service |
 | `auth.exchange` | `user.verified` | auth-service | products-service (SELLER only), orders-service |
-| `auth.exchange` | `jwt.created` | auth-service | products-service (SELLER only), orders-service, billing-service |
+| `auth.exchange` | `jwt.created` | auth-service | products-service (SELLER only), orders-service, billing-service, notification-service |
 | `product.exchange` | `product.created` / `product.updated` / `product.deleted` | products-service | inventory-service |
 | `product.exchange` | `product.created` | products-service | orders-service (ownership projection only — see [ADR-0026](../adr/0026-frontend-thin-client.md)'s Roadmap follow-up) |
 | `order.exchange` | `stock.reserve` | orders-service | inventory-service |
