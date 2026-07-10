@@ -61,7 +61,7 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
                 "firstName", "Riley",
                 "lastName", "Buyer",
                 "role", "BUYER");
-        HttpResponse<String> signupResponse = postJson(AUTH_URL, "/signup", signupBody, Map.of());
+        HttpResponse<String> signupResponse = postJson(AUTH_URL, "/auth/signup", signupBody, Map.of());
         assertEquals(201, signupResponse.statusCode(), "signup should succeed: " + signupResponse.body());
         Map<String, Object> signup = parse(signupResponse.body());
         String buyerId = String.valueOf(((Number) signup.get("id")).longValue());
@@ -69,11 +69,11 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
         assertNotNull(verificationToken, "signup response should include a verification token");
 
         HttpResponse<String> verifyResponse = getJson(AUTH_URL,
-                "/verify-email?token=" + verificationToken, Map.of());
+                "/auth/verify-email?token=" + verificationToken, Map.of());
         assertEquals(200, verifyResponse.statusCode(), "email verification should succeed: " + verifyResponse.body());
 
         Map<String, Object> loginBody = Map.of("email", email, "password", password);
-        HttpResponse<String> loginResponse = postJson(AUTH_URL, "/login", loginBody, Map.of());
+        HttpResponse<String> loginResponse = postJson(AUTH_URL, "/auth/login", loginBody, Map.of());
         assertEquals(200, loginResponse.statusCode(), "login should succeed: " + loginResponse.body());
         String token = (String) parse(loginResponse.body()).get("token");
         assertNotNull(token, "login response should include a JWT");
@@ -112,7 +112,7 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
         // as orders-service (ADR-0015), so the token already obtained from
         // login above is reused here instead of Basic Auth credentials. ---
         HttpResponse<String> paymentResponse = awaitHttp(Duration.ofSeconds(10),
-                () -> getJson(BILLING_URL, "/api/payments/order/" + reservedOrderId, bearer(token)),
+                () -> getJson(BILLING_URL, "/billing/api/payments/order/" + reservedOrderId, bearer(token)),
                 r -> r.statusCode() == 200);
         assertEquals(200, paymentResponse.statusCode(),
                 "billing-service should have created a Payment for order " + reservedOrderId
@@ -139,14 +139,14 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
                 "quantity", quantity,
                 "unitPrice", new BigDecimal("9.99"));
         Map<String, Object> orderBody = Map.of("items", List.of(item));
-        HttpResponse<String> response = postJson(ORDERS_URL, "/createOrder", orderBody, buyerHeaders);
+        HttpResponse<String> response = postJson(ORDERS_URL, "/orders/createOrder", orderBody, buyerHeaders);
         assertEquals(200, response.statusCode(), "order creation should succeed: " + response.body());
         return String.valueOf(parse(response.body()).get("id"));
     }
 
     private String awaitOrderState(Map<String, String> buyerHeaders, String orderId) throws Exception {
         HttpResponse<String> response = awaitHttp(Duration.ofSeconds(10),
-                () -> getJson(ORDERS_URL, "/" + orderId, buyerHeaders),
+                () -> getJson(ORDERS_URL, "/orders/" + orderId, buyerHeaders),
                 r -> r.statusCode() == 200 && !"PROCESSING".equals(parseQuietly(r.body()).get("state")));
         assertEquals(200, response.statusCode(), "order lookup should succeed: " + response.body());
         return (String) parse(response.body()).get("state");

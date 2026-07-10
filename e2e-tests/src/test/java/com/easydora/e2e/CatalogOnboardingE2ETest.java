@@ -54,7 +54,7 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
                 "firstName", "Casey",
                 "lastName", "Seller",
                 "role", "SELLER");
-        HttpResponse<String> signupResponse = postJson(AUTH_URL, "/signup", signupBody, Map.of());
+        HttpResponse<String> signupResponse = postJson(AUTH_URL, "/auth/signup", signupBody, Map.of());
         assertEquals(201, signupResponse.statusCode(), "signup should succeed: " + signupResponse.body());
         Map<String, Object> signup = parse(signupResponse.body());
         String sellerId = String.valueOf(((Number) signup.get("id")).longValue());
@@ -87,12 +87,12 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
 
         // --- verify email so login (below) is allowed to succeed ---
         HttpResponse<String> verifyResponse = getJson(AUTH_URL,
-                "/verify-email?token=" + verificationToken, Map.of());
+                "/auth/verify-email?token=" + verificationToken, Map.of());
         assertEquals(200, verifyResponse.statusCode(), "email verification should succeed: " + verifyResponse.body());
 
         // --- JWT Created -> Products: login publishes a real JwtCreatedEvent ---
         Map<String, Object> loginBody = Map.of("email", email, "password", password);
-        HttpResponse<String> loginResponse = postJson(AUTH_URL, "/login", loginBody, Map.of());
+        HttpResponse<String> loginResponse = postJson(AUTH_URL, "/auth/login", loginBody, Map.of());
         assertEquals(200, loginResponse.statusCode(), "login should succeed: " + loginResponse.body());
         String token = (String) parse(loginResponse.body()).get("token");
         assertNotNull(token, "login response should include a JWT");
@@ -107,7 +107,7 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
         // observe a real, brief in-between state -- authenticated, but not
         // yet active. Poll on the actual field, not just the status code.
         HttpResponse<String> sellerResponse = awaitHttp(Duration.ofSeconds(10),
-                () -> getJson(PRODUCTS_URL, "/sellers/" + sellerId, bearer(token)),
+                () -> getJson(PRODUCTS_URL, "/products/sellers/" + sellerId, bearer(token)),
                 r -> r.statusCode() == 200 && Boolean.TRUE.equals(parseQuietly(r.body()).get("active")));
         assertEquals(200, sellerResponse.statusCode(),
                 "products-service should authenticate the real JWT broadcast for seller " + sellerId
@@ -124,7 +124,7 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
                 "initialStock", 42);
         Map<String, String> productHeaders = new HashMap<>(bearer(token));
         productHeaders.put("X-User-Id", sellerId);
-        HttpResponse<String> productResponse = postJson(PRODUCTS_URL, "/createProduct", productBody, productHeaders);
+        HttpResponse<String> productResponse = postJson(PRODUCTS_URL, "/products/createProduct", productBody, productHeaders);
         assertEquals(200, productResponse.statusCode(), "product creation should succeed: " + productResponse.body());
         String productId = String.valueOf(parse(productResponse.body()).get("id"));
 
