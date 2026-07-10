@@ -265,11 +265,6 @@ The stack split is deliberate:
 <details>
 <summary>Click to expand — closed items marked <code>[x]</code>, open items <code>[ ]</code></summary>
 
-- [x] **Opened 2025-09-24.** SvelteKit frontend: a thin, read-mostly
-      client (login, catalog, checkout, order tracking, notifications, a
-      request-tracing panel) over the API Gateway only — on the Roadmap
-      since the project's first commit, implemented 2026-07-10, see
-      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
 - [x] **Opened 2026-07-04.** CI pipeline, Phase 1
       (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for
       all seven services, no service containers.
@@ -359,28 +354,6 @@ The stack split is deliberate:
       Decision kept as-is, with concrete criteria for reopening it if the
       schema outgrows this approach — see
       [ADR-0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md).
-- [x] **Opened 2026-07-07.** auth-service's `SecurityConfig` was missing
-      `.httpBasic(...)` (the same defect class ADR-0013 found and fixed
-      in billing-service) — fixed, see
-      [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
-- [x] **Opened 2026-07-08.** `inventory-service/internal/handlers/http_handlers.go`
-      (the dead `InventoryHandler` struct built on gin, never referenced
-      by `main.go`'s real `net/http.HandleFunc` routes) has been deleted,
-      and the now-unused `gin-gonic/gin` dependency removed from
-      `go.mod`/`go.sum` via `go mod tidy`. `net/http` already covered
-      every route this service serves, so there was no missing behavior
-      to migrate — removal, not a migration.
-- [x] **Opened 2026-07-08.** `products-service`'s
-      `UserEventConsumer.handleUserVerified` no longer assumes a `Seller`
-      row exists for every verified user. `auth-service` publishes
-      `user.verified` as a bare userId with no role field (unlike
-      `user.registered`/`jwt.created`, which carry a role
-      `handleUserRegistered`/`handleJwtCreated` filter on via
-      `isSeller()`), so a `BUYER`'s verification reaches this queue too —
-      previously dead-lettered as `Seller not found` (found while
-      validating [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md)).
-      Now treats "no matching Seller" as an expected, silent no-op instead
-      of an exception.
 - [x] **Opened 2026-07-08.** `order.status-changed` (`orders-service`,
       published on `order.exchange`, see
       [ADR-0001](docs/adr/0001-messaging-wiring-audit.md)) is now
