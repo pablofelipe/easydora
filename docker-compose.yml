@@ -49,12 +49,14 @@ services:
       - INVENTORY_SERVICE_URL=http://inventory-service:8083
       - ORDERS_SERVICE_URL=http://orders-service:8084
       - BILLING_SERVICE_URL=http://billing-service:8085
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8086
     depends_on:
       - auth-service
       - products-service
       - orders-service
       - inventory-service
       - billing-service
+      - notification-service
     networks:
       - easydora-network
 
@@ -220,16 +222,22 @@ services:
       - easydora-network
       
   # Frontend
-  #frontend:
-  #  build: ./frontend
-  #  ports:
-  #    - "3000:3000"
-  #  environment:
-  #    - API_BASE_URL=http://localhost:8080
-  #  depends_on:
-  #    - api-gateway
-  #  networks:
-  #    - easydora-network
+  # VITE_GATEWAY_URL is a build-time value baked into the client bundle by
+  # Vite (see frontend/src/lib/api/client.ts) -- it must be an address the
+  # user's browser can reach, not a Docker-network hostname, so it points
+  # at the Gateway's host-published port, same as if the frontend were run
+  # locally with `npm run dev`.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_GATEWAY_URL=http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - easydora-network
 
 volumes:
   postgres_data:
