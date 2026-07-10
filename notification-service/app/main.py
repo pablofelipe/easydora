@@ -1,9 +1,10 @@
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import AuthenticatedUserDependency, JwtCache
 from app.auth_client import AuthServiceClient
 from app.config import load_settings
 from app.correlation import CORRELATION_ID_HEADER, REQUEST_ID_HEADER, correlation_scope, new_id
@@ -17,6 +18,8 @@ configure_logging()
 
 settings = load_settings()
 repository = NotificationRepository(settings.db_dsn)
+jwt_cache = JwtCache()
+get_authenticated_user = AuthenticatedUserDependency(jwt_cache)
 
 
 @asynccontextmanager
@@ -28,7 +31,7 @@ async def lifespan(_app: FastAPI):
 
     thread = threading.Thread(
         target=run_consumer,
-        args=(settings.rabbitmq_url, auth_client, repository, sender),
+        args=(settings.rabbitmq_url, auth_client, repository, sender, jwt_cache),
         daemon=True,
     )
     thread.start()
@@ -82,7 +85,7 @@ def health():
 
 @app.get("/notifications/{order_id}")
 @app.get("/notification/notifications/{order_id}")
-def get_notifications(order_id: str):
+def get_notifications(order_id: str, current_user: dict = Depends(get_authenticated_user)):
     """Read-only lookup of every notification persisted for one order, in
     the order they were produced. Public-API replacement for querying
     notification_schema.notifications directly during flow validation --
@@ -93,8 +96,19 @@ def get_notifications(order_id: str):
     docs/walkthrough.md) and the self-namespaced /notification path (the
     one reachable through the Gateway, which forwards paths unchanged --
     see ADR-0025).
+
+    Restricted to the order's own buyer: the order.created notification's
+    payload already carries the real buyerId (captured from the event
+    itself, not a client-supplied header), so no second lookup is needed
+    to enforce ownership.
     """
     notifications = repository.find_by_aggregate_id(order_id)
     if not notifications:
         raise HTTPException(status_code=404, detail=f"no notifications found for order {order_id}")
+
+    order_created = next((n for n in notifications if n["eventType"] == "order.created"), None)
+    buyer_id = order_created["payload"].get("userId") if order_created else None
+    if buyer_id is None or int(buyer_id) != int(current_user["userId"]):
+        raise HTTPException(status_code=403, detail="not authorized to view this order's notifications")
+
     return notifications

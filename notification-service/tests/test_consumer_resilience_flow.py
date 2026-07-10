@@ -7,6 +7,7 @@ import pika
 import psycopg2
 import pytest
 
+from app.auth import JwtCache
 from app.auth_client import AuthServiceClient
 from app.config import load_settings
 from app.rabbitmq import (
@@ -96,7 +97,7 @@ def _start_consumer(auth_client, repository, sender) -> threading.Event:
         _connection, channel = connect(settings.rabbitmq_url)
         declare_topology(channel)
         ready.set()
-        consume_forever(channel, auth_client, repository, sender)
+        consume_forever(channel, auth_client, repository, sender, JwtCache())
 
     threading.Thread(target=_run, daemon=True).start()
     return ready

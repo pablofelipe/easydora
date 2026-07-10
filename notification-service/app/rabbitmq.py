@@ -24,6 +24,13 @@ ORDER_CREATED_QUEUE = "notification.order.created.queue"
 ORDER_STATUS_CHANGED_ROUTING_KEY = "order.status-changed"
 ORDER_STATUS_CHANGED_QUEUE = "notification.order.status-changed.queue"
 
+# jwt.created broadcast, consumed the same way every Spring service's own
+# JwtConsumer does: cache the raw token against the user info it carries,
+# for GET /notifications/{orderId}'s own authentication (see app/auth.py).
+AUTH_EXCHANGE = "auth.exchange"
+JWT_CREATED_ROUTING_KEY = "jwt.created"
+JWT_CREATED_QUEUE = "notification.jwt.created.queue"
+
 # Consumption resilience (conceptually equivalent to the Spring services'
 # retry/backoff/DLQ policy, ADR-0019 -- same numbers, different mechanism
 # since Pika has no built-in retry template). A failed message is
@@ -64,6 +71,10 @@ def declare_topology(channel) -> None:
     channel.queue_bind(
         queue=ORDER_STATUS_CHANGED_QUEUE, exchange=ORDER_EXCHANGE, routing_key=ORDER_STATUS_CHANGED_ROUTING_KEY
     )
+
+    channel.exchange_declare(exchange=AUTH_EXCHANGE, exchange_type="topic", durable=True)
+    channel.queue_declare(queue=JWT_CREATED_QUEUE, durable=True)
+    channel.queue_bind(queue=JWT_CREATED_QUEUE, exchange=AUTH_EXCHANGE, routing_key=JWT_CREATED_ROUTING_KEY)
 
     # Retry queue: bound to its own exchange with "#" so it accepts a
     # retried message under any original routing key; its
@@ -148,7 +159,15 @@ def _scope_from_properties(properties) -> correlation_scope:
     return correlation_scope(correlation_id=correlation_id, message_id=properties.message_id or "")
 
 
-def consume_forever(channel, auth_client, repository, sender) -> None:
+def _cache_jwt_created(event: dict, jwt_cache) -> None:
+    token = event["token"]
+    if not token:
+        logger.error("jwt.created event has no token, ignoring")
+        return
+    jwt_cache.add(token, user_id=int(event["userId"]), email=event["email"], role=event["role"])
+
+
+def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None:
     def on_order_created(ch, method, properties, body):
         with _scope_from_properties(properties):
             try:
@@ -169,12 +188,23 @@ def consume_forever(channel, auth_client, repository, sender) -> None:
                 logger.exception("failed to process order.status-changed message")
                 _route_to_retry_or_dlq(ch, method, properties, body)
 
+    def on_jwt_created(ch, method, properties, body):
+        with _scope_from_properties(properties):
+            try:
+                event = json.loads(body)
+                _cache_jwt_created(event, jwt_cache)
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+            except Exception:
+                logger.exception("failed to process jwt.created message")
+                _route_to_retry_or_dlq(ch, method, properties, body)
+
     channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_order_created)
     channel.basic_consume(queue=ORDER_STATUS_CHANGED_QUEUE, on_message_callback=on_order_status_changed)
+    channel.basic_consume(queue=JWT_CREATED_QUEUE, on_message_callback=on_jwt_created)
     channel.start_consuming()
 
 
-def run_consumer(rabbitmq_url: str, auth_client, repository, sender) -> None:
+def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache) -> None:
     """Runs connect + declare_topology + consume_forever in a loop that
     never gives up permanently. This is a daemon thread with no supervisor:
     a container can start before RabbitMQ is fully ready to accept
@@ -190,7 +220,7 @@ def run_consumer(rabbitmq_url: str, auth_client, repository, sender) -> None:
         try:
             _connection, channel = connect(rabbitmq_url)
             declare_topology(channel)
-            consume_forever(channel, auth_client, repository, sender)
+            consume_forever(channel, auth_client, repository, sender, jwt_cache)
         except Exception:
             logger.exception(
                 "RabbitMQ connection lost or unavailable; retrying in %ss",

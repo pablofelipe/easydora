@@ -7,6 +7,7 @@ import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import JwtCache
 from app.auth_client import AuthServiceClient
 from app.config import load_settings
 from app.rabbitmq import (
@@ -90,7 +91,7 @@ def _start_consumer(auth_client, repository, sender) -> threading.Event:
         _connection, channel = connect(settings.rabbitmq_url)
         declare_topology(channel)
         ready.set()
-        consume_forever(channel, auth_client, repository, sender)
+        consume_forever(channel, auth_client, repository, sender, JwtCache())
 
     threading.Thread(target=_run, daemon=True).start()
     return ready
@@ -240,11 +241,13 @@ def test_order_status_changed_event_without_a_prior_notification_produces_a_fail
 
 
 def test_get_notifications_returns_every_notification_for_an_order_in_order():
-    from app.main import app
+    from app.main import app, jwt_cache
 
     order_id = f"it-{uuid.uuid4()}"
     email = f"buyer-{uuid.uuid4()}@example.com"
     user_id = _seed_user(email, "Casey", "Buyer")
+    token = f"test-token-{uuid.uuid4()}"
+    jwt_cache.add(token, user_id=user_id, email=email, role="BUYER")
 
     auth_client = AuthServiceClient(settings.auth_service_url)
     repository = NotificationRepository(settings.db_dsn)
@@ -284,7 +287,7 @@ def test_get_notifications_returns_every_notification_for_an_order_in_order():
     # this exercises the same repository-backed endpoint against the rows
     # the manually-driven consumer above just persisted.
     client = TestClient(app)
-    response = client.get(f"/notifications/{order_id}")
+    response = client.get(f"/notifications/{order_id}", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     body = response.json()
@@ -295,9 +298,14 @@ def test_get_notifications_returns_every_notification_for_an_order_in_order():
 
 
 def test_get_notifications_for_an_unknown_order_returns_404():
-    from app.main import app
+    from app.main import app, jwt_cache
+
+    token = f"test-token-{uuid.uuid4()}"
+    jwt_cache.add(token, user_id=999999, email="someone@example.com", role="BUYER")
 
     client = TestClient(app)
-    response = client.get(f"/notifications/does-not-exist-{uuid.uuid4()}")
+    response = client.get(
+        f"/notifications/does-not-exist-{uuid.uuid4()}", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert response.status_code == 404
