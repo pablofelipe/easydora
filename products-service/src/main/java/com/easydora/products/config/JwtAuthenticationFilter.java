@@ -45,19 +45,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 List<SimpleGrantedAuthority> authorities = Collections.singletonList(
                     new SimpleGrantedAuthority("ROLE_" + userInfo.getRole())
                 );
-                
-                UsernamePasswordAuthenticationToken authentication = 
+
+                UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(userInfo, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                
+
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 logger.info("Authentication set up for: {}", userInfo.getEmail());
             } else {
-                logger.warn("Token NOT found in the valid tokens map");
-                logger.warn("Full token: {}", token);
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("{\"error\": \"Invalid or expired token\"}");
-                return;
+                // Leave the request unauthenticated instead of terminating
+                // it here. A token this service doesn't recognize is
+                // expected, not exceptional: this consumer only caches
+                // jwt.created for role SELLER, so a BUYER calling the
+                // public catalog endpoints (/all-products, /{id}) always
+                // arrives with an Authorization header the map will never
+                // contain. Whether that's actually a problem depends on
+                // the target path, which is exactly what
+                // authorizeHttpRequests below decides -- permitAll paths
+                // proceed anonymously, anyRequest().authenticated() paths
+                // still get Spring Security's own 401.
+                logger.warn("Token NOT found in the valid tokens map; continuing unauthenticated");
             }
         } else {
             logger.warn("Authorization header missing or malformed");
