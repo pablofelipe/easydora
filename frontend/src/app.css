@@ -1,0 +1,254 @@
+/* Design tokens + base element styles, shared by every page. Deliberately
+   small: no framework, no build step of its own -- just CSS custom
+   properties and a handful of utility classes reused across components. */
+
+:root {
+	--font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+	--color-bg: #f9fafb;
+	--color-surface: #ffffff;
+	--color-border: #e5e7eb;
+	--color-text: #111827;
+	--color-text-muted: #6b7280;
+
+	--color-primary: #2563eb;
+	--color-primary-hover: #1d4ed8;
+	--color-danger: #dc2626;
+	--color-danger-bg: #fef2f2;
+	--color-success: #16a34a;
+	--color-success-bg: #f0fdf4;
+
+	--radius: 8px;
+	--radius-sm: 6px;
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+	--shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+	--content-width: 1200px;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-sans);
+	font-size: 15px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+h1 {
+	font-size: 1.5rem;
+	margin: 0 0 1.25rem;
+}
+
+h2 {
+	font-size: 1.1rem;
+	margin: 2rem 0 0.75rem;
+}
+
+a {
+	color: var(--color-primary);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+p {
+	color: var(--color-text);
+}
+
+/* Layout */
+
+.container {
+	max-width: var(--content-width);
+	margin: 0 auto;
+	padding: 0 1.5rem;
+}
+
+/* Buttons: one shared style for every button/button-like link in the app. */
+
+button,
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 38px;
+	padding: 0 1rem;
+	font-family: inherit;
+	font-size: 0.9rem;
+	font-weight: 500;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface);
+	color: var(--color-text);
+	cursor: pointer;
+	transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover,
+.btn:hover {
+	background: var(--color-bg);
+	text-decoration: none;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+button[type='submit'],
+.btn-primary {
+	background: var(--color-primary);
+	border-color: var(--color-primary);
+	color: #fff;
+}
+
+button[type='submit']:hover,
+.btn-primary:hover {
+	background: var(--color-primary-hover);
+	border-color: var(--color-primary-hover);
+}
+
+/* Inputs */
+
+input,
+select {
+	height: 38px;
+	padding: 0 0.75rem;
+	font-family: inherit;
+	font-size: 0.9rem;
+	color: var(--color-text);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+}
+
+input:focus,
+select:focus {
+	outline: none;
+	border-color: var(--color-primary);
+	box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+label {
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+}
+
+/* Cards */
+
+.card {
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow-sm);
+	padding: 1.25rem;
+}
+
+/* Tables */
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9rem;
+}
+
+th {
+	text-align: left;
+	padding: 0.6rem 0.75rem;
+	background: var(--color-bg);
+	color: var(--color-text-muted);
+	font-weight: 600;
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	border-bottom: 1px solid var(--color-border);
+}
+
+td {
+	padding: 0.65rem 0.75rem;
+	border-bottom: 1px solid var(--color-border);
+}
+
+tbody tr:hover {
+	background: var(--color-bg);
+}
+
+tbody tr:nth-child(even) {
+	background: rgba(0, 0, 0, 0.012);
+}
+
+/* Badges */
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.2rem 0.6rem;
+	border-radius: 999px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+}
+
+.badge-gray {
+	background: #f3f4f6;
+	color: #4b5563;
+}
+
+.badge-blue {
+	background: #eff6ff;
+	color: #1d4ed8;
+}
+
+.badge-purple {
+	background: #f5f3ff;
+	color: #6d28d9;
+}
+
+.badge-green {
+	background: var(--color-success-bg);
+	color: var(--color-success);
+}
+
+.badge-red {
+	background: var(--color-danger-bg);
+	color: var(--color-danger);
+}
+
+/* Shared status/error/success text */
+
+.text-muted {
+	color: var(--color-text-muted);
+	font-size: 0.85rem;
+}
+
+.error-text {
+	color: var(--color-danger);
+	font-size: 0.9rem;
+}
+
+.success-text {
+	color: var(--color-success);
+	font-size: 0.9rem;
+}
+
+code,
+pre {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

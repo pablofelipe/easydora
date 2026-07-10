@@ -32,36 +32,52 @@
 	}
 </script>
 
-<h1>Login</h1>
-
-<form onsubmit={onSubmit}>
-	<label>
-		Email
-		<input type="email" bind:value={email} required />
-	</label>
-	<label>
-		Password
-		<input type="password" bind:value={password} required />
-	</label>
-	<button type="submit" disabled={submitting}>{submitting ? 'Signing in...' : 'Sign in'}</button>
-	{#if error}
-		<p class="error">{error}</p>
-	{/if}
-</form>
+<div class="center">
+	<div class="card">
+		<h1>Sign in</h1>
+		<form onsubmit={onSubmit}>
+			<label>
+				Email
+				<input type="email" bind:value={email} required />
+			</label>
+			<label>
+				Password
+				<input type="password" bind:value={password} required />
+			</label>
+			<button type="submit" disabled={submitting}>
+				{submitting ? 'Signing in...' : 'Sign in'}
+			</button>
+			{#if error}
+				<p class="error-text">{error}</p>
+			{/if}
+		</form>
+	</div>
+</div>
 
 <style>
+	.center {
+		display: flex;
+		justify-content: center;
+		padding-top: 3rem;
+	}
+	.card {
+		width: 100%;
+		max-width: 340px;
+	}
+	h1 {
+		text-align: center;
+	}
 	form {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
-		max-width: 320px;
+		gap: 1rem;
 	}
 	label {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.35rem;
 	}
-	.error {
-		color: #b00020;
+	button[type='submit'] {
+		margin-top: 0.25rem;
 	}
 </style>

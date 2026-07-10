@@ -16,18 +16,18 @@
 <h1>Products</h1>
 
 {#if loading}
-	<p>Loading...</p>
+	<p class="text-muted">Loading...</p>
 {:else if error}
-	<p class="error">{error}</p>
+	<p class="error-text">{error}</p>
 {:else if products.length === 0}
-	<p>No products available yet.</p>
+	<p class="text-muted">No products available yet.</p>
 {:else}
 	<ul class="grid">
 		{#each products as product (product.id)}
 			<li>
-				<a href={`/products/${product.id}`}>
+				<a class="card" href={`/products/${product.id}`}>
 					<h3>{product.name}</h3>
-					<p>{formatCurrency(product.price)}</p>
+					<p class="price">{formatCurrency(product.price)}</p>
 					<p class="seller">by {product.seller.name}</p>
 				</a>
 			</li>
@@ -39,24 +39,33 @@
 	.grid {
 		list-style: none;
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 		gap: 1rem;
 		padding: 0;
-	}
-	.grid li {
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		padding: 1rem;
+		margin: 0;
 	}
 	.grid a {
+		display: block;
 		text-decoration: none;
 		color: inherit;
+		transition: box-shadow 0.15s ease, transform 0.15s ease;
+	}
+	.grid a:hover {
+		box-shadow: var(--shadow-md);
+		transform: translateY(-1px);
+		text-decoration: none;
+	}
+	.grid h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1rem;
+	}
+	.price {
+		margin: 0;
+		font-weight: 600;
 	}
 	.seller {
-		color: #777;
+		margin: 0.35rem 0 0;
+		color: var(--color-text-muted);
 		font-size: 0.85rem;
-	}
-	.error {
-		color: #b00020;
 	}
 </style>

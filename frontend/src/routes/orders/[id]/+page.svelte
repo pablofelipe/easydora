@@ -4,6 +4,7 @@
 	import { getNotifications } from '$lib/api/notifications';
 	import { ApiError } from '$lib/api/client';
 	import RequestDetails from '$lib/components/RequestDetails.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { Order } from '$lib/types/order';
 	import type { Notification } from '$lib/types/notification';
 	import { formatCurrency, formatDateTime } from '$lib/utils/format';
@@ -60,29 +61,40 @@
 
 <a href="/orders">&larr; Back to my orders</a>
 
-<h1>Order {order.id}</h1>
-<p>Status: <strong>{order.state}</strong></p>
-<p>Total: {formatCurrency(order.totalAmount)}</p>
-<p class="meta">Created {formatDateTime(order.createdAt)} &middot; updated {formatDateTime(order.updatedAt)}</p>
+<div class="card header-card">
+	<div class="title-row">
+		<h1>Order <code>{order.id.slice(0, 8)}&hellip;</code></h1>
+		<StatusBadge state={order.state} />
+	</div>
+	<p class="total">{formatCurrency(order.totalAmount)}</p>
+	<p class="text-muted">
+		Created {formatDateTime(order.createdAt)} &middot; updated {formatDateTime(order.updatedAt)}
+	</p>
+
+	{#if order.state === 'INVENTORY_RESERVED'}
+		<button onclick={onProcessPayment} disabled={paying}>
+			{paying ? 'Processing payment...' : 'Process payment'}
+		</button>
+		{#if paymentError}
+			<p class="error-text">{paymentError}</p>
+		{/if}
+	{/if}
+</div>
 
 <h2>Items</h2>
-<ul>
-	{#each order.items as item (item.id)}
-		<li>{item.quantity} &times; {item.productId} ({formatCurrency(item.unitPrice)} each)</li>
-	{/each}
-</ul>
-
-{#if order.state === 'INVENTORY_RESERVED'}
-	<button onclick={onProcessPayment} disabled={paying}>
-		{paying ? 'Processing payment...' : 'Process payment'}
-	</button>
-	{#if paymentError}
-		<p class="error">{paymentError}</p>
-	{/if}
-{/if}
+<div class="card">
+	<ul class="items">
+		{#each order.items as item (item.id)}
+			<li>
+				<span>{item.quantity} &times; <code class="text-muted">{item.productId.slice(0, 8)}&hellip;</code></span>
+				<span class="subtotal">{formatCurrency(item.subtotal)}</span>
+			</li>
+		{/each}
+	</ul>
+</div>
 
 <h2>Notifications</h2>
-<p class="hint">
+<p class="text-muted">
 	Every order-lifecycle event (order.created, order.status-changed) persisted its own
 	notification row in notification-service -- reloading this shows the trail as it grows.
 </p>
@@ -90,14 +102,22 @@
 	{notificationsLoaded ? 'Reload notifications' : 'Load notifications'}
 </button>
 {#if notificationsError}
-	<p class="error">{notificationsError}</p>
+	<p class="error-text">{notificationsError}</p>
 {:else if notificationsLoaded}
-	<ul>
+	<ul class="notifications">
 		{#each notifications as notification, i (i)}
-			<li>
-				<strong>{notification.eventType}</strong> &mdash; {notification.status}
-				<span class="meta">({formatDateTime(notification.createdAt)})</span>
-				<pre>{JSON.stringify(notification.payload, null, 2)}</pre>
+			<li class="card">
+				<div class="notif-row">
+					<span class="event">{notification.eventType}</span>
+					<span class="badge {notification.status === 'SENT' ? 'badge-green' : 'badge-red'}">
+						{notification.status}
+					</span>
+					<span class="text-muted time">{formatDateTime(notification.createdAt)}</span>
+				</div>
+				<details>
+					<summary>View raw payload</summary>
+					<pre>{JSON.stringify(notification.payload, null, 2)}</pre>
+				</details>
 			</li>
 		{/each}
 	</ul>
@@ -106,22 +126,71 @@
 <RequestDetails />
 
 <style>
-	.meta {
-		color: #777;
-		font-size: 0.85rem;
+	.header-card {
+		margin-top: 1rem;
 	}
-	.error {
-		color: #b00020;
+	.title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
 	}
-	.hint {
-		color: #666;
-		font-size: 0.85rem;
+	.title-row h1 {
+		margin: 0;
+	}
+	.total {
+		font-size: 1.25rem;
+		font-weight: 700;
+		margin: 0.5rem 0 0.25rem;
+	}
+	.items {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.items li {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.4rem 0;
+	}
+	.items li + li {
+		border-top: 1px solid var(--color-border);
+	}
+	.subtotal {
+		font-weight: 600;
+	}
+	.notifications {
+		list-style: none;
+		margin: 0.75rem 0 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+	.notif-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+	.event {
+		font-weight: 600;
+	}
+	.time {
+		margin-left: auto;
+	}
+	details {
+		margin-top: 0.5rem;
+	}
+	details summary {
+		cursor: pointer;
+		font-size: 0.8rem;
+		color: var(--color-text-muted);
 	}
 	pre {
-		background: #f7f7f7;
-		padding: 0.5rem;
-		border-radius: 4px;
-		font-size: 0.8rem;
+		background: var(--color-bg);
+		padding: 0.6rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.78rem;
 		overflow-x: auto;
+		margin-top: 0.5rem;
 	}
 </style>

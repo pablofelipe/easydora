@@ -4,6 +4,7 @@
 	import { createOrder } from '$lib/api/orders';
 	import { ApiError } from '$lib/api/client';
 	import type { Product } from '$lib/types/product';
+	import { formatCurrency } from '$lib/utils/format';
 
 	let products = $state<Product[]>([]);
 	let selectedProductId = $state($page.url.searchParams.get('productId') ?? '');
@@ -11,6 +12,8 @@
 	let error = $state<string | null>(null);
 	let submitting = $state(false);
 	let createdOrderId = $state<string | null>(null);
+
+	const selectedProduct = $derived(products.find((p) => p.id === selectedProductId) ?? null);
 
 	listProducts().then((result) => {
 		products = result;
@@ -44,50 +47,75 @@
 
 <h1>Checkout</h1>
 
-<form onsubmit={onSubmit}>
-	<label>
-		Product
-		<select bind:value={selectedProductId}>
-			{#each products as product (product.id)}
-				<option value={product.id}>{product.name}</option>
-			{/each}
-		</select>
-	</label>
-	<label>
-		Quantity
-		<input type="number" min="1" bind:value={quantity} required />
-	</label>
-	<button type="submit" disabled={submitting || products.length === 0}>
-		{submitting ? 'Placing order...' : 'Place order'}
-	</button>
-	{#if error}
-		<p class="error">{error}</p>
-	{/if}
-</form>
+<div class="card">
+	<form onsubmit={onSubmit}>
+		<label>
+			Product
+			<select bind:value={selectedProductId}>
+				{#each products as product (product.id)}
+					<option value={product.id}>
+						{product.name} &middot; {formatCurrency(product.price)} &middot; by {product.seller.name}
+					</option>
+				{/each}
+			</select>
+		</label>
+
+		{#if selectedProduct}
+			<div class="preview">
+				<span class="name">{selectedProduct.name}</span>
+				<span class="text-muted">by {selectedProduct.seller.name}</span>
+				<span class="price">{formatCurrency(selectedProduct.price)}</span>
+			</div>
+		{/if}
+
+		<label>
+			Quantity
+			<input type="number" min="1" bind:value={quantity} required />
+		</label>
+		<button type="submit" disabled={submitting || products.length === 0}>
+			{submitting ? 'Placing order...' : 'Place order'}
+		</button>
+		{#if error}
+			<p class="error-text">{error}</p>
+		{/if}
+	</form>
+</div>
 
 {#if createdOrderId}
-	<p class="success">
+	<p class="success-text">
 		Order created: <strong>{createdOrderId}</strong>
 		&mdash; <a href="/orders">view in My Orders</a>
 	</p>
 {/if}
 
 <style>
+	.card {
+		max-width: 420px;
+	}
 	form {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
-		max-width: 320px;
+		gap: 1rem;
 	}
 	label {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.35rem;
 	}
-	.error {
-		color: #b00020;
+	.preview {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--color-bg);
+		border-radius: var(--radius-sm);
+		font-size: 0.85rem;
 	}
-	.success {
-		color: #1a7a1a;
+	.preview .name {
+		font-weight: 600;
+	}
+	.preview .price {
+		margin-left: auto;
+		font-weight: 600;
 	}
 </style>

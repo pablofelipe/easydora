@@ -22,29 +22,30 @@
 
 <style>
 	details {
-		margin-top: 1rem;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		padding: 0.5rem 0.75rem;
+		margin-top: 1.5rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		padding: 0.6rem 0.85rem;
 		font-size: 0.85rem;
+		background: var(--color-surface);
 	}
 	summary {
 		cursor: pointer;
-		color: #555;
+		color: var(--color-text-muted);
+		font-weight: 500;
 	}
 	dl {
 		display: grid;
 		grid-template-columns: auto 1fr;
-		gap: 0.25rem 0.75rem;
-		margin: 0.5rem 0 0;
+		gap: 0.35rem 0.75rem;
+		margin: 0.6rem 0 0;
 	}
 	dt {
 		font-weight: 600;
-		color: #777;
+		color: var(--color-text-muted);
 	}
 	dd {
 		margin: 0;
-		font-family: monospace;
 		word-break: break-all;
 	}
 </style>

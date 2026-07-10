@@ -8,29 +8,24 @@
 
 <a href="/products">&larr; Back to products</a>
 
-<h1>{product.name}</h1>
-<p>{product.description}</p>
-<p class="price">{formatCurrency(product.price)}</p>
-<p class="meta">Sold by {product.seller.name} &middot; listed {formatDateTime(product.createdAt)}</p>
+<div class="card">
+	<h1>{product.name}</h1>
+	<p>{product.description}</p>
+	<p class="price">{formatCurrency(product.price)}</p>
+	<p class="text-muted">Sold by {product.seller.name} &middot; listed {formatDateTime(product.createdAt)}</p>
 
-<a class="button" href={`/checkout?productId=${product.id}`}>Buy this product</a>
+	<a class="btn btn-primary" href={`/checkout?productId=${product.id}`}>Buy this product</a>
+</div>
 
 <style>
+	.card {
+		margin-top: 1rem;
+	}
 	.price {
 		font-size: 1.25rem;
 		font-weight: 700;
 	}
-	.meta {
-		color: #777;
-		font-size: 0.85rem;
-	}
-	.button {
-		display: inline-block;
-		margin-top: 1rem;
-		padding: 0.5rem 1rem;
-		background: #333;
-		color: #fff;
-		text-decoration: none;
-		border-radius: 4px;
+	.btn {
+		margin-top: 0.5rem;
 	}
 </style>

@@ -2,6 +2,7 @@
 	import { listMyOrders } from '$lib/api/orders';
 	import type { Order } from '$lib/types/order';
 	import { formatDateTime } from '$lib/utils/format';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 
 	let orders = $state<Order[]>([]);
 	let error = $state<string | null>(null);
@@ -16,44 +17,40 @@
 <h1>My Orders</h1>
 
 {#if loading}
-	<p>Loading...</p>
+	<p class="text-muted">Loading...</p>
 {:else if error}
-	<p class="error">{error}</p>
+	<p class="error-text">{error}</p>
 {:else if orders.length === 0}
-	<p>No orders yet. <a href="/checkout">Place one</a>.</p>
+	<p class="text-muted">No orders yet. <a href="/checkout">Place one</a>.</p>
 {:else}
-	<table>
-		<thead>
-			<tr>
-				<th>Order ID</th>
-				<th>Status</th>
-				<th>Created</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each orders as order (order.id)}
+	<div class="card table-card">
+		<table>
+			<thead>
 				<tr>
-					<td><a href={`/orders/${order.id}`}>{order.id}</a></td>
-					<td>{order.state}</td>
-					<td>{formatDateTime(order.createdAt)}</td>
+					<th>Order ID</th>
+					<th>Status</th>
+					<th>Created</th>
 				</tr>
-			{/each}
-		</tbody>
-	</table>
+			</thead>
+			<tbody>
+				{#each orders as order (order.id)}
+					<tr>
+						<td><a href={`/orders/${order.id}`}><code>{order.id.slice(0, 8)}&hellip;</code></a></td>
+						<td><StatusBadge state={order.state} /></td>
+						<td class="text-muted">{formatDateTime(order.createdAt)}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
 {/if}
 
 <style>
-	table {
-		width: 100%;
-		border-collapse: collapse;
+	.table-card {
+		padding: 0;
+		overflow: hidden;
 	}
-	th,
-	td {
-		text-align: left;
-		padding: 0.5rem;
-		border-bottom: 1px solid #eee;
-	}
-	.error {
-		color: #b00020;
+	.table-card table {
+		margin: 0;
 	}
 </style>
