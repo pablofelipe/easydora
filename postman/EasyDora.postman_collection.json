@@ -1,741 +1,2009 @@
 {
-  "info": {
-    "_postman_id": "8f3a1c2e-2b7a-4a9e-9d3d-easydora00001",
-    "name": "EasyDora",
-    "description": "Executable documentation for EasyDora's main business flow (signup -> product -> order -> stock reservation -> payment -> notification), driven entirely through each service's public HTTP API. This collection complements docs/walkthrough.md -- it does not replace it. Every request here corresponds to a curl command already documented and verified in the walkthrough; where the two differ (e.g. this collection captures IDs/tokens automatically instead of showing them as shell variables), see postman/README.md for the exact mapping.\n\nRun with the `Local` environment and the Collection Runner, top to bottom, with no manual steps in between.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "0. Health Checks",
-      "item": [
-        {
-          "name": "Auth Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{auth_url}}/health", "host": ["{{auth_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Products Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{products_url}}/health", "host": ["{{products_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript" }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Inventory Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{inventory_url}}/health", "host": ["{{inventory_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript" }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Orders Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{orders_url}}/health", "host": ["{{orders_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript" }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Billing Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{billing_url}}/health", "host": ["{{billing_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript" }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Notification Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{notification_url}}/health", "host": ["{{notification_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript" }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Gateway Health",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{gateway_url}}/health", "host": ["{{gateway_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "// api-gateway does not proxy notification-service -- see docs/architecture/overview.md's Bounded Contexts table."
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Direct-port health checks for all seven implemented services, per ADR-0010's uniform /health endpoint. Executable analog of `docker compose ps` (walkthrough.md step 2)."
-    },
-    {
-      "name": "1. Seller Onboarding",
-      "item": [
-        {
-          "name": "Signup (Seller)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\",\n  \"firstName\": \"Sam\",\n  \"lastName\": \"Seller\",\n  \"role\": \"SELLER\"\n}"
-            },
-            "url": { "raw": "{{auth_url}}/signup", "host": ["{{auth_url}}"], "path": ["signup"] }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "// Generate a unique email so the whole collection can be re-run without a manual reset.",
-                  "const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
-                  "pm.environment.set('seller_email', `seller-${unique}@example.com`);"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
-                  "pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has id and verificationToken', function () {",
-                  "  pm.expect(json).to.have.property('id');",
-                  "  pm.expect(json).to.have.property('verificationToken');",
-                  "});",
-                  "pm.environment.set('seller_id', json.id);",
-                  "pm.environment.set('seller_verification_token', json.verificationToken);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Verify Email (Seller)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{auth_url}}/verify-email?token={{seller_verification_token}}",
-              "host": ["{{auth_url}}"],
-              "path": ["verify-email"],
-              "query": [{ "key": "token", "value": "{{seller_verification_token}}" }]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Login (Seller)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\"\n}"
-            },
-            "url": { "raw": "{{auth_url}}/login", "host": ["{{auth_url}}"], "path": ["login"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has a Bearer token', function () {",
-                  "  pm.expect(json).to.have.property('token');",
-                  "  pm.expect(json.type).to.eql('Bearer');",
-                  "});",
-                  "pm.environment.set('seller_token', json.token);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 3. auth-service publishes user.registered/user.verified/jwt.created; products-service consumes all three (role=SELLER only) to build its own Seller record and cache the Bearer token -- see docs/architecture/overview.md's Communication section."
-    },
-    {
-      "name": "2. Product Management",
-      "item": [
-        {
-          "name": "Create Product",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{seller_token}}" },
-              { "key": "X-User-Id", "value": "{{seller_id}}" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Mechanical Keyboard\",\n  \"description\": \"Hot-swappable, brown switches\",\n  \"price\": 249.90,\n  \"initialStock\": 10\n}"
-            },
-            "url": { "raw": "{{products_url}}/createProduct", "host": ["{{products_url}}"], "path": ["createProduct"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has id and active seller', function () {",
-                  "  pm.expect(json).to.have.property('id');",
-                  "  pm.expect(json.active).to.eql(true);",
-                  "});",
-                  "pm.environment.set('product_id', json.id);",
-                  "pm.environment.set('product_price', json.price);",
-                  "pm.environment.set('product_initial_stock', '10');"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Verify Inventory Created",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{inventory_url}}/inventory/{{product_id}}", "host": ["{{inventory_url}}"], "path": ["inventory", "{{product_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "if (!pm.environment.get('_retry_inventory_created')) { pm.environment.set('_retry_inventory_created', '0'); }"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const maxRetries = 8;",
-                  "let retries = parseInt(pm.environment.get('_retry_inventory_created') || '0');",
-                  "const ok = pm.response.code === 200;",
-                  "if (ok || retries >= maxRetries) {",
-                  "  pm.environment.set('_retry_inventory_created', '0');",
-                  "  pm.test('inventory row exists for the new product', function () { pm.response.to.have.status(200); });",
-                  "  const json = pm.response.json();",
-                  "  pm.test('quantity matches initialStock', function () {",
-                  "    pm.expect(json.quantity).to.eql(parseInt(pm.environment.get('product_initial_stock')));",
-                  "  });",
-                  "} else {",
-                  "  pm.environment.set('_retry_inventory_created', String(retries + 1));",
-                  "  pm.execution.setNextRequest(pm.info.requestName);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 4. products-service publishes product.created on product.exchange; inventory-service consumes it and creates the inventory row asynchronously -- the retry loop on 'Verify Inventory Created' gives that a few seconds if needed, exactly like the walkthrough's own wait-then-check pattern."
-    },
-    {
-      "name": "3. Buyer Onboarding",
-      "item": [
-        {
-          "name": "Signup (Buyer)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\",\n  \"firstName\": \"Bea\",\n  \"lastName\": \"Buyer\",\n  \"role\": \"BUYER\"\n}"
-            },
-            "url": { "raw": "{{auth_url}}/signup", "host": ["{{auth_url}}"], "path": ["signup"] }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
-                  "pm.environment.set('buyer_email', `buyer-${unique}@example.com`);"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has id and verificationToken', function () {",
-                  "  pm.expect(json).to.have.property('id');",
-                  "  pm.expect(json).to.have.property('verificationToken');",
-                  "});",
-                  "pm.environment.set('buyer_id', json.id);",
-                  "pm.environment.set('buyer_verification_token', json.verificationToken);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Verify Email (Buyer)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{auth_url}}/verify-email?token={{buyer_verification_token}}",
-              "host": ["{{auth_url}}"],
-              "path": ["verify-email"],
-              "query": [{ "key": "token", "value": "{{buyer_verification_token}}" }]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Login (Buyer)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\"\n}"
-            },
-            "url": { "raw": "{{auth_url}}/login", "host": ["{{auth_url}}"], "path": ["login"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has a Bearer token', function () {",
-                  "  pm.expect(json).to.have.property('token');",
-                  "  pm.expect(json.type).to.eql('Bearer');",
-                  "});",
-                  "pm.environment.set('buyer_token', json.token);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 5. The same jwt.created broadcast is now also consumed by orders-service and billing-service (products-service ignores it -- role is BUYER, not SELLER). orders-service additionally creates a local Buyer record for this user, which is why no separate 'register with orders-service' step exists."
-    },
-    {
-      "name": "4. Order Creation",
-      "item": [
-        {
-          "name": "Create Order",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{buyer_token}}" },
-              { "key": "X-User-Id", "value": "{{buyer_id}}" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"items\": [\n    { \"productId\": \"{{product_id}}\", \"quantity\": 2, \"unitPrice\": {{product_price}} }\n  ]\n}"
-            },
-            "url": { "raw": "{{orders_url}}/createOrder", "host": ["{{orders_url}}"], "path": ["createOrder"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
-                  "const json = pm.response.json();",
-                  "pm.test('response has id, state and totalAmount', function () {",
-                  "  pm.expect(json).to.have.property('id');",
-                  "  pm.expect(json).to.have.property('state');",
-                  "  pm.expect(json).to.have.property('totalAmount');",
-                  "});",
-                  "pm.environment.set('order_id', json.id);",
-                  "pm.environment.set('order_quantity', '2');",
-                  "pm.environment.set('order_total_amount', json.totalAmount);"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 6. This single call triggers two publishes from orders-service: OrderCreatedEvent (order.created) and ReserveStockCommand (stock.reserve) -- both on order.exchange, confirmed in OrderService.java. The order starts in PROCESSING; reservation resolves asynchronously (see the next folder)."
-    },
-    {
-      "name": "5. Stock Reservation",
-      "item": [
-        {
-          "name": "Verify Order State",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{buyer_token}}" },
-              { "key": "X-User-Id", "value": "{{buyer_id}}" }
-            ],
-            "url": { "raw": "{{orders_url}}/{{order_id}}", "host": ["{{orders_url}}"], "path": ["{{order_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "if (!pm.environment.get('_retry_order_state')) { pm.environment.set('_retry_order_state', '0'); }"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const maxRetries = 15;",
-                  "let retries = parseInt(pm.environment.get('_retry_order_state') || '0');",
-                  "let json = {};",
-                  "try { json = pm.response.json(); } catch (e) { json = {}; }",
-                  "const terminal = ['INVENTORY_RESERVED', 'INVENTORY_FAILED'];",
-                  "const settled = pm.response.code === 200 && terminal.includes(json.state);",
-                  "if (settled || retries >= maxRetries) {",
-                  "  pm.environment.set('_retry_order_state', '0');",
-                  "  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "  pm.test('order reached a terminal reservation state', function () {",
-                  "    pm.expect(terminal).to.include(json.state);",
-                  "  });",
-                  "  pm.test('order reached INVENTORY_RESERVED (sufficient stock)', function () {",
-                  "    pm.expect(json.state).to.eql('INVENTORY_RESERVED');",
-                  "  });",
-                  "} else {",
-                  "  pm.environment.set('_retry_order_state', String(retries + 1));",
-                  "  pm.execution.setNextRequest(pm.info.requestName);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Verify Inventory Reserved",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{inventory_url}}/inventory/{{product_id}}", "host": ["{{inventory_url}}"], "path": ["inventory", "{{product_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('reserved count reflects the order quantity', function () {",
-                  "  pm.expect(json.reserved).to.be.at.least(parseInt(pm.environment.get('order_quantity')));",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 7. inventory-service consumes stock.reserve and writes its outcome (stock.reserved/stock.insufficient) through its Outbox in the same Postgres transaction as the reservation (ADR-0007); orders-service consumes that outcome and drives its state machine. 'Verify Order State' polls with a bounded retry loop since this hop is asynchronous -- set a small delay between requests in the Collection Runner (see postman/README.md) so it doesn't hammer the server."
-    },
-    {
-      "name": "6. Payment",
-      "item": [
-        {
-          "name": "Verify Payment Created",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{buyer_token}}" }],
-            "url": { "raw": "{{billing_url}}/api/payments/order/{{order_id}}", "host": ["{{billing_url}}"], "path": ["api", "payments", "order", "{{order_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "if (!pm.environment.get('_retry_payment')) { pm.environment.set('_retry_payment', '0'); }"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const maxRetries = 10;",
-                  "let retries = parseInt(pm.environment.get('_retry_payment') || '0');",
-                  "const ok = pm.response.code === 200;",
-                  "if (ok || retries >= maxRetries) {",
-                  "  pm.environment.set('_retry_payment', '0');",
-                  "  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "  pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
-                  "  const json = pm.response.json();",
-                  "  pm.test('response has id, orderId and status', function () {",
-                  "    pm.expect(json).to.have.property('id');",
-                  "    pm.expect(json.orderId).to.eql(pm.environment.get('order_id'));",
-                  "    pm.expect(json).to.have.property('status');",
-                  "  });",
-                  "  pm.test('payment starts PENDING', function () { pm.expect(json.status).to.eql('PENDING'); });",
-                  "  pm.environment.set('payment_id', json.id);",
-                  "} else {",
-                  "  pm.environment.set('_retry_payment', String(retries + 1));",
-                  "  pm.execution.setNextRequest(pm.info.requestName);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Verify Payment Requires Auth (negative check)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{billing_url}}/api/payments/order/{{order_id}}", "host": ["{{billing_url}}"], "path": ["api", "payments", "order", "{{order_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 403 without a token', function () { pm.response.to.have.status(403); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 8. billing-service consumes order.created and creates a Payment; it authenticates via the same JWT broadcast cache as products-service/orders-service (ADR-0015) -- the buyer's own token from folder 3 works here too, no separate billing login. The negative check mirrors the walkthrough's own 403-without-token confirmation."
-    },
-    {
-      "name": "7. Notification (limitation: no public API)",
-      "item": [
-        {
-          "name": "Notification Service Reachable",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{notification_url}}/health", "host": ["{{notification_url}}"], "path": ["health"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "notification-service consumes the same order.created event and persists a notification row, but exposes no public API to read it back (only GET /health) -- see docs/walkthrough.md step 9 and the README Roadmap. This collection cannot verify the persisted notification without breaking the 'public APIs only' constraint this etapa was scoped to; the request above only confirms the service was reachable during this run. To inspect the actual row, run the optional direct Postgres query documented in docs/walkthrough.md step 9."
-    },
-    {
-      "name": "8. Final State",
-      "item": [
-        {
-          "name": "Final Order State",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{buyer_token}}" },
-              { "key": "X-User-Id", "value": "{{buyer_id}}" }
-            ],
-            "url": { "raw": "{{orders_url}}/{{order_id}}", "host": ["{{orders_url}}"], "path": ["{{order_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('order is INVENTORY_RESERVED', function () { pm.expect(json.state).to.eql('INVENTORY_RESERVED'); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        },
-        {
-          "name": "Final Payment State",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{buyer_token}}" }],
-            "url": { "raw": "{{billing_url}}/api/payments/order/{{order_id}}", "host": ["{{billing_url}}"], "path": ["api", "payments", "order", "{{order_id}}"] }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('payment status is present', function () { pm.expect(json).to.have.property('status'); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "Mirrors docs/walkthrough.md step 10 -- a final read-only confirmation of the end-to-end result, re-using the same two endpoints already exercised above."
-    },
-    {
-      "name": "9. Extras — Beyond the Walkthrough (optional)",
-      "item": [
-        {
-          "name": "Process Payment (Simulation)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{buyer_token}}" }],
-            "url": {
-              "raw": "{{billing_url}}/api/payments/process?orderId={{order_id}}&amount={{order_total_amount}}",
-              "host": ["{{billing_url}}"],
-              "path": ["api", "payments", "process"],
-              "query": [
-                { "key": "orderId", "value": "{{order_id}}" },
-                { "key": "amount", "value": "{{order_total_amount}}" }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
-                  "const json = pm.response.json();",
-                  "pm.test('payment reaches a terminal status', function () {",
-                  "  pm.expect(['APPROVED', 'FAILED']).to.include(json.status);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "response": []
-        }
-      ],
-      "description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. Outcome is a random ~90% approval simulation (PaymentService.java), so this request intentionally accepts either APPROVED or FAILED rather than asserting one."
-    }
-  ]
+	"info": {
+		"_postman_id": "8f3a1c2e-2b7a-4a9e-9d3d-easydora00001",
+		"name": "EasyDora",
+		"description": "Executable documentation for EasyDora's main business flow (signup -> product -> order -> stock reservation -> payment -> notification), driven entirely through each service's public HTTP API. This collection complements docs/walkthrough.md -- it does not replace it. Every request here corresponds to a curl command already documented and verified in the walkthrough; where the two differ (e.g. this collection captures IDs/tokens automatically instead of showing them as shell variables), see postman/README.md for the exact mapping.\n\nRun with the `Local` environment and the Collection Runner, top to bottom, with no manual steps in between.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Via Gateway (primary)",
+			"description": "The Gateway (port 8080) is the primary entry point for this walkthrough, mirroring docs/walkthrough.md: every request here is identical to its 'Direct (debug)' counterpart except it goes through the Gateway with each service's own self-namespaced segment (/auth, /products, /orders, /billing, /inventory), which the Gateway forwards unchanged (ADR-0025). notification-service has no Gateway route yet, so its folder isn't duplicated here -- see 'Direct (debug)'.",
+			"item": [
+				{
+					"name": "0. Health Checks",
+					"item": [
+						{
+							"name": "Auth Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/auth/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Products Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/products/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"products",
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Inventory Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/inventory/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"inventory",
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Orders Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/orders/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Billing Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/billing/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"billing",
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "1. Seller Onboarding",
+					"item": [
+						{
+							"name": "Signup (Seller)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\",\n  \"firstName\": \"Sam\",\n  \"lastName\": \"Seller\",\n  \"role\": \"SELLER\"\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/auth/signup",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"signup"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"// Generate a unique email so the whole collection can be re-run without a manual reset.",
+											"const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
+											"pm.environment.set('seller_email', `seller-${unique}@example.com`);"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and verificationToken', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('verificationToken');",
+											"});",
+											"pm.environment.set('seller_id', json.id);",
+											"pm.environment.set('seller_verification_token', json.verificationToken);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Email (Seller)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/auth/verify-email?token={{seller_verification_token}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"verify-email"
+									],
+									"query": [
+										{
+											"key": "token",
+											"value": "{{seller_verification_token}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Login (Seller)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\"\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/auth/login",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"login"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('response has a Bearer token', function () {",
+											"  pm.expect(json).to.have.property('token');",
+											"  pm.expect(json.type).to.eql('Bearer');",
+											"});",
+											"pm.environment.set('seller_token', json.token);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 3. auth-service publishes user.registered/user.verified/jwt.created; products-service consumes all three (role=SELLER only) to build its own Seller record and cache the Bearer token -- see docs/architecture/overview.md's Communication section."
+				},
+				{
+					"name": "2. Product Management",
+					"item": [
+						{
+							"name": "Create Product",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{seller_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{seller_id}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"name\": \"Mechanical Keyboard\",\n  \"description\": \"Hot-swappable, brown switches\",\n  \"price\": 249.90,\n  \"initialStock\": 10\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/products/createProduct",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"products",
+										"createProduct"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and active seller', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json.active).to.eql(true);",
+											"});",
+											"pm.environment.set('product_id', json.id);",
+											"pm.environment.set('product_price', json.price);",
+											"pm.environment.set('product_initial_stock', '10');"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Inventory Created",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/inventory/{{product_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"inventory",
+										"{{product_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_inventory_created')) { pm.environment.set('_retry_inventory_created', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 8;",
+											"let retries = parseInt(pm.environment.get('_retry_inventory_created') || '0');",
+											"const ok = pm.response.code === 200;",
+											"if (ok || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_inventory_created', '0');",
+											"  pm.test('inventory row exists for the new product', function () { pm.response.to.have.status(200); });",
+											"  const json = pm.response.json();",
+											"  pm.test('quantity matches initialStock', function () {",
+											"    pm.expect(json.quantity).to.eql(parseInt(pm.environment.get('product_initial_stock')));",
+											"  });",
+											"} else {",
+											"  pm.environment.set('_retry_inventory_created', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 4. products-service publishes product.created on product.exchange; inventory-service consumes it and creates the inventory row asynchronously -- the retry loop on 'Verify Inventory Created' gives that a few seconds if needed, exactly like the walkthrough's own wait-then-check pattern."
+				},
+				{
+					"name": "3. Buyer Onboarding",
+					"item": [
+						{
+							"name": "Signup (Buyer)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\",\n  \"firstName\": \"Bea\",\n  \"lastName\": \"Buyer\",\n  \"role\": \"BUYER\"\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/auth/signup",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"signup"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
+											"pm.environment.set('buyer_email', `buyer-${unique}@example.com`);"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and verificationToken', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('verificationToken');",
+											"});",
+											"pm.environment.set('buyer_id', json.id);",
+											"pm.environment.set('buyer_verification_token', json.verificationToken);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Email (Buyer)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/auth/verify-email?token={{buyer_verification_token}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"verify-email"
+									],
+									"query": [
+										{
+											"key": "token",
+											"value": "{{buyer_verification_token}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Login (Buyer)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\"\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/auth/login",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"login"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('response has a Bearer token', function () {",
+											"  pm.expect(json).to.have.property('token');",
+											"  pm.expect(json.type).to.eql('Bearer');",
+											"});",
+											"pm.environment.set('buyer_token', json.token);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 5. The same jwt.created broadcast is now also consumed by orders-service and billing-service (products-service ignores it -- role is BUYER, not SELLER). orders-service additionally creates a local Buyer record for this user, which is why no separate 'register with orders-service' step exists."
+				},
+				{
+					"name": "4. Order Creation",
+					"item": [
+						{
+							"name": "Create Order",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"items\": [\n    { \"productId\": \"{{product_id}}\", \"quantity\": 2, \"unitPrice\": {{product_price}} }\n  ]\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/orders/createOrder",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"createOrder"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id, state and totalAmount', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('state');",
+											"  pm.expect(json).to.have.property('totalAmount');",
+											"});",
+											"pm.environment.set('order_id', json.id);",
+											"pm.environment.set('order_quantity', '2');",
+											"pm.environment.set('order_total_amount', json.totalAmount);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 6. This single call triggers two publishes from orders-service: OrderCreatedEvent (order.created) and ReserveStockCommand (stock.reserve) -- both on order.exchange, confirmed in OrderService.java. The order starts in PROCESSING; reservation resolves asynchronously (see the next folder)."
+				},
+				{
+					"name": "5. Stock Reservation",
+					"item": [
+						{
+							"name": "Verify Order State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/{{order_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_order_state')) { pm.environment.set('_retry_order_state', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 15;",
+											"let retries = parseInt(pm.environment.get('_retry_order_state') || '0');",
+											"let json = {};",
+											"try { json = pm.response.json(); } catch (e) { json = {}; }",
+											"const terminal = ['INVENTORY_RESERVED', 'INVENTORY_FAILED'];",
+											"const settled = pm.response.code === 200 && terminal.includes(json.state);",
+											"if (settled || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_order_state', '0');",
+											"  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"  pm.test('order reached a terminal reservation state', function () {",
+											"    pm.expect(terminal).to.include(json.state);",
+											"  });",
+											"  pm.test('order reached INVENTORY_RESERVED (sufficient stock)', function () {",
+											"    pm.expect(json.state).to.eql('INVENTORY_RESERVED');",
+											"  });",
+											"} else {",
+											"  pm.environment.set('_retry_order_state', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Inventory Reserved",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/inventory/{{product_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"inventory",
+										"{{product_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('reserved count reflects the order quantity', function () {",
+											"  pm.expect(json.reserved).to.be.at.least(parseInt(pm.environment.get('order_quantity')));",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 7. inventory-service consumes stock.reserve and writes its outcome (stock.reserved/stock.insufficient) through its Outbox in the same Postgres transaction as the reservation (ADR-0007); orders-service consumes that outcome and drives its state machine. 'Verify Order State' polls with a bounded retry loop since this hop is asynchronous -- set a small delay between requests in the Collection Runner (see postman/README.md) so it doesn't hammer the server."
+				},
+				{
+					"name": "6. Payment",
+					"item": [
+						{
+							"name": "Verify Payment Created",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/billing/api/payments/order/{{order_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"billing",
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_payment')) { pm.environment.set('_retry_payment', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 10;",
+											"let retries = parseInt(pm.environment.get('_retry_payment') || '0');",
+											"const ok = pm.response.code === 200;",
+											"if (ok || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_payment', '0');",
+											"  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"  pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"  const json = pm.response.json();",
+											"  pm.test('response has id, orderId and status', function () {",
+											"    pm.expect(json).to.have.property('id');",
+											"    pm.expect(json.orderId).to.eql(pm.environment.get('order_id'));",
+											"    pm.expect(json).to.have.property('status');",
+											"  });",
+											"  pm.test('payment starts PENDING', function () { pm.expect(json.status).to.eql('PENDING'); });",
+											"  pm.environment.set('payment_id', json.id);",
+											"} else {",
+											"  pm.environment.set('_retry_payment', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Payment Requires Auth (negative check)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/billing/api/payments/order/{{order_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"billing",
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 403 without a token', function () { pm.response.to.have.status(403); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 8. billing-service consumes order.created and creates a Payment; it authenticates via the same JWT broadcast cache as products-service/orders-service (ADR-0015) -- the buyer's own token from folder 3 works here too, no separate billing login. The negative check mirrors the walkthrough's own 403-without-token confirmation."
+				},
+				{
+					"name": "8. Final State",
+					"item": [
+						{
+							"name": "Final Order State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/{{order_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('order is INVENTORY_RESERVED', function () { pm.expect(json.state).to.eql('INVENTORY_RESERVED'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Final Payment State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/billing/api/payments/order/{{order_id}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"billing",
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('payment status is present', function () { pm.expect(json).to.have.property('status'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 10 -- a final read-only confirmation of the end-to-end result, re-using the same two endpoints already exercised above."
+				},
+				{
+					"name": "9. Extras — Beyond the Walkthrough (optional)",
+					"item": [
+						{
+							"name": "Process Payment (Simulation)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/billing/api/payments/process?orderId={{order_id}}&amount={{order_total_amount}}",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"billing",
+										"api",
+										"payments",
+										"process"
+									],
+									"query": [
+										{
+											"key": "orderId",
+											"value": "{{order_id}}"
+										},
+										{
+											"key": "amount",
+											"value": "{{order_total_amount}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('payment reaches a terminal status', function () {",
+											"  pm.expect(['APPROVED', 'FAILED']).to.include(json.status);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. Outcome is a random ~90% approval simulation (PaymentService.java), so this request intentionally accepts either APPROVED or FAILED rather than asserting one."
+				}
+			]
+		},
+		{
+			"name": "Direct (debug)",
+			"description": "Every request in this collection called each service directly by its own port, bypassing the Gateway entirely. Kept here unchanged as a secondary path for isolating whether a bug belongs to a service or to the Gateway's routing -- see 'Via Gateway (primary)' for the main walkthrough entry point.",
+			"item": [
+				{
+					"name": "0. Health Checks",
+					"item": [
+						{
+							"name": "Auth Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{auth_url}}/health",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Products Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{products_url}}/health",
+									"host": [
+										"{{products_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Inventory Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{inventory_url}}/health",
+									"host": [
+										"{{inventory_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Orders Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{orders_url}}/health",
+									"host": [
+										"{{orders_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Billing Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{billing_url}}/health",
+									"host": [
+										"{{billing_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Notification Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{notification_url}}/health",
+									"host": [
+										"{{notification_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Gateway Health",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{gateway_url}}/health",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"// api-gateway does not proxy notification-service -- see docs/architecture/overview.md's Bounded Contexts table."
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Direct-port health checks for all seven implemented services, per ADR-0010's uniform /health endpoint. Executable analog of `docker compose ps` (walkthrough.md step 2)."
+				},
+				{
+					"name": "1. Seller Onboarding",
+					"item": [
+						{
+							"name": "Signup (Seller)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\",\n  \"firstName\": \"Sam\",\n  \"lastName\": \"Seller\",\n  \"role\": \"SELLER\"\n}"
+								},
+								"url": {
+									"raw": "{{auth_url}}/signup",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"signup"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"// Generate a unique email so the whole collection can be re-run without a manual reset.",
+											"const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
+											"pm.environment.set('seller_email', `seller-${unique}@example.com`);"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and verificationToken', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('verificationToken');",
+											"});",
+											"pm.environment.set('seller_id', json.id);",
+											"pm.environment.set('seller_verification_token', json.verificationToken);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Email (Seller)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{auth_url}}/verify-email?token={{seller_verification_token}}",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"verify-email"
+									],
+									"query": [
+										{
+											"key": "token",
+											"value": "{{seller_verification_token}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Login (Seller)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{seller_email}}\",\n  \"password\": \"{{seller_password}}\"\n}"
+								},
+								"url": {
+									"raw": "{{auth_url}}/login",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"login"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('response has a Bearer token', function () {",
+											"  pm.expect(json).to.have.property('token');",
+											"  pm.expect(json.type).to.eql('Bearer');",
+											"});",
+											"pm.environment.set('seller_token', json.token);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 3. auth-service publishes user.registered/user.verified/jwt.created; products-service consumes all three (role=SELLER only) to build its own Seller record and cache the Bearer token -- see docs/architecture/overview.md's Communication section."
+				},
+				{
+					"name": "2. Product Management",
+					"item": [
+						{
+							"name": "Create Product",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{seller_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{seller_id}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"name\": \"Mechanical Keyboard\",\n  \"description\": \"Hot-swappable, brown switches\",\n  \"price\": 249.90,\n  \"initialStock\": 10\n}"
+								},
+								"url": {
+									"raw": "{{products_url}}/createProduct",
+									"host": [
+										"{{products_url}}"
+									],
+									"path": [
+										"createProduct"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and active seller', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json.active).to.eql(true);",
+											"});",
+											"pm.environment.set('product_id', json.id);",
+											"pm.environment.set('product_price', json.price);",
+											"pm.environment.set('product_initial_stock', '10');"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Inventory Created",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{inventory_url}}/inventory/{{product_id}}",
+									"host": [
+										"{{inventory_url}}"
+									],
+									"path": [
+										"inventory",
+										"{{product_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_inventory_created')) { pm.environment.set('_retry_inventory_created', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 8;",
+											"let retries = parseInt(pm.environment.get('_retry_inventory_created') || '0');",
+											"const ok = pm.response.code === 200;",
+											"if (ok || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_inventory_created', '0');",
+											"  pm.test('inventory row exists for the new product', function () { pm.response.to.have.status(200); });",
+											"  const json = pm.response.json();",
+											"  pm.test('quantity matches initialStock', function () {",
+											"    pm.expect(json.quantity).to.eql(parseInt(pm.environment.get('product_initial_stock')));",
+											"  });",
+											"} else {",
+											"  pm.environment.set('_retry_inventory_created', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 4. products-service publishes product.created on product.exchange; inventory-service consumes it and creates the inventory row asynchronously -- the retry loop on 'Verify Inventory Created' gives that a few seconds if needed, exactly like the walkthrough's own wait-then-check pattern."
+				},
+				{
+					"name": "3. Buyer Onboarding",
+					"item": [
+						{
+							"name": "Signup (Buyer)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\",\n  \"firstName\": \"Bea\",\n  \"lastName\": \"Buyer\",\n  \"role\": \"BUYER\"\n}"
+								},
+								"url": {
+									"raw": "{{auth_url}}/signup",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"signup"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;",
+											"pm.environment.set('buyer_email', `buyer-${unique}@example.com`);"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id and verificationToken', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('verificationToken');",
+											"});",
+											"pm.environment.set('buyer_id', json.id);",
+											"pm.environment.set('buyer_verification_token', json.verificationToken);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Email (Buyer)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{auth_url}}/verify-email?token={{buyer_verification_token}}",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"verify-email"
+									],
+									"query": [
+										{
+											"key": "token",
+											"value": "{{buyer_verification_token}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('status is ACTIVE', function () { pm.expect(json.status).to.eql('ACTIVE'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Login (Buyer)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\"\n}"
+								},
+								"url": {
+									"raw": "{{auth_url}}/login",
+									"host": [
+										"{{auth_url}}"
+									],
+									"path": [
+										"login"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('response has a Bearer token', function () {",
+											"  pm.expect(json).to.have.property('token');",
+											"  pm.expect(json.type).to.eql('Bearer');",
+											"});",
+											"pm.environment.set('buyer_token', json.token);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 5. The same jwt.created broadcast is now also consumed by orders-service and billing-service (products-service ignores it -- role is BUYER, not SELLER). orders-service additionally creates a local Buyer record for this user, which is why no separate 'register with orders-service' step exists."
+				},
+				{
+					"name": "4. Order Creation",
+					"item": [
+						{
+							"name": "Create Order",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"items\": [\n    { \"productId\": \"{{product_id}}\", \"quantity\": 2, \"unitPrice\": {{product_price}} }\n  ]\n}"
+								},
+								"url": {
+									"raw": "{{orders_url}}/createOrder",
+									"host": [
+										"{{orders_url}}"
+									],
+									"path": [
+										"createOrder"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"const json = pm.response.json();",
+											"pm.test('response has id, state and totalAmount', function () {",
+											"  pm.expect(json).to.have.property('id');",
+											"  pm.expect(json).to.have.property('state');",
+											"  pm.expect(json).to.have.property('totalAmount');",
+											"});",
+											"pm.environment.set('order_id', json.id);",
+											"pm.environment.set('order_quantity', '2');",
+											"pm.environment.set('order_total_amount', json.totalAmount);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 6. This single call triggers two publishes from orders-service: OrderCreatedEvent (order.created) and ReserveStockCommand (stock.reserve) -- both on order.exchange, confirmed in OrderService.java. The order starts in PROCESSING; reservation resolves asynchronously (see the next folder)."
+				},
+				{
+					"name": "5. Stock Reservation",
+					"item": [
+						{
+							"name": "Verify Order State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"url": {
+									"raw": "{{orders_url}}/{{order_id}}",
+									"host": [
+										"{{orders_url}}"
+									],
+									"path": [
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_order_state')) { pm.environment.set('_retry_order_state', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 15;",
+											"let retries = parseInt(pm.environment.get('_retry_order_state') || '0');",
+											"let json = {};",
+											"try { json = pm.response.json(); } catch (e) { json = {}; }",
+											"const terminal = ['INVENTORY_RESERVED', 'INVENTORY_FAILED'];",
+											"const settled = pm.response.code === 200 && terminal.includes(json.state);",
+											"if (settled || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_order_state', '0');",
+											"  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"  pm.test('order reached a terminal reservation state', function () {",
+											"    pm.expect(terminal).to.include(json.state);",
+											"  });",
+											"  pm.test('order reached INVENTORY_RESERVED (sufficient stock)', function () {",
+											"    pm.expect(json.state).to.eql('INVENTORY_RESERVED');",
+											"  });",
+											"} else {",
+											"  pm.environment.set('_retry_order_state', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Inventory Reserved",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{inventory_url}}/inventory/{{product_id}}",
+									"host": [
+										"{{inventory_url}}"
+									],
+									"path": [
+										"inventory",
+										"{{product_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('reserved count reflects the order quantity', function () {",
+											"  pm.expect(json.reserved).to.be.at.least(parseInt(pm.environment.get('order_quantity')));",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 7. inventory-service consumes stock.reserve and writes its outcome (stock.reserved/stock.insufficient) through its Outbox in the same Postgres transaction as the reservation (ADR-0007); orders-service consumes that outcome and drives its state machine. 'Verify Order State' polls with a bounded retry loop since this hop is asynchronous -- set a small delay between requests in the Collection Runner (see postman/README.md) so it doesn't hammer the server."
+				},
+				{
+					"name": "6. Payment",
+					"item": [
+						{
+							"name": "Verify Payment Created",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{billing_url}}/api/payments/order/{{order_id}}",
+									"host": [
+										"{{billing_url}}"
+									],
+									"path": [
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"if (!pm.environment.get('_retry_payment')) { pm.environment.set('_retry_payment', '0'); }"
+										],
+										"type": "text/javascript"
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"const maxRetries = 10;",
+											"let retries = parseInt(pm.environment.get('_retry_payment') || '0');",
+											"const ok = pm.response.code === 200;",
+											"if (ok || retries >= maxRetries) {",
+											"  pm.environment.set('_retry_payment', '0');",
+											"  pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"  pm.test('Content-Type is JSON', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'); });",
+											"  const json = pm.response.json();",
+											"  pm.test('response has id, orderId and status', function () {",
+											"    pm.expect(json).to.have.property('id');",
+											"    pm.expect(json.orderId).to.eql(pm.environment.get('order_id'));",
+											"    pm.expect(json).to.have.property('status');",
+											"  });",
+											"  pm.test('payment starts PENDING', function () { pm.expect(json.status).to.eql('PENDING'); });",
+											"  pm.environment.set('payment_id', json.id);",
+											"} else {",
+											"  pm.environment.set('_retry_payment', String(retries + 1));",
+											"  pm.execution.setNextRequest(pm.info.requestName);",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Verify Payment Requires Auth (negative check)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{billing_url}}/api/payments/order/{{order_id}}",
+									"host": [
+										"{{billing_url}}"
+									],
+									"path": [
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 403 without a token', function () { pm.response.to.have.status(403); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 8. billing-service consumes order.created and creates a Payment; it authenticates via the same JWT broadcast cache as products-service/orders-service (ADR-0015) -- the buyer's own token from folder 3 works here too, no separate billing login. The negative check mirrors the walkthrough's own 403-without-token confirmation."
+				},
+				{
+					"name": "7. Notification (limitation: no public API)",
+					"item": [
+						{
+							"name": "Notification Service Reachable",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{notification_url}}/health",
+									"host": [
+										"{{notification_url}}"
+									],
+									"path": [
+										"health"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "notification-service consumes the same order.created event and persists a notification row, but exposes no public API to read it back (only GET /health) -- see docs/walkthrough.md step 9 and the README Roadmap. This collection cannot verify the persisted notification without breaking the 'public APIs only' constraint this etapa was scoped to; the request above only confirms the service was reachable during this run. To inspect the actual row, run the optional direct Postgres query documented in docs/walkthrough.md step 9."
+				},
+				{
+					"name": "8. Final State",
+					"item": [
+						{
+							"name": "Final Order State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									},
+									{
+										"key": "X-User-Id",
+										"value": "{{buyer_id}}"
+									}
+								],
+								"url": {
+									"raw": "{{orders_url}}/{{order_id}}",
+									"host": [
+										"{{orders_url}}"
+									],
+									"path": [
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('order is INVENTORY_RESERVED', function () { pm.expect(json.state).to.eql('INVENTORY_RESERVED'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "Final Payment State",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{billing_url}}/api/payments/order/{{order_id}}",
+									"host": [
+										"{{billing_url}}"
+									],
+									"path": [
+										"api",
+										"payments",
+										"order",
+										"{{order_id}}"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('payment status is present', function () { pm.expect(json).to.have.property('status'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 10 -- a final read-only confirmation of the end-to-end result, re-using the same two endpoints already exercised above."
+				},
+				{
+					"name": "9. Extras — Beyond the Walkthrough (optional)",
+					"item": [
+						{
+							"name": "Process Payment (Simulation)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{billing_url}}/api/payments/process?orderId={{order_id}}&amount={{order_total_amount}}",
+									"host": [
+										"{{billing_url}}"
+									],
+									"path": [
+										"api",
+										"payments",
+										"process"
+									],
+									"query": [
+										{
+											"key": "orderId",
+											"value": "{{order_id}}"
+										},
+										{
+											"key": "amount",
+											"value": "{{order_total_amount}}"
+										}
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('payment reaches a terminal status', function () {",
+											"  pm.expect(['APPROVED', 'FAILED']).to.include(json.status);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						}
+					],
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. Outcome is a random ~90% approval simulation (PaymentService.java), so this request intentionally accepts either APPROVED or FAILED rather than asserting one."
+				}
+			]
+		}
+	]
 }

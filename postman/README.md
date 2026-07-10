@@ -31,14 +31,36 @@ variable (emails, IDs, tokens, retry counters) starts empty and is
 populated automatically while the collection runs — you never need to
 copy a value by hand.
 
+## Two parallel folder trees
+
+The collection has two top-level folders, both covering the same flow:
+
+- **`Via Gateway (primary)`** — every request goes through the Gateway
+  (`gateway_url`, port 8080), using each service's own self-namespaced
+  segment (`/auth`, `/products`, `/orders`, `/billing`, `/inventory`).
+  The Gateway forwards the path unchanged (ADR-0025), so this is
+  functionally identical to calling each service directly — this is now
+  the primary way to run the walkthrough, matching
+  [`docs/walkthrough.md`](../docs/walkthrough.md).
+- **`Direct (debug)`** — the original per-service requests, unchanged,
+  calling each service's own port directly. Useful for isolating whether
+  a failure belongs to a service or to the Gateway's routing, without
+  needing to reason about an extra hop.
+- `notification-service` has no Gateway route yet (see the README
+  Roadmap), so its folder only exists under `Direct (debug)`.
+
+Both trees share the same variables, retry loops, and assertions — pick
+whichever folder matches what you're trying to verify.
+
 ## Run the flow
 
-Use Postman's **Collection Runner** against the whole collection, top to
-bottom:
+Use Postman's **Collection Runner** against **`Via Gateway (primary)`**,
+top to bottom (or `Direct (debug)` if you're isolating a per-service
+issue):
 
 1. Start the stack first: `docker-compose up -d` (see the main README).
-2. Open the Collection Runner, select **EasyDora** + the **Local**
-   environment.
+2. Open the Collection Runner, select **EasyDora**, the folder you want
+   to run, and the **Local** environment.
 3. Set a small delay between requests (500–1000ms) in the Runner's
    settings. This isn't strictly required — the retry loops described
    below will still eventually succeed without it — but it avoids
@@ -47,7 +69,7 @@ bottom:
    generated uniquely on each run (via a pre-request script), so the
    whole collection can be re-run repeatedly without resetting anything.
 
-### Folder order
+### Folder order (within either tree)
 
 | # | Folder | Mirrors walkthrough step |
 |---|---|---|
@@ -58,7 +80,7 @@ bottom:
 | 4 | Order Creation | step 6 |
 | 5 | Stock Reservation | step 7 |
 | 6 | Payment | step 8 |
-| 7 | Notification (limitation: no public API) | step 9 |
+| 7 | Notification (limitation: no public API; `Direct (debug)` only) | step 9 |
 | 8 | Final State | step 10 |
 | 9 | Extras — Beyond the Walkthrough (optional) | — |
 
