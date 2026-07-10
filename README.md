@@ -265,61 +265,36 @@ The stack split is deliberate:
 <details>
 <summary>Click to expand — closed items marked <code>[x]</code>, open items <code>[ ]</code></summary>
 
-- [x] Notification service (FastAPI + RabbitMQ consumer): consumes
-      `order.created`, enriches via a real HTTP call to a new minimal
-      auth-service endpoint, persists an observable notification in a new
-      `notification_schema` — see
-      [ADR-0014](docs/adr/0014-notification-service.md).
-- [x] `order.status-changed` (`orders-service`, published on
-      `order.exchange`, see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md))
-      is now consumed by `notification-service`, the same way it already
-      consumes `order.created`. It carries no `userId` of its own, so
-      notification-service reuses the email/name already captured by that
-      order's `order.created` notification instead of a second
-      auth-service call. Every event produces its own new notification
-      row — none are ever overwritten. See
-      [ADR-0020](docs/adr/0020-notification-domain-completion.md).
-- [x] `billing-service` now publishes `payment.approved`/`payment.failed`
-      once a payment resolves; `orders-service`'s own
-      `handlePaymentReceived`/`handlePaymentFailed` (previously unreachable
-      dead-code-adjacent methods — see ADR-0001, finding 5) finally have a
-      real caller (`PaymentEventsConsumer`), driving the order into
-      `PAYMENT_APPROVED`/`PAYMENT_FAILED` and publishing
-      `order.status-changed` through the same path stock reservation
-      already used. `notification-service` required no changes to react
-      to it. See
-      [ADR-0021](docs/adr/0021-payment-outcome-integration.md).
-- [x] SvelteKit frontend: a thin, read-mostly client (login, catalog,
-      checkout, order tracking, notifications, a request-tracing panel)
-      over the API Gateway only — see
+- [x] **Opened 2025-09-24.** SvelteKit frontend: a thin, read-mostly
+      client (login, catalog, checkout, order tracking, notifications, a
+      request-tracing panel) over the API Gateway only — on the Roadmap
+      since the project's first commit, implemented 2026-07-10, see
       [ADR-0026](docs/adr/0026-frontend-thin-client.md).
-- [ ] `orders-service` has no rule preventing a `SELLER` from purchasing
-      their own product — `createOrder` never checks item ownership, and
-      `orders-service` doesn't consume `product.*` events at all today, so
-      it has no local knowledge of who owns what. Fixing this needs a new
-      consumer (`product.created` already carries `sellerId`), a new
-      `orders_schema` table, and a check in `OrderService.createOrder`.
-      Found while building the frontend's checkout flow; deliberately not
-      implemented as part of [ADR-0026](docs/adr/0026-frontend-thin-client.md).
-- [x] End-to-end integration tests across the implemented services — see CI
-      Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and
-      `notification-flow` groups).
-- [x] CI pipeline, Phase 1 (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for all seven services, no service containers
-- [x] CI pipeline, Phase 2 (`.github/workflows/ci.yml`): wiring and Outbox
-      integration tests against real Postgres/RabbitMQ service containers —
-      see [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md).
-- [x] CI pipeline, Phase 3 (`.github/workflows/ci.yml`): cross-service
-      end-to-end tests that start multiple real services as actual running
-      processes against one shared Postgres/RabbitMQ pair and drive each
-      flow through public HTTP APIs only — `catalog-onboarding`
-      (auth-service, products-service, inventory-service),
-      `order-lifecycle` (auth-service, orders-service, inventory-service,
-      billing-service) — see
-      [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) — and
-      `notification-flow` (auth-service, notification-service) — see
-      [ADR-0014](docs/adr/0014-notification-service.md).
-- [x] inventory-service (Go): Outbox Pattern implemented for stock
-      reservation — see [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
+- [x] **Opened 2026-07-04.** CI pipeline, Phase 1
+      (`.github/workflows/ci.yml`): parallel build/vet/unit-test jobs for
+      all seven services, no service containers.
+- [x] **Opened 2026-07-04.** Shared parent POM across the four Spring
+      services (auth, products, orders, billing) — see
+      [ADR-0016](docs/adr/0016-shared-spring-parent-pom.md). Also
+      standardized all four on Spring Boot 3.2.12 (previously split
+      3.2.0/3.2.12) and required moving Docker's build context to the
+      repository root for these four services.
+- [x] **Opened 2026-07-04.** api-gateway: billing-service now has a
+      circuit breaker like every other implemented entry — see ADR-0009
+      (closes the gap ADR-0006 left open the same day it was added).
+- [x] **Opened 2026-07-04.** products-service, orders-service,
+      billing-service: limited retry (3 attempts, exponential backoff)
+      plus a dead-letter exchange/queue per service, configured natively
+      via Spring Boot's `SimpleRabbitListenerContainerFactoryConfigurer`
+      and a `RepublishMessageRecoverer` — no custom retry code. Eight
+      listener methods across four consumer classes that used to swallow
+      business exceptions internally (so the container never saw a
+      failure to retry) were fixed to propagate them. `auth-service` has
+      no `@RabbitListener` at all, so was out of scope. See
+      [ADR-0019](docs/adr/0019-message-consumption-resilience.md).
+- [x] **Opened 2026-07-04.** inventory-service (Go): Outbox Pattern
+      implemented for stock reservation — see
+      [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
       `ReserveStockForOrder` writes the `stock.reserved`/`stock.insufficient`
       event to `inventory_schema.outbox_events` in the same Postgres
       transaction as the reservation itself, and a poller publishes it to
@@ -328,125 +303,164 @@ The stack split is deliberate:
       idempotent (a separate, still-open concern — see below); it only
       guarantees the reservation outcome is never silently lost once
       committed.
-- [x] products-service, orders-service, billing-service: limited retry
-      (3 attempts, exponential backoff) plus a dead-letter exchange/queue
-      per service, configured natively via Spring Boot's
-      `SimpleRabbitListenerContainerFactoryConfigurer` and a
-      `RepublishMessageRecoverer` — no custom retry code. Eight listener
-      methods across four consumer classes that used to swallow business
-      exceptions internally (so the container never saw a failure to
-      retry) were fixed to propagate them. `auth-service` has no
-      `@RabbitListener` at all, so was out of scope. See
-      [ADR-0019](docs/adr/0019-message-consumption-resilience.md).
-- [x] notification-service (Python) now has the same conceptual
-      retry/backoff/DLQ policy as the Spring services (limited retries,
-      exponential backoff, dead-lettering after the retry budget is
-      exhausted) — built natively on RabbitMQ (a retry queue with a
-      per-message TTL and `x-dead-letter-exchange` back to the original
-      exchange, then a terminal dead letter exchange/queue) since Pika has
-      no built-in retry template equivalent to Spring AMQP's. No message
-      is silently dropped or retried forever anymore. See
-      [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md).
-- [x] notification-service's RabbitMQ consumer and Postgres schema-init
-      step now both retry a failed initial connection instead of dying
-      silently — found as a real, blocking defect while validating the
-      end-to-end walkthrough against a real freshly-started stack, see
-      [ADR-0017](docs/adr/0017-notification-service-startup-resilience.md).
-      Distinct from the per-message retry/DLQ gap above: this was about
-      the consumer never even getting a chance to process *any* message.
-- [x] notification-service's lack of a versioned migration tool (no
-      Alembic equivalent to Flyway) was formally reviewed, not left as an
-      indefinite gap: `scripts/init.sql` hasn't changed once across four
-      ADRs of functional growth, and a comparison against
+- [x] **Opened 2026-07-05.** billing-service was the only service
+      protected solely by Spring Boot's default Basic Auth; it now
+      authenticates via the same Bearer JWT broadcast cache already used
+      by products-service and orders-service, fully replacing Basic Auth
+      — see [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
+      (auth-service is the producer of that broadcast, not a consumer of
+      it, and remains on `.httpBasic()` — currently unexercised, since
+      every one of its endpoints is `permitAll()`.)
+- [x] **Opened 2026-07-05.** All six services' health checks fixed and
+      unified — see [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md).
+      Started from billing-service's and orders-service's Dockerfiles
+      hard-coding port 8082 (products-service's port), which uncovered
+      two deeper bugs once the ports were corrected: every Spring
+      service's `HEALTHCHECK` targeted `/actuator/health` — a path that
+      isn't uniformly exposed or `permitAll()`-ed — instead of each
+      service's own working `/health` endpoint; and orders-service's
+      `docker-compose.yml` healthcheck override was a no-op (a
+      YAML-folding bug swallowed the real `curl` command in a shell
+      comment, so it always reported "healthy" regardless of the app's
+      actual state). Also added: a `HealthController`/`SecurityConfig`
+      for billing-service (which had neither), and a `HEALTHCHECK` for
+      auth-service, inventory-service, and api-gateway (which never had
+      one). All six services now verified `healthy` simultaneously.
+- [x] **Opened 2026-07-06.** CI pipeline, Phase 2
+      (`.github/workflows/ci.yml`): wiring and Outbox integration tests
+      against real Postgres/RabbitMQ service containers — see
+      [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md).
+- [x] **Opened 2026-07-07.** Notification service (FastAPI + RabbitMQ
+      consumer): consumes `order.created`, enriches via a real HTTP call
+      to a new minimal auth-service endpoint, persists an observable
+      notification in a new `notification_schema` — see
+      [ADR-0014](docs/adr/0014-notification-service.md).
+- [x] **Opened 2026-07-07.** CI pipeline, Phase 3
+      (`.github/workflows/ci.yml`): cross-service end-to-end tests that
+      start multiple real services as actual running processes against
+      one shared Postgres/RabbitMQ pair and drive each flow through
+      public HTTP APIs only — `catalog-onboarding` (auth-service,
+      products-service, inventory-service), `order-lifecycle`
+      (auth-service, orders-service, inventory-service, billing-service)
+      — see [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md) —
+      and `notification-flow` (auth-service, notification-service) — see
+      [ADR-0014](docs/adr/0014-notification-service.md).
+- [x] **Opened 2026-07-07.** End-to-end integration tests across the
+      implemented services — see CI Phase 3 above (`catalog-onboarding`,
+      `order-lifecycle`, and `notification-flow` groups).
+- [x] **Opened 2026-07-07.** notification-service's lack of a versioned
+      migration tool (no Alembic equivalent to Flyway) — a gap inherent
+      since the service's own creation — was formally reviewed, not left
+      as an indefinite gap: `scripts/init.sql` hasn't changed once across
+      four ADRs of functional growth, and a comparison against
       inventory-service (whose own idempotent init.sql *has* evolved
       twice, safely, with no versioned tool) shows the current approach
       has headroom beyond what notification-service has needed so far.
       Decision kept as-is, with concrete criteria for reopening it if the
       schema outgrows this approach — see
       [ADR-0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md).
-- [x] auth-service's `SecurityConfig` was missing `.httpBasic(...)` (the same
-      defect class ADR-0013 found and fixed in billing-service) — fixed,
-      see [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
-- [x] api-gateway: billing-service now has a circuit breaker like every
-      other implemented entry — see ADR-0009 (closes the gap ADR-0006 left
-      open).
-- [x] All six services' health checks fixed and unified — see
-      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md). Started
-      from billing-service's and orders-service's Dockerfiles hard-coding
-      port 8082 (products-service's port), which uncovered two deeper bugs
-      once the ports were corrected: every Spring service's `HEALTHCHECK`
-      targeted `/actuator/health` — a path that isn't uniformly exposed or
-      `permitAll()`-ed — instead of each service's own working `/health`
-      endpoint; and orders-service's `docker-compose.yml` healthcheck
-      override was a no-op (a YAML-folding bug swallowed the real `curl`
-      command in a shell comment, so it always reported "healthy"
-      regardless of the app's actual state). Also added: a
-      `HealthController`/`SecurityConfig` for billing-service (which had
-      neither), and a `HEALTHCHECK` for auth-service, inventory-service, and
-      api-gateway (which never had one). All six services now verified
-      `healthy` simultaneously.
-- [x] billing-service was the only service protected solely by Spring
-      Boot's default Basic Auth; it now authenticates via the same Bearer
-      JWT broadcast cache already used by products-service and
-      orders-service, fully replacing Basic Auth — see
+- [x] **Opened 2026-07-07.** auth-service's `SecurityConfig` was missing
+      `.httpBasic(...)` (the same defect class ADR-0013 found and fixed
+      in billing-service) — fixed, see
       [ADR-0015](docs/adr/0015-billing-service-jwt-and-auth-securityconfig-fix.md).
-      (auth-service is the producer of that broadcast, not a consumer of
-      it, and remains on `.httpBasic()` — currently unexercised, since
-      every one of its endpoints is `permitAll()`.)
-- [x] Shared parent POM across the four Spring services (auth, products,
-      orders, billing) — see
-      [ADR-0016](docs/adr/0016-shared-spring-parent-pom.md). Also
-      standardized all four on Spring Boot 3.2.12 (previously split
-      3.2.0/3.2.12) and required moving Docker's build context to the
-      repository root for these four services.
-- [x] `inventory-service/internal/handlers/http_handlers.go` (the dead
-      `InventoryHandler` struct built on gin, never referenced by
-      `main.go`'s real `net/http.HandleFunc` routes) has been deleted, and
-      the now-unused `gin-gonic/gin` dependency removed from `go.mod`/
-      `go.sum` via `go mod tidy`. `net/http` already covered every route
-      this service serves, so there was no missing behavior to migrate —
-      removal, not a migration.
-- [x] notification-service now has a minimal, read-only public API —
-      `GET /notifications/{orderId}` — mirroring the same "smallest
-      endpoint for the use case" principle ADR-0014 already applied to
-      auth-service's `notification-profile` endpoint. Closes the gap that
-      previously made step 9 of [docs/walkthrough.md](docs/walkthrough.md)
-      the one step in that walkthrough requiring direct Postgres access;
-      no direct database query is needed anywhere in that walkthrough
-      anymore.
-- [x] `products-service`'s `UserEventConsumer.handleUserVerified` no
-      longer assumes a `Seller` row exists for every verified user.
-      `auth-service` publishes `user.verified` as a bare userId with no
-      role field (unlike `user.registered`/`jwt.created`, which carry a
-      role `handleUserRegistered`/`handleJwtCreated` filter on via
+- [x] **Opened 2026-07-08.** `inventory-service/internal/handlers/http_handlers.go`
+      (the dead `InventoryHandler` struct built on gin, never referenced
+      by `main.go`'s real `net/http.HandleFunc` routes) has been deleted,
+      and the now-unused `gin-gonic/gin` dependency removed from
+      `go.mod`/`go.sum` via `go mod tidy`. `net/http` already covered
+      every route this service serves, so there was no missing behavior
+      to migrate — removal, not a migration.
+- [x] **Opened 2026-07-08.** `products-service`'s
+      `UserEventConsumer.handleUserVerified` no longer assumes a `Seller`
+      row exists for every verified user. `auth-service` publishes
+      `user.verified` as a bare userId with no role field (unlike
+      `user.registered`/`jwt.created`, which carry a role
+      `handleUserRegistered`/`handleJwtCreated` filter on via
       `isSeller()`), so a `BUYER`'s verification reaches this queue too —
       previously dead-lettered as `Seller not found` (found while
       validating [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md)).
       Now treats "no matching Seller" as an expected, silent no-op instead
       of an exception.
-- [x] Distributed tracing via propagated CorrelationId/RequestId/MessageId
-      across HTTP and RabbitMQ, in a consistent structured logfmt format
-      across all seven services — see
-      [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)
+- [x] **Opened 2026-07-08.** `order.status-changed` (`orders-service`,
+      published on `order.exchange`, see
+      [ADR-0001](docs/adr/0001-messaging-wiring-audit.md)) is now
+      consumed by `notification-service`, the same way it already
+      consumes `order.created`. It carries no `userId` of its own, so
+      notification-service reuses the email/name already captured by that
+      order's `order.created` notification instead of a second
+      auth-service call. Every event produces its own new notification
+      row — none are ever overwritten. See
+      [ADR-0020](docs/adr/0020-notification-domain-completion.md).
+- [x] **Opened 2026-07-08.** notification-service now has a minimal,
+      read-only public API — `GET /notifications/{orderId}` — mirroring
+      the same "smallest endpoint for the use case" principle ADR-0014
+      already applied to auth-service's `notification-profile` endpoint.
+      Closes the gap that previously made step 9 of
+      [docs/walkthrough.md](docs/walkthrough.md) the one step in that
+      walkthrough requiring direct Postgres access; no direct database
+      query is needed anywhere in that walkthrough anymore. Same
+      [ADR-0020](docs/adr/0020-notification-domain-completion.md) as the
+      item above.
+- [x] **Opened 2026-07-08.** `billing-service` now publishes
+      `payment.approved`/`payment.failed` once a payment resolves;
+      `orders-service`'s own `handlePaymentReceived`/`handlePaymentFailed`
+      (previously unreachable dead-code-adjacent methods — see ADR-0001,
+      finding 5) finally have a real caller (`PaymentEventsConsumer`),
+      driving the order into `PAYMENT_APPROVED`/`PAYMENT_FAILED` and
+      publishing `order.status-changed` through the same path stock
+      reservation already used. `notification-service` required no
+      changes to react to it. See
+      [ADR-0021](docs/adr/0021-payment-outcome-integration.md).
+- [x] **Opened 2026-07-08.** notification-service (Python) now has the
+      same conceptual retry/backoff/DLQ policy as the Spring services
+      (limited retries, exponential backoff, dead-lettering after the
+      retry budget is exhausted) — built natively on RabbitMQ (a retry
+      queue with a per-message TTL and `x-dead-letter-exchange` back to
+      the original exchange, then a terminal dead letter exchange/queue)
+      since Pika has no built-in retry template equivalent to Spring
+      AMQP's. No message is silently dropped or retried forever anymore.
+      See [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md).
+- [x] **Opened 2026-07-08.** notification-service's RabbitMQ consumer and
+      Postgres schema-init step now both retry a failed initial
+      connection instead of dying silently — found as a real, blocking
+      defect while validating the end-to-end walkthrough against a real
+      freshly-started stack, see
+      [ADR-0017](docs/adr/0017-notification-service-startup-resilience.md).
+      Distinct from the per-message retry/DLQ gap above: this was about
+      the consumer never even getting a chance to process *any* message.
+- [x] **Opened 2026-07-09.** Distributed tracing via propagated
+      CorrelationId/RequestId/MessageId across HTTP and RabbitMQ, in a
+      consistent structured logfmt format across all seven services —
+      see [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)
       and [docs/architecture/observability.md](docs/architecture/observability.md).
-- [x] `api-gateway`'s reverse proxy no longer strips the service prefix
-      before forwarding — it forwards the incoming path unchanged, and
-      every service (`auth-service`, `products-service`, `orders-service`,
-      `billing-service` via `server.servlet.context-path`;
-      `inventory-service` already this way) is self-namespaced under its
-      own Gateway segment. Closes the `inventory-service` 404 found while
-      live-validating ADR-0024's CorrelationId propagation through the
-      gateway. See
+- [x] **Opened 2026-07-09.** `api-gateway`'s reverse proxy no longer
+      strips the service prefix before forwarding — it forwards the
+      incoming path unchanged, and every service (`auth-service`,
+      `products-service`, `orders-service`, `billing-service` via
+      `server.servlet.context-path`; `inventory-service` already this
+      way) is self-namespaced under its own Gateway segment. Closes the
+      `inventory-service` 404 found while live-validating ADR-0024's
+      CorrelationId propagation through the gateway. See
       [ADR-0025](docs/adr/0025-gateway-transparent-routing.md).
-- [x] `notification-service` now has a Gateway route
-      (`/notification`, self-namespaced the same way as the other five
-      services) — closes the one gap ADR-0025 explicitly left open. Found
-      building the frontend: CORS was wired but shadowed by Spring Security
-      in two services and entirely missing in four; `products-service`'s
-      JWT filter terminated requests before a `permitAll()` catalog
-      endpoint could ever be reached by a buyer's token; and the Gateway
-      echoed `X-Correlation-Id`/`X-Request-Id` twice under one header. All
-      fixed — see [ADR-0026](docs/adr/0026-frontend-thin-client.md).
+- [x] **Opened 2026-07-09.** `notification-service` now has a Gateway
+      route (`/notification`, self-namespaced the same way as the other
+      five services) — closes the gap ADR-0025 explicitly left open the
+      same day it was found. Found building the frontend: CORS was wired
+      but shadowed by Spring Security in two services and entirely
+      missing in four; `products-service`'s JWT filter terminated
+      requests before a `permitAll()` catalog endpoint could ever be
+      reached by a buyer's token; and the Gateway echoed
+      `X-Correlation-Id`/`X-Request-Id` twice under one header. All fixed
+      — see [ADR-0026](docs/adr/0026-frontend-thin-client.md).
+- [ ] **Opened 2026-07-10.** `orders-service` has no rule preventing a
+      `SELLER` from purchasing their own product — `createOrder` never
+      checks item ownership, and `orders-service` doesn't consume
+      `product.*` events at all today, so it has no local knowledge of
+      who owns what. Fixing this needs a new consumer (`product.created`
+      already carries `sellerId`), a new `orders_schema` table, and a
+      check in `OrderService.createOrder`. Found while building the
+      frontend's checkout flow; deliberately not implemented as part of
+      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
 
 </details>
 
