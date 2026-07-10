@@ -8,7 +8,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -122,9 +121,7 @@ class CatalogOnboardingE2ETest extends E2ETestSupport {
                 "description", "created by CatalogOnboardingE2ETest",
                 "price", 19.99,
                 "initialStock", 42);
-        Map<String, String> productHeaders = new HashMap<>(bearer(token));
-        productHeaders.put("X-User-Id", sellerId);
-        HttpResponse<String> productResponse = postJson(PRODUCTS_URL, "/products/createProduct", productBody, productHeaders);
+        HttpResponse<String> productResponse = postJson(PRODUCTS_URL, "/products/createProduct", productBody, bearer(token));
         assertEquals(200, productResponse.statusCode(), "product creation should succeed: " + productResponse.body());
         String productId = String.valueOf(parse(productResponse.body()).get("id"));
 

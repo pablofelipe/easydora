@@ -1,10 +1,12 @@
 package com.easydora.orders.controller;
 
+import com.easydora.orders.config.JwtAuthenticationFilter.JwtUserInfo;
 import com.easydora.orders.dto.OrderRequest;
 import com.easydora.orders.dto.OrderResponse;
 import com.easydora.orders.service.OrderService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -40,31 +42,31 @@ public class OrderController {
     @PostMapping("/createOrder")
     public ResponseEntity<OrderResponse> createOrder(
             @Valid @RequestBody OrderRequest request,
-            @RequestHeader("X-User-Id") Long userId) {
-        OrderResponse response = orderService.createOrder(request, userId);
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        OrderResponse response = orderService.createOrder(request, principal.getUserId());
         return ResponseEntity.ok(response);
     }
-    
+
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderResponse> getOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Id") Long userId) {
-        OrderResponse response = orderService.getOrder(orderId, userId);
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        OrderResponse response = orderService.getOrder(orderId, principal.getUserId());
         return ResponseEntity.ok(response);
     }
-    
+
     @GetMapping("/user")
     public ResponseEntity<List<OrderResponse>> getUserOrders(
-            @RequestHeader("X-User-Id") Long userId) {
-        List<OrderResponse> orders = orderService.getUserOrders(userId);
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        List<OrderResponse> orders = orderService.getUserOrders(principal.getUserId());
         return ResponseEntity.ok(orders);
     }
-    
+
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<OrderResponse> cancelOrder(
             @PathVariable String orderId,
-            @RequestHeader("X-User-Id") Long userId) {
-        OrderResponse response = orderService.cancelOrder(orderId, userId);
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        OrderResponse response = orderService.cancelOrder(orderId, principal.getUserId());
         return ResponseEntity.ok(response);
     }
 }

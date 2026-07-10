@@ -8,7 +8,6 @@ import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -64,7 +63,6 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
         HttpResponse<String> signupResponse = postJson(AUTH_URL, "/auth/signup", signupBody, Map.of());
         assertEquals(201, signupResponse.statusCode(), "signup should succeed: " + signupResponse.body());
         Map<String, Object> signup = parse(signupResponse.body());
-        String buyerId = String.valueOf(((Number) signup.get("id")).longValue());
         String verificationToken = (String) signup.get("verificationToken");
         assertNotNull(verificationToken, "signup response should include a verification token");
 
@@ -85,16 +83,15 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
         seedInventory(sufficientProductId, 10);
         seedInventory(insufficientProductId, 1);
 
-        Map<String, String> buyerHeaders = new HashMap<>(bearer(token));
-        buyerHeaders.put("X-User-Id", buyerId);
+        Map<String, String> buyerHeaders = bearer(token);
 
         // --- Order 1: enough stock -> real ReserveStockCommand -> real
         // stock.reserved -> orders-service moves it to INVENTORY_RESERVED
         // (Stock Reserved -> Orders). The same createOrder call also
         // publishes a real order.created (Order Created -> Billing). The
-        // real JwtAuthenticationFilter/X-User-Id combination this call
-        // depends on can only succeed because of the real Auth -> Orders
-        // fan-out above -- there is no other way to reach a real Buyer. ---
+        // buyer identity orders-service uses here comes from the JWT
+        // principal alone -- there is no other way to reach a real Buyer,
+        // since the Auth -> Orders fan-out above is what created it. ---
         String reservedOrderId = createOrder(buyerHeaders, sufficientProductId, 2);
         String reservedState = awaitOrderState(buyerHeaders, reservedOrderId);
         assertEquals("INVENTORY_RESERVED", reservedState,

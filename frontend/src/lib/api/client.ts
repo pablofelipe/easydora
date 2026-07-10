@@ -21,11 +21,9 @@ interface RequestOptions {
 	method?: string;
 	body?: unknown;
 	query?: Record<string, string | number | undefined>;
-	/** Most endpoints in this project need both Authorization and
-	 * X-User-Id (the backend does not derive userId from the JWT itself --
-	 * see auth-service/orders-service/products-service controllers, which
-	 * all take X-User-Id as an explicit header). Set to false only for the
-	 * unauthenticated /auth/login call. */
+	/** Most endpoints need Authorization -- the backend derives identity
+	 * exclusively from the JWT principal, never from a client-supplied
+	 * header. Set to false only for the unauthenticated /auth/login call. */
 	authenticated?: boolean;
 }
 
@@ -46,7 +44,6 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 	if (authenticated && session) {
 		headers['Authorization'] = `Bearer ${session.token}`;
-		headers['X-User-Id'] = String(session.userId);
 	}
 
 	const url = buildUrl(path, query);

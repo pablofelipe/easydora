@@ -1,10 +1,12 @@
 package com.easydora.products.controller;
 
+import com.easydora.products.config.JwtAuthenticationFilter.JwtUserInfo;
 import com.easydora.products.dto.ProductRequest;
 import com.easydora.products.dto.ProductResponse;
 import com.easydora.products.service.ProductService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -47,8 +49,9 @@ public class ProductController {
     @PostMapping("/createProduct")
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody ProductRequest request,
-            @RequestHeader("X-User-Id") String sellerId) {
+            @AuthenticationPrincipal JwtUserInfo principal) {
 
+        String sellerId = principal.getUserId().toString();
         logger.info("Received createProduct request - Seller: {}, Product: {}", sellerId, request.getName());
         logger.info("Request body: {}", request);
 
@@ -82,7 +85,8 @@ public class ProductController {
     }
     
     @GetMapping("/my-products")
-    public ResponseEntity<List<ProductResponse>> getMyProducts(@RequestHeader("X-User-Id") String sellerId) {
+    public ResponseEntity<List<ProductResponse>> getMyProducts(@AuthenticationPrincipal JwtUserInfo principal) {
+        String sellerId = principal.getUserId().toString();
         logger.info("Fetching products for current seller: {}", sellerId);
         List<ProductResponse> products = productService.getProductsBySeller(sellerId);
         logger.info("Found {} products for current seller", products.size());
@@ -93,8 +97,9 @@ public class ProductController {
     public ResponseEntity<ProductResponse> updateProduct(
             @PathVariable String id,
             @Valid @RequestBody ProductRequest request,
-            @RequestHeader("X-User-Id") String sellerId) {
-        
+            @AuthenticationPrincipal JwtUserInfo principal) {
+
+        String sellerId = principal.getUserId().toString();
         logger.info("Updating product {} for seller {}", id, sellerId);
         ProductResponse response = productService.updateProduct(id, request, sellerId);
         logger.info("Product {} updated successfully", id);
@@ -104,8 +109,9 @@ public class ProductController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProduct(
             @PathVariable String id,
-            @RequestHeader("X-User-Id") String sellerId) {
-        
+            @AuthenticationPrincipal JwtUserInfo principal) {
+
+        String sellerId = principal.getUserId().toString();
         logger.info("Deleting product {} for seller {}", id, sellerId);
         productService.deleteProduct(id, sellerId);
         logger.info("Product {} deleted successfully", id);
