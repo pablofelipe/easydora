@@ -397,5 +397,21 @@ The stack split is deliberate:
       validating [ADR-0022](docs/adr/0022-notification-service-consumption-resilience.md)).
       Now treats "no matching Seller" as an expected, silent no-op instead
       of an exception.
+- [x] Distributed tracing via propagated CorrelationId/RequestId/MessageId
+      across HTTP and RabbitMQ, in a consistent structured logfmt format
+      across all seven services — see
+      [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)
+      and [docs/architecture/observability.md](docs/architecture/observability.md).
+- [ ] `api-gateway`'s reverse proxy strips the service prefix before
+      forwarding (e.g. `/inventory/{id}` becomes `{id}` on the upstream
+      request), but `inventory-service`'s own routes are themselves
+      namespaced under `/inventory` (`GET /inventory/{productId}`) — so a
+      request routed through the gateway 404s where the same call made
+      directly against port 8083 succeeds. Found while live-validating
+      ADR-0024's CorrelationId propagation through the gateway; out of
+      scope for that work (unrelated to tracing) and left unfixed. Every
+      other implemented route happens to work today only because those
+      services' own routes aren't self-namespaced the same way
+      inventory-service's are.
 
 </details>
