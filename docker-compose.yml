@@ -72,7 +72,6 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - JWT_SECRET=${JWT_SECRET}
       - APP_JWT_SECRET=${APP_JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
@@ -100,7 +99,6 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
@@ -127,7 +125,6 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
@@ -182,7 +179,6 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/easydora
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - JWT_SECRET=${JWT_SECRET}
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_RABBITMQ_HOST=rabbitmq
