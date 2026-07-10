@@ -56,7 +56,7 @@ class PaymentControllerSecurityTest {
 
     @Test
     void acceptsRequestWithAValidCachedToken() throws Exception {
-        when(paymentService.findAll()).thenReturn(List.of());
+        when(paymentService.findAllForUser(1L)).thenReturn(List.of());
         jwtAuthenticationFilter.addValidToken("tok-1",
                 new JwtAuthenticationFilter.JwtUserInfo(1L, "buyer@example.com", "Ana", "Silva", "BUYER"));
 

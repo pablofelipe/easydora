@@ -91,8 +91,8 @@ public class PaymentService {
             .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
     }
     
-    public List<PaymentDTO> findAll() {
-        return paymentRepository.findAll().stream()
+    public List<PaymentDTO> findAllForUser(Long userId) {
+        return paymentRepository.findByUserId(userId).stream()
             .map(this::convertToDTO)
             .collect(Collectors.toList());
     }
