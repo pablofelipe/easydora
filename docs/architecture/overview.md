@@ -14,7 +14,7 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **auth-service** | Identity: accounts, credentials, JWT issuance | `user.registered`, `user.verified`, `jwt.created` | — |
 | **products-service** | Catalog: sellers and products | `product.created`, `product.updated`, `product.deleted` | `user.registered`, `user.verified`, `jwt.created` (role `SELLER` only) |
 | **inventory-service** | Stock: quantity and reservation per product | `stock.reserved`, `stock.insufficient` | `product.created`/`updated`/`deleted`, `stock.reserve`, `stock.release` |
-| **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed` |
+| **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed`, `product.created` |
 | **billing-service** | Payment: simulated processing per order | `payment.approved`, `payment.failed` | `jwt.created`, `order.created` |
 | **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
@@ -98,6 +98,7 @@ is documented separately in
 | `auth.exchange` | `user.verified` | auth-service | products-service (SELLER only), orders-service |
 | `auth.exchange` | `jwt.created` | auth-service | products-service (SELLER only), orders-service, billing-service |
 | `product.exchange` | `product.created` / `product.updated` / `product.deleted` | products-service | inventory-service |
+| `product.exchange` | `product.created` | products-service | orders-service (ownership projection only — see [ADR-0026](../adr/0026-frontend-thin-client.md)'s Roadmap follow-up) |
 | `order.exchange` | `stock.reserve` | orders-service | inventory-service |
 | `order.exchange` | `stock.release` | orders-service | inventory-service |
 | `order.exchange` | `stock.reserved` | inventory-service | orders-service |

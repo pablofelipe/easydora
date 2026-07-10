@@ -425,15 +425,18 @@ The stack split is deliberate:
       reached by a buyer's token; and the Gateway echoed
       `X-Correlation-Id`/`X-Request-Id` twice under one header. All fixed
       — see [ADR-0026](docs/adr/0026-frontend-thin-client.md).
-- [ ] **Opened 2026-07-10.** `orders-service` has no rule preventing a
-      `SELLER` from purchasing their own product — `createOrder` never
-      checks item ownership, and `orders-service` doesn't consume
-      `product.*` events at all today, so it has no local knowledge of
-      who owns what. Fixing this needs a new consumer (`product.created`
-      already carries `sellerId`), a new `orders_schema` table, and a
-      check in `OrderService.createOrder`. Found while building the
-      frontend's checkout flow; deliberately not implemented as part of
-      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
+- [x] **Opened 2026-07-10.** `orders-service` now rejects a `SELLER`
+      buying their own product (`400 Bad Request`, "Cannot purchase your
+      own product") — a `SELLER` can still buy normally, including other
+      sellers' products, and a `BUYER` is unaffected either way. A new
+      consumer builds a minimal `orders_schema.product_ownership`
+      (`product_id`, `seller_id` — nothing else) from `product.created`,
+      the same event-projection pattern `inventory-service` already uses;
+      no synchronous call to products-service was added. Found while
+      building the frontend's checkout flow, deliberately not implemented
+      as part of [ADR-0026](docs/adr/0026-frontend-thin-client.md); closed
+      the same day as a natural domain evolution, not a new architectural
+      decision — no new ADR.
 
 </details>
 
