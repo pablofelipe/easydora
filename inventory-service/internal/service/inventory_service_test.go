@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -56,7 +57,7 @@ func (m *mockInventoryRepository) UpdateQuantity(productID string, newQuantity i
 	return nil
 }
 
-func (m *mockInventoryRepository) ReserveStockForOrder(command *models.ReserveStockCommand) (bool, *models.StockInsufficientEvent, error) {
+func (m *mockInventoryRepository) ReserveStockForOrder(ctx context.Context, command *models.ReserveStockCommand) (bool, *models.StockInsufficientEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -186,7 +187,7 @@ func TestReserveStock_RetryDoesNotDuplicateReservation(t *testing.T) {
 	}
 
 	// First delivery: succeeds, reserves 5 units.
-	_, success1, _, err1 := svc.ReserveStock(cmd)
+	_, success1, _, err1 := svc.ReserveStock(context.Background(), cmd)
 	require.NoError(t, err1)
 	require.True(t, success1)
 
@@ -194,7 +195,7 @@ func TestReserveStock_RetryDoesNotDuplicateReservation(t *testing.T) {
 	// (what happens today when the consumer crashes or the connection
 	// drops after the Postgres commit but before the Ack, and RabbitMQ
 	// requeues the message).
-	_, success2, _, err2 := svc.ReserveStock(cmd)
+	_, success2, _, err2 := svc.ReserveStock(context.Background(), cmd)
 	require.NoError(t, err2)
 	require.True(t, success2)
 
@@ -235,7 +236,7 @@ func TestReserveStock_CacheDoesNotGrowUnboundedWithVolume(t *testing.T) {
 			OrderID: fmt.Sprintf("order-%d", i),
 			Items:   []models.ReserveStockItem{{ProductID: "prod-1", Quantity: 1}},
 		}
-		_, success, _, err := svc.ReserveStock(cmd)
+		_, success, _, err := svc.ReserveStock(context.Background(), cmd)
 		require.NoError(t, err)
 		require.True(t, success)
 	}
@@ -286,14 +287,14 @@ func TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation(t *testing.T
 		Items:   []models.ReserveStockItem{{ProductID: "prod-1", Quantity: 5}},
 	}
 
-	_, success1, _, err1 := svc.ReserveStock(cmd)
+	_, success1, _, err1 := svc.ReserveStock(context.Background(), cmd)
 	require.NoError(t, err1)
 	require.True(t, success1)
 
 	// Wait past the TTL window before the "redelivery" arrives.
 	time.Sleep(30 * time.Millisecond)
 
-	_, success2, _, err2 := svc.ReserveStock(cmd)
+	_, success2, _, err2 := svc.ReserveStock(context.Background(), cmd)
 	require.NoError(t, err2)
 	require.True(t, success2)
 
@@ -345,7 +346,7 @@ func TestReserveStock_ConcurrentRedeliveriesOfSameOrderReserveOnce(t *testing.T)
 			ready.Done()
 			<-start // every goroutine blocks here until released at once
 
-			_, success, _, err := svc.ReserveStock(cmd)
+			_, success, _, err := svc.ReserveStock(context.Background(), cmd)
 			assert.NoError(t, err)
 			assert.True(t, success)
 		}()

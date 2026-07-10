@@ -1,16 +1,24 @@
 FROM golang:1.23-alpine
 
-WORKDIR /app
+WORKDIR /build
 
 # Install dependencies
 RUN apk add --no-cache git
 
+# correlation-commons-go (docs/architecture/observability.md): shared
+# CorrelationId/RequestId/MessageId tracing infra used by both Go services
+# (inventory-service, api-gateway), resolved via a relative `replace`
+# directive in inventory-service/go.mod -- not a real module proxy
+# dependency, so the build context must include this sibling directory.
+COPY correlation-commons-go/ correlation-commons-go/
+
 # Copy go mod files
-COPY go.mod go.sum ./
+COPY inventory-service/go.mod inventory-service/go.sum inventory-service/
+WORKDIR /build/inventory-service
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY inventory-service/ .
 
 # Build the application
 RUN go build -o main .

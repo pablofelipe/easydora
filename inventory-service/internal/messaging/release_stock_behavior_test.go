@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestReleaseStockCommand_OrderIdDecodesFromJavaPublisherShape(t *testing.T) 
 		"OrderID decoded from the Java publisher's JSON should be populated, not empty")
 
 	svc := &mockInventoryService{}
-	require.NoError(t, svc.ReleaseStock(&command))
+	require.NoError(t, svc.ReleaseStock(context.Background(), &command))
 
 	require.Len(t, svc.releasedCommands, 1)
 	assert.Equal(t, "order-99", svc.releasedCommands[0].OrderID)

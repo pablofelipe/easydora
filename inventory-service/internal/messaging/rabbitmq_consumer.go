@@ -1,17 +1,37 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"easydora/correlation-commons"
 	"inventory-service/internal/models"
 	"inventory-service/internal/service"
 	"inventory-service/pkg/config"
 	"log"
+	"os"
 	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+var consumerLogger = correlation.NewLogger(os.Stdout, "inventory-service")
+
+// contextFromDelivery builds a context carrying the inbound message's
+// CorrelationId (reused, or freshly generated if the publisher didn't set
+// one) and its MessageId, so every log line and downstream call made while
+// handling this delivery can be tied back to it.
+func contextFromDelivery(d amqp.Delivery) context.Context {
+	ctx := context.Background()
+	correlationID := d.CorrelationId
+	if correlationID == "" {
+		correlationID = correlation.NewID()
+	}
+	ctx = correlation.WithCorrelationID(ctx, correlationID)
+	ctx = correlation.WithMessageID(ctx, d.MessageId)
+	return ctx
+}
 
 type RabbitMQConsumer struct {
 	conn     *amqp.Connection
@@ -170,7 +190,8 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 
 	// Process messages
 	for d := range msgs {
-		log.Printf("[RESERVE] Message received: %s", string(d.Body))
+		ctx := contextFromDelivery(d)
+		correlation.Info(consumerLogger, ctx, "message received", "event", "stock.reserve", "aggregateId", "")
 
 		var command models.ReserveStockCommand
 		if err := json.Unmarshal(d.Body, &command); err != nil {
@@ -179,7 +200,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 			continue
 		}
 
-		log.Printf("[RESERVE] Processing ReserveStockCommand for order: %s", command.OrderID)
+		correlation.Info(consumerLogger, ctx, "processing ReserveStockCommand", "event", "stock.reserve", "aggregateId", command.OrderID)
 
 		// ReserveStock writes the stock.reserved/stock.insufficient outbox
 		// event atomically with the reservation itself (Outbox Pattern,
@@ -187,7 +208,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		// is already durably recorded and will be published by the
 		// outbox poller. This consumer only needs to Ack/Nack based on
 		// whether the reservation attempt itself succeeded.
-		orderId, success, insufficientEvent, err := inventoryService.ReserveStock(&command)
+		orderId, success, insufficientEvent, err := inventoryService.ReserveStock(ctx, &command)
 
 		if err != nil {
 			log.Printf("[RESERVE] Error processing reservation for order %s: %v", command.OrderID, err)
@@ -196,13 +217,12 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		}
 
 		if success {
-			log.Printf("[RESERVE] Stock reserved for order: %s", orderId)
+			correlation.Info(consumerLogger, ctx, "stock reserved", "event", "stock.reserved", "aggregateId", orderId)
 		} else {
-			log.Printf("[RESERVE] Stock reservation failed for order: %s (product: %s)", orderId, insufficientEvent.ProductID)
+			correlation.Info(consumerLogger, ctx, "stock reservation failed", "event", "stock.insufficient", "aggregateId", orderId, "productId", insufficientEvent.ProductID)
 		}
 
 		d.Ack(false)
-		log.Printf("[RESERVE] Message processed for order: %s", command.OrderID)
 	}
 
 	return nil
@@ -243,7 +263,7 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
 
 	// Process messages
 	for d := range msgs {
-		log.Printf("[RELEASE] Message received: %s", string(d.Body))
+		ctx := contextFromDelivery(d)
 
 		var command models.ReleaseStockCommand
 		if err := json.Unmarshal(d.Body, &command); err != nil {
@@ -252,16 +272,16 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
 			continue
 		}
 
-		log.Printf("[RELEASE] Processing ReleaseStockCommand for order: %s", command.OrderID)
+		correlation.Info(consumerLogger, ctx, "processing ReleaseStockCommand", "event", "stock.release", "aggregateId", command.OrderID)
 
-		if err := inventoryService.ReleaseStock(&command); err != nil {
+		if err := inventoryService.ReleaseStock(ctx, &command); err != nil {
 			log.Printf("[RELEASE] Failed to process release command: %v", err)
 			d.Nack(false, true) // Requeue to try again
 			continue
 		}
 
 		d.Ack(false)
-		log.Printf("[RELEASE] Stock released for order: %s", command.OrderID)
+		correlation.Info(consumerLogger, ctx, "stock released", "event", "stock.released", "aggregateId", command.OrderID)
 	}
 
 	return nil
@@ -313,7 +333,8 @@ func (r *RabbitMQConsumer) consumeProductEvent(
 	log.Printf("Waiting for %s on queue: %s (routing key: %s)", routingKey, queue.Name, routingKey)
 
 	for d := range msgs {
-		log.Printf("[%s] Message received: %s", routingKey, string(d.Body))
+		ctx := contextFromDelivery(d)
+		correlation.Info(consumerLogger, ctx, "message received", "event", routingKey, "aggregateId", "")
 
 		if err := handle(d.Body); err != nil {
 			log.Printf("[%s] Error decoding message: %v", routingKey, err)
@@ -322,6 +343,7 @@ func (r *RabbitMQConsumer) consumeProductEvent(
 		}
 
 		d.Ack(false)
+		correlation.Info(consumerLogger, ctx, "message processed", "event", routingKey, "aggregateId", "")
 	}
 
 	return nil

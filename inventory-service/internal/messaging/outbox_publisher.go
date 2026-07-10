@@ -1,13 +1,18 @@
 package messaging
 
 import (
+	"context"
 	"fmt"
+	"easydora/correlation-commons"
 	"inventory-service/internal/repository"
 	"log"
+	"os"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+var outboxLogger = correlation.NewLogger(os.Stdout, "inventory-service")
 
 // outboxPollInterval mirrors auth-service's OutboxPublisher
 // (@Scheduled(fixedDelay = 5000)) — same polling cadence, same decisions.
@@ -70,14 +75,22 @@ func (p *OutboxPublisher) publishPending() {
 	}
 
 	for _, event := range events {
-		err := p.channel.Publish(
+		correlationID, messageID, body, err := correlation.UnwrapOutboxPayload(event.Payload)
+		if err != nil {
+			log.Printf("[OUTBOX] Failed to decode envelope for event id=%d — will retry next poll: %v", event.ID, err)
+			continue
+		}
+
+		err = p.channel.Publish(
 			event.Exchange,
 			event.RoutingKey,
 			false, // mandatory
 			false, // immediate
 			amqp.Publishing{
-				ContentType: "application/json",
-				Body:        []byte(event.Payload),
+				ContentType:   "application/json",
+				CorrelationId: correlationID,
+				MessageId:     messageID,
+				Body:          []byte(body),
 			},
 		)
 		if err != nil {
@@ -91,7 +104,9 @@ func (p *OutboxPublisher) publishPending() {
 			continue
 		}
 
-		log.Printf("[OUTBOX] Published event id=%d to %s/%s", event.ID, event.Exchange, event.RoutingKey)
+		ctx := correlation.WithMessageID(correlation.WithCorrelationID(context.Background(), correlationID), messageID)
+		correlation.Info(outboxLogger, ctx, "outbox event published",
+			"event", event.RoutingKey, "aggregateId", event.ID)
 	}
 }
 

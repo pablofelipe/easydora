@@ -1,14 +1,19 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
+	"easydora/correlation-commons"
 	"inventory-service/internal/models"
 	"inventory-service/internal/repository"
 	"log"
+	"os"
 	"sync"
 	"time"
 )
+
+var logger = correlation.NewLogger(os.Stdout, "inventory-service")
 
 const (
     // reservationCacheTTL bounds how long a processed order's outcome is
@@ -56,8 +61,8 @@ type InventoryService interface {
     CreateInventory(productID string, quantity int) error
     GetInventory(productID string) (*models.Inventory, error)
     UpdateInventory(productID string, quantity int) error
-    ReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error)
-    ReleaseStock(command *models.ReleaseStockCommand) error
+    ReserveStock(ctx context.Context, command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error)
+    ReleaseStock(ctx context.Context, command *models.ReleaseStockCommand) error
     DeactivateProduct(productID string) error
     DeleteProduct(productID string) error
 }
@@ -165,32 +170,32 @@ func (s *inventoryService) DeleteProduct(productID string) error {
 }
 
 
-func (s *inventoryService) ReleaseStock(command *models.ReleaseStockCommand) error {
-    log.Printf("Releasing stock for order: %s", command.OrderID)
-    
+func (s *inventoryService) ReleaseStock(ctx context.Context, command *models.ReleaseStockCommand) error {
+    correlation.Info(logger, ctx, "releasing stock", "event", "stock.release.received", "aggregateId", command.OrderID)
+
     var errors []string
-    
+
     for _, item := range command.Items {
         err := s.repo.ReleaseStock(item.ProductID, item.Quantity)
         if err != nil {
             log.Printf("Failed to release %d units of product %s: %v",
                 item.Quantity, item.ProductID, err)
-            errors = append(errors, 
+            errors = append(errors,
                 fmt.Sprintf("product %s: %v", item.ProductID, err))
             continue // Try to release the remaining items even if one fails
         }
         log.Printf("Released %d units of product %s",
             item.Quantity, item.ProductID)
     }
-    
+
     if len(errors) > 0 {
         return fmt.Errorf("partial failure releasing stock: %v", errors)
     }
-    
+
     return nil
 }
 
-func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
+func (s *inventoryService) ReserveStock(ctx context.Context, command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
     // Serialize the whole check-cache -> reserve -> write-cache section
     // per OrderID so concurrent redeliveries of the same order can't both
     // observe a cache miss and both reach the repository. A losing
@@ -215,7 +220,7 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (or
     // delivery below. This is a known, accepted gap — see
     // TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation.
 
-    orderId, success, insufficientEvent, err = s.doReserveStock(command)
+    orderId, success, insufficientEvent, err = s.doReserveStock(ctx, command)
     if err != nil {
         // Repo-level failure: no state changed, so a genuine retry must
         // reach the repository again, not be swallowed by the cache.
@@ -234,24 +239,24 @@ func (s *inventoryService) ReserveStock(command *models.ReserveStockCommand) (or
     return orderId, success, insufficientEvent, err
 }
 
-func (s *inventoryService) doReserveStock(command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
-    log.Printf("Starting stock reservation for order: %s", command.OrderID)
+func (s *inventoryService) doReserveStock(ctx context.Context, command *models.ReserveStockCommand) (orderId string, success bool, insufficientEvent *models.StockInsufficientEvent, err error) {
+    correlation.Info(logger, ctx, "starting stock reservation", "event", "stock.reserve.received", "aggregateId", command.OrderID)
 
     // ReserveStockForOrder reserves all items and writes the outbox event
     // for the outcome in the same Postgres transaction (Outbox Pattern,
     // ADR-0007) — the messaging layer no longer builds or publishes this
     // event itself; it's already durably recorded by the time this
     // returns.
-    success, insufficientEvent, err = s.repo.ReserveStockForOrder(command)
+    success, insufficientEvent, err = s.repo.ReserveStockForOrder(ctx, command)
     if err != nil {
         log.Printf("Failed to reserve stock for order %s: %v", command.OrderID, err)
         return command.OrderID, false, nil, err
     }
 
     if success {
-        log.Printf("All stock reserved successfully for order: %s", command.OrderID)
+        correlation.Info(logger, ctx, "stock reserved", "event", "stock.reserved", "aggregateId", command.OrderID)
     } else {
-        log.Printf("Insufficient stock for order %s, product %s", command.OrderID, insufficientEvent.ProductID)
+        correlation.Info(logger, ctx, "stock reservation insufficient", "event", "stock.insufficient", "aggregateId", command.OrderID)
     }
 
     return command.OrderID, success, insufficientEvent, nil

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"easydora/correlation-commons"
 	"inventory-service/internal/models"
 	"log"
 	"time"
@@ -14,7 +15,7 @@ type InventoryRepository interface {
     GetByProductID(productID string) (*models.Inventory, error)
     GetAvailableByProductID(productID string) (*models.Inventory, error)
     UpdateQuantity(productID string, newQuantity int) error
-    ReserveStockForOrder(command *models.ReserveStockCommand) (success bool, insufficientEvent *models.StockInsufficientEvent, err error)
+    ReserveStockForOrder(ctx context.Context, command *models.ReserveStockCommand) (success bool, insufficientEvent *models.StockInsufficientEvent, err error)
     ReleaseStock(productID string, quantity int) error
     DeactivateProduct(productID string) error
     DeleteProduct(productID string) error
@@ -115,7 +116,7 @@ func (r *PostgresRepository) UpdateQuantity(productID string, newQuantity int) e
 // does. A failure on any item rolls back the whole transaction, so an
 // order's reservation is all-or-nothing across its items — no more
 // partially-reserved orders left behind on failure.
-func (r *PostgresRepository) ReserveStockForOrder(command *models.ReserveStockCommand) (bool, *models.StockInsufficientEvent, error) {
+func (r *PostgresRepository) ReserveStockForOrder(ctx context.Context, command *models.ReserveStockCommand) (bool, *models.StockInsufficientEvent, error) {
     tx, err := r.db.Begin()
     if err != nil {
         return false, nil, fmt.Errorf("failed to begin transaction: %v", err)
@@ -146,7 +147,7 @@ func (r *PostgresRepository) ReserveStockForOrder(command *models.ReserveStockCo
                 Available: availableStock,
                 Timestamp: time.Now(),
             }
-            if err := r.insertOutboxEvent(tx, "order.exchange", "stock.insufficient", insufficientEvent); err != nil {
+            if err := r.insertOutboxEvent(ctx, tx, "order.exchange", "stock.insufficient", insufficientEvent); err != nil {
                 return false, nil, err
             }
             if err := tx.Commit(); err != nil {
@@ -170,7 +171,7 @@ func (r *PostgresRepository) ReserveStockForOrder(command *models.ReserveStockCo
         Message:   "stock reserved",
         Timestamp: time.Now(),
     }
-    if err := r.insertOutboxEvent(tx, "order.exchange", "stock.reserved", reservedEvent); err != nil {
+    if err := r.insertOutboxEvent(ctx, tx, "order.exchange", "stock.reserved", reservedEvent); err != nil {
         return false, nil, err
     }
 
@@ -181,15 +182,28 @@ func (r *PostgresRepository) ReserveStockForOrder(command *models.ReserveStockCo
     return true, nil, nil
 }
 
-func (r *PostgresRepository) insertOutboxEvent(tx *sql.Tx, exchange, routingKey string, payload any) error {
+// insertOutboxEvent stores the event's CorrelationId (reused from ctx, or
+// freshly generated if the inbound command carried none) and a fresh
+// MessageId alongside the raw payload, wrapped via
+// correlation.WrapOutboxPayload -- an Outbox-internal representation only
+// (see internal/correlation/envelope.go). OutboxPublisher unwraps this and
+// promotes both to native AMQP properties at actual publish time, so the
+// wire shape of the event body itself never changes.
+func (r *PostgresRepository) insertOutboxEvent(ctx context.Context, tx *sql.Tx, exchange, routingKey string, payload any) error {
     body, err := json.Marshal(payload)
     if err != nil {
         return fmt.Errorf("failed to serialize outbox payload: %v", err)
     }
 
+    envelope := correlation.WrapOutboxPayload(
+        correlation.CurrentOrNewCorrelationID(ctx),
+        correlation.NewID(),
+        string(body),
+    )
+
     _, err = tx.Exec(
         `INSERT INTO inventory_schema.outbox_events (exchange, routing_key, payload) VALUES ($1, $2, $3)`,
-        exchange, routingKey, string(body),
+        exchange, routingKey, envelope,
     )
     if err != nil {
         return fmt.Errorf("failed to insert outbox event: %v", err)

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"easydora/correlation-commons"
 	"inventory-service/internal/messaging"
 	"inventory-service/internal/repository"
 	"inventory-service/internal/service"
@@ -67,13 +68,16 @@ func main() {
     go rabbitMQ.ConsumeProductUpdatedEvents(inventoryService)
     go rabbitMQ.ConsumeProductDeletedEvents(inventoryService)
 
-    // HTTP handlers
-    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    // HTTP handlers -- each wrapped in correlation.Middleware so every
+    // request gets a CorrelationId (reused from X-Correlation-Id if the
+    // caller sent one) and a fresh RequestId, both echoed back as response
+    // headers and available to every log line for the request.
+    http.Handle("/health", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
-    })
+    })))
 
-    http.HandleFunc("/inventory/", func(w http.ResponseWriter, r *http.Request) {
+    http.Handle("/inventory/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         productID := r.URL.Path[len("/inventory/"):]
         
         switch r.Method {
@@ -95,9 +99,9 @@ func main() {
         default:
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         }
-    })
+    })))
 
-    http.HandleFunc("/inventory", func(w http.ResponseWriter, r *http.Request) {
+    http.Handle("/inventory", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         if r.Method != "POST" {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -107,21 +111,21 @@ func main() {
             ProductID string `json:"product_id"`
             Quantity  int    `json:"quantity"`
         }
-        
+
         if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
             http.Error(w, "Invalid request body", http.StatusBadRequest)
             return
         }
-        
+
         err := inventoryService.UpdateInventory(request.ProductID, request.Quantity)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
-        
+
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{"message": "Inventory updated successfully"})
-    })
+    })))
 
     log.Println("Inventory Service started on :8083")
     log.Fatal(http.ListenAndServe(":8083", nil))

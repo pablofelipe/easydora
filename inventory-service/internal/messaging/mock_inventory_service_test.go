@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"sync"
 
 	"inventory-service/internal/models"
@@ -49,11 +50,11 @@ func (m *mockInventoryService) UpdateInventory(productID string, quantity int) e
 	return nil
 }
 
-func (m *mockInventoryService) ReserveStock(command *models.ReserveStockCommand) (string, bool, *models.StockInsufficientEvent, error) {
+func (m *mockInventoryService) ReserveStock(ctx context.Context, command *models.ReserveStockCommand) (string, bool, *models.StockInsufficientEvent, error) {
 	return m.reserveResult.orderID, m.reserveResult.success, m.reserveResult.insufficientEvent, m.reserveResult.err
 }
 
-func (m *mockInventoryService) ReleaseStock(command *models.ReleaseStockCommand) error {
+func (m *mockInventoryService) ReleaseStock(ctx context.Context, command *models.ReleaseStockCommand) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.releasedCommands = append(m.releasedCommands, command)
