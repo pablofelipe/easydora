@@ -58,6 +58,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
       - name: mvn test
         working-directory: ${{ matrix.service }}
         run: mvn test
@@ -144,6 +148,11 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: inventory-service/go.sum
       - if: matrix.language == 'java'
+        name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
+      - if: matrix.language == 'java'
         name: mvn verify
         working-directory: ${{ matrix.name }}
         run: mvn verify
@@ -207,6 +216,10 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: inventory-service/go.sum
 
+      - name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
       - name: package auth-service
         working-directory: auth-service
         run: mvn -DskipTests package
@@ -315,6 +328,10 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: inventory-service/go.sum
 
+      - name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
       - name: package auth-service
         working-directory: auth-service
         run: mvn -DskipTests package
@@ -435,6 +452,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
       - name: package auth-service
         working-directory: auth-service
         run: mvn -DskipTests package
