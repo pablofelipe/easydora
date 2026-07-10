@@ -14,9 +14,9 @@ not for convenience — Go for performance-sensitive gateway/inventory paths,
 Spring Boot for domain-rich business logic, FastAPI for async notification
 processing.
 
-**Status: in active development.** Seven of eight services are implemented
-and building (api-gateway, auth, products, inventory, orders, billing,
-notification). Four of them (auth-service, orders-service, products-service,
+**Status: in active development.** All eight services are implemented and
+building (api-gateway, auth, products, inventory, orders, billing,
+notification, frontend). Four of the backend services (auth-service, orders-service, products-service,
 billing-service) have contract tests validating their event/message DTOs
 against JSON Schemas shared in `/schemas/json/`; inventory-service has eight
 unit tests, four of which cover its stock-reservation idempotency logic
@@ -26,7 +26,10 @@ former with a real HTTP call to auth-service, and persists an observable
 notification per event — never overwriting a previous one — queryable via
 its own read-only `GET /notifications/{orderId}` (no real email/SMS
 provider yet — see [ADR-0014](docs/adr/0014-notification-service.md)).
-Frontend is the only remaining empty scaffold. See
+A SvelteKit frontend now exists as a thin, read-mostly client over the API
+Gateway — login, catalog browsing, checkout, order tracking, and a
+notification/observability view, deliberately not a full storefront (see
+[ADR-0026](docs/adr/0026-frontend-thin-client.md)). See
 [Service Status](#service-status) for the current breakdown.
 
 ## What This Project Demonstrates
@@ -83,6 +86,11 @@ Frontend is the only remaining empty scaffold. See
   [docs/architecture/observability.md](docs/architecture/observability.md)
   and
   [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md).
+- **A thin-client frontend, not a parallel architecture** — the SvelteKit
+  UI has no business logic of its own; it calls the Gateway exclusively
+  and surfaces the backend's own tracing identifiers instead of inventing
+  a client-side observability layer. See
+  [ADR-0026](docs/adr/0026-frontend-thin-client.md).
 
 ## Quick Start
 
@@ -105,11 +113,11 @@ docker-compose up -d
 docker-compose ps
 ```
 
-The seven implemented services (API Gateway, Auth, Products, Inventory,
-Orders, Billing, Notification) come up and respond on their ports (see
-[Service Status](#service-status) for the full port list). The frontend is
-the only service still commented out in `docker-compose.yml` — no
-Dockerfile or source exists for it yet.
+All eight services (API Gateway, Auth, Products, Inventory, Orders,
+Billing, Notification, Frontend) come up and respond on their ports (see
+[Service Status](#service-status) for the full port list). Open
+`http://localhost:3000` for the frontend once `docker-compose ps` shows
+everything healthy.
 
 For a full, reproducible business-flow walkthrough (signup → product →
 order → stock reservation → payment → notification), driven entirely by
@@ -155,7 +163,7 @@ is just the component topology at a glance:
                     │  Boot     │         │  RabbitMQ   │
                     └───────────┘         └─────────────┘
 
-Frontend (SvelteKit, planned) consumes the API Gateway.
+Frontend (SvelteKit, thin client) consumes the API Gateway only.
 ```
 
 ## Documentation
@@ -163,7 +171,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 25
+- [Architecture Decision Records](#architecture-decision-records) — 26
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Observability](docs/architecture/observability.md) — how one business
@@ -195,7 +203,7 @@ Frontend (SvelteKit, planned) consumes the API Gateway.
 | Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 18 tests — 10 unit + 8 `*IT` (real Postgres/RabbitMQ) |
 | Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 19 tests — 13 unit + 6 `*IT` (real Postgres/RabbitMQ) |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 27 tests — 19 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
-| Frontend | SvelteKit | 3000 | Planned (empty scaffold) | — |
+| Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
 
@@ -250,6 +258,7 @@ The stack split is deliberate:
 | [0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md) | Notification Service Persistence Evolution Strategy | Accepted | Formally reviews and closes the "no Alembic" gap left open since ADR-0014. `scripts/init.sql` hasn't changed once across four ADRs of functional growth, and a comparison against `inventory-service` (whose own idempotent init.sql *has* evolved twice, safely, with no versioned tool) shows the current approach has headroom beyond what notification-service has needed. Keeps the idempotent script, documents concrete criteria for reopening the decision if the schema outgrows it. |
 | [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagated through HTTP headers and native AMQP message properties (not a new wire format), logged in a consistent structured format across all seven services. Two small shared modules (`correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services) — a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. |
 | [0025](docs/adr/0025-gateway-transparent-routing.md) | Gateway transparent routing — every service is self-namespaced | Accepted | Closes the `inventory-service` 404-through-the-gateway bug ADR-0024 found. The Gateway no longer strips any service prefix — it forwards the incoming path unchanged — and `auth-service`/`products-service`/`orders-service`/`billing-service` each gained a `server.servlet.context-path` matching their own Gateway segment (`inventory-service` was already self-namespaced). Every direct caller of those four services (Dockerfile `HEALTHCHECK`s, CI readiness checks, `e2e-tests`, the Postman collection) was updated in lockstep; the Postman collection now has parallel `Via Gateway (primary)` and `Direct (debug)` folder trees. |
+| [0026](docs/adr/0026-frontend-thin-client.md) | SvelteKit frontend as a thin client over the API Gateway | Accepted | New `frontend/` (SvelteKit + TypeScript, SSR disabled, `adapter-node`) consumes only the Gateway. Building it surfaced and fixed four real defects no prior `curl`-based client could catch: CORS wired but shadowed by Spring Security in two services and entirely missing in four; `products-service`'s JWT filter terminating requests before `permitAll()` paths could ever be reached; its catalog endpoints unreachable by any buyer token by design; and the Gateway echoing `X-Correlation-Id`/`X-Request-Id` twice under one header. `notification-service` gains a Gateway route, closing the one gap ADR-0025 left open. |
 
 ## Roadmap
 
@@ -280,7 +289,18 @@ The stack split is deliberate:
       already used. `notification-service` required no changes to react
       to it. See
       [ADR-0021](docs/adr/0021-payment-outcome-integration.md).
-- [ ] SvelteKit frontend
+- [x] SvelteKit frontend: a thin, read-mostly client (login, catalog,
+      checkout, order tracking, notifications, a request-tracing panel)
+      over the API Gateway only — see
+      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
+- [ ] `orders-service` has no rule preventing a `SELLER` from purchasing
+      their own product — `createOrder` never checks item ownership, and
+      `orders-service` doesn't consume `product.*` events at all today, so
+      it has no local knowledge of who owns what. Fixing this needs a new
+      consumer (`product.created` already carries `sellerId`), a new
+      `orders_schema` table, and a check in `OrderService.createOrder`.
+      Found while building the frontend's checkout flow; deliberately not
+      implemented as part of [ADR-0026](docs/adr/0026-frontend-thin-client.md).
 - [x] End-to-end integration tests across the implemented services — see CI
       Phase 3 below (`catalog-onboarding`, `order-lifecycle`, and
       `notification-flow` groups).
@@ -418,6 +438,15 @@ The stack split is deliberate:
       live-validating ADR-0024's CorrelationId propagation through the
       gateway. See
       [ADR-0025](docs/adr/0025-gateway-transparent-routing.md).
+- [x] `notification-service` now has a Gateway route
+      (`/notification`, self-namespaced the same way as the other five
+      services) — closes the one gap ADR-0025 explicitly left open. Found
+      building the frontend: CORS was wired but shadowed by Spring Security
+      in two services and entirely missing in four; `products-service`'s
+      JWT filter terminated requests before a `permitAll()` catalog
+      endpoint could ever be reached by a buyer's token; and the Gateway
+      echoed `X-Correlation-Id`/`X-Request-Id` twice under one header. All
+      fixed — see [ADR-0026](docs/adr/0026-frontend-thin-client.md).
 
 </details>
 

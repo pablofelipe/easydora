@@ -1,8 +1,9 @@
 # Architecture Overview
 
 EasyDora is a distributed e-commerce system composed of seven
-independently deployable services plus a planned frontend, communicating
-almost entirely through asynchronous events over a single message broker.
+independently deployable backend services plus a thin-client frontend,
+communicating almost entirely through asynchronous events over a single
+message broker.
 This document is the map: what each service owns, how they talk to each
 other, how data is persisted, and where to go for more depth on any of it.
 
@@ -17,7 +18,7 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **billing-service** | Payment: simulated processing per order | `payment.approved`, `payment.failed` | `jwt.created`, `order.created` |
 | **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
-| **frontend** | Planned, empty scaffold — no responsibility yet | — | — |
+| **frontend** | Thin client: browses and drives the business flow through the Gateway, no business logic of its own | — | — |
 
 ## Business Flows
 

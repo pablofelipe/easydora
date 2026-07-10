@@ -18,8 +18,12 @@ This walkthrough goes through the API Gateway (port 8080) as the primary
 entry point — every call below uses the same self-namespaced segment the
 Gateway forwards unchanged (`/auth`, `/products`, `/orders`, `/billing`,
 `/inventory`; see [ADR-0025](adr/0025-gateway-transparent-routing.md)).
-`notification-service` has no Gateway route yet, so step 9 (and every
-later reference to it) still calls it directly on port 8086.
+`notification-service` also has a Gateway route now
+(`/notification/notifications/{orderId}`, see
+[ADR-0026](adr/0026-frontend-thin-client.md)) — step 9 (and every later
+reference to it) keeps calling it directly on port 8086 instead, since
+that's what this walkthrough has always validated and nothing about that
+call changed.
 
 ## Prerequisites
 

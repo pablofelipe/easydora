@@ -46,8 +46,13 @@ The collection has two top-level folders, both covering the same flow:
   calling each service's own port directly. Useful for isolating whether
   a failure belongs to a service or to the Gateway's routing, without
   needing to reason about an extra hop.
-- `notification-service` has no Gateway route yet (see the README
-  Roadmap), so its folder only exists under `Direct (debug)`.
+- `notification-service` now has a Gateway route too
+  (`/notification/notifications/{orderId}`, see
+  [ADR-0026](../docs/adr/0026-frontend-thin-client.md)), but its folder
+  still only exists under `Direct (debug)` here — the collection itself
+  wasn't restructured to add it, since this is Postman-collection
+  maintenance, not part of the frontend work that added the route. See
+  "Known limitations" below.
 
 Both trees share the same variables, retry loops, and assertions — pick
 whichever folder matches what you're trying to verify.
@@ -80,7 +85,7 @@ issue):
 | 4 | Order Creation | step 6 |
 | 5 | Stock Reservation | step 7 |
 | 6 | Payment | step 8 |
-| 7 | Notification (limitation: no public API; `Direct (debug)` only) | step 9 |
+| 7 | Notification (limitation: `Direct (debug)` only, see below) | step 9 |
 | 8 | Final State | step 10 |
 | 9 | Extras — Beyond the Walkthrough (optional) | — |
 
@@ -134,12 +139,15 @@ in the walkthrough, not exhaustive coverage of every edge case.
 
 ## Known limitations
 
-- **Notification cannot be verified through a public API.**
-  `notification-service` exposes only `GET /health` — there is no
-  endpoint to read a persisted notification back (see the README
-  Roadmap). Folder 7 only confirms the service is reachable; to inspect
-  the actual row, run the optional direct Postgres query documented in
-  `docs/walkthrough.md` step 9.
+- **Folder 7 only exists under `Direct (debug)`, not `Via Gateway
+  (primary)`**, even though `notification-service` has had a public
+  `GET /notifications/{orderId}` since ADR-0020 and a Gateway route
+  since ADR-0026 — this note above described a real limitation before
+  ADR-0020, went stale, and stayed unfixed through ADR-0025; still
+  unfixed here, since restructuring the collection itself is
+  Postman-maintenance work, not something either of those changes
+  required. `docs/walkthrough.md` step 9 calls the real endpoint
+  directly.
 - **"Process Payment (Simulation)" (folder 9) is not part of the
   documented walkthrough flow.** It's a real endpoint
   (`PaymentService.processPayment`), included for completeness, but the
@@ -162,6 +170,7 @@ in the walkthrough, not exhaustive coverage of every edge case.
   freshly-started stack as an additional smoke test, alongside the
   existing Phase 3 e2e suite (`e2e-tests/`) — not implemented here, since
   this etapa is documentation-only.
-- If `notification-service` ever gains a public read endpoint (an
-  already-tracked Roadmap item), folder 7 should be updated to call it
-  instead of just checking `/health`.
+- Folder 7 should be restructured with a `Via Gateway (primary)` twin
+  calling `GET /notification/notifications/{orderId}` through the
+  Gateway, matching every other folder — not done here (see "Known
+  limitations").
