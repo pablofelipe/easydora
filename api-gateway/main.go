@@ -1,6 +1,7 @@
 package main
 
 import (
+	"easydora/correlation-commons"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,39 @@ import (
 	"os"
 	"time"
 )
+
+var gatewayLogger = correlation.NewLogger(os.Stdout, "api-gateway")
+
+// correlationMiddleware is the birthplace of a business operation's
+// CorrelationId at the edge: reused from the X-Correlation-Id request
+// header if the client already sent one, generated otherwise. RequestId is
+// always freshly generated, once per request. Both are put on the request
+// context (for this gateway's own logging) and, critically, also set
+// directly on c.Request.Header so the reverse proxy -- which forwards
+// c.Request.Header verbatim via its default Director -- carries the
+// CorrelationId through to whichever downstream service handles the
+// proxied request.
+func correlationMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		incoming := c.GetHeader(correlation.CorrelationIDHeader)
+		correlationID := incoming
+		if correlationID == "" {
+			correlationID = correlation.NewID()
+		}
+		requestID := correlation.NewID()
+
+		c.Request.Header.Set(correlation.CorrelationIDHeader, correlationID)
+
+		ctx := correlation.WithCorrelationID(c.Request.Context(), correlationID)
+		ctx = correlation.WithRequestID(ctx, requestID)
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Header(correlation.CorrelationIDHeader, correlationID)
+		c.Header(correlation.RequestIDHeader, requestID)
+
+		c.Next()
+	}
+}
 
 // circuitBreakerSettings applies the same thresholds to every service:
 // 5 consecutive downstream-unreachable failures opens the breaker, and it
@@ -68,6 +102,7 @@ var (
 
 func main() {
 	router := gin.Default()
+	router.Use(correlationMiddleware())
 
 	// Health check endpoints
 	router.GET("/health", healthCheck)
@@ -153,9 +188,9 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		originalPath := c.Request.URL.Path
 		proxyPath := c.Param("proxyPath")
 
-		// Detailed log
-		log.Printf("Proxying %s %s → %s%s",
-			c.Request.Method, originalPath, targetURL.Host, proxyPath)
+		correlation.Info(gatewayLogger, c.Request.Context(), "proxying request",
+			"event", "gateway.proxy", "aggregateId", originalPath,
+			"method", c.Request.Method, "target", targetURL.Host+proxyPath)
 
 		c.Request.URL.Scheme = targetURL.Scheme
 		c.Request.URL.Host = targetURL.Host
