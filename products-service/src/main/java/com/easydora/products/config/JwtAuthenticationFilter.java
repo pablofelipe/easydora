@@ -85,16 +85,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    // Method for debugging
-    public void listTokens() {
-        logger.info("Currently stored tokens:");
-        validTokens.forEach((token, userInfo) -> {
-            logger.info("  - Token: {}... -> User: {}",
-                token.substring(0, Math.min(10, token.length())), 
-                userInfo.getEmail());
-        });
-    }
-    
     public int getValidTokensSize() {
         return validTokens.size();
     }
