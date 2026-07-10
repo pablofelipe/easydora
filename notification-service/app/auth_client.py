@@ -13,7 +13,7 @@ class ProfileLookupError(Exception):
 
 
 class AuthServiceClient:
-    """Real HTTP client for auth-service's GET /users/{id}/notification-profile.
+    """Real HTTP client for auth-service's GET /auth/users/{id}/notification-profile.
 
     This is the only synchronous call notification-service makes to another
     service, and the only thing it knows about auth-service beyond that one
@@ -25,7 +25,7 @@ class AuthServiceClient:
         self._timeout_seconds = timeout_seconds
 
     def get_notification_profile(self, user_id: int, correlation_id: str = "") -> UserNotificationProfile:
-        url = f"{self._base_url}/users/{user_id}/notification-profile"
+        url = f"{self._base_url}/auth/users/{user_id}/notification-profile"
         headers = {CORRELATION_ID_HEADER: correlation_id} if correlation_id else {}
         try:
             response = httpx.get(url, headers=headers, timeout=self._timeout_seconds)
