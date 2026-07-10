@@ -79,10 +79,10 @@ func main() {
     // forwards the incoming path unchanged, see ADR-0025 -- reaches the
     // same handler instead of being swallowed by the /inventory/ catch-all
     // below, which would otherwise treat "health" as a product ID).
-    http.Handle("/health", correlation.Middleware(http.HandlerFunc(healthHandler)))
-    http.Handle("/inventory/health", correlation.Middleware(http.HandlerFunc(healthHandler)))
+    http.Handle("/health", withCORS(correlation.Middleware(http.HandlerFunc(healthHandler))))
+    http.Handle("/inventory/health", withCORS(correlation.Middleware(http.HandlerFunc(healthHandler))))
 
-    http.Handle("/inventory/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    http.Handle("/inventory/", withCORS(correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         productID := r.URL.Path[len("/inventory/"):]
         
         switch r.Method {
@@ -104,9 +104,9 @@ func main() {
         default:
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         }
-    })))
+    }))))
 
-    http.Handle("/inventory", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    http.Handle("/inventory", withCORS(correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         if r.Method != "POST" {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -130,7 +130,7 @@ func main() {
 
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{"message": "Inventory updated successfully"})
-    })))
+    }))))
 
     log.Println("Inventory Service started on :8083")
     log.Fatal(http.ListenAndServe(":8083", nil))
@@ -139,6 +139,30 @@ func main() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+}
+
+// withCORS lets the frontend call this service through the Gateway from a
+// browser. inventory-service has no auth/security layer of
+// its own to fight (unlike the Spring services), so a plain header-setting
+// wrapper that also short-circuits the OPTIONS preflight is enough.
+func withCORS(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "*")
+        // Response headers are NOT readable by browser JS unless explicitly
+        // exposed -- without this, fetch()'s response.headers.get(...)
+        // always returns null for these in a real browser even though curl
+        // (not subject to CORS) sees them fine.
+        w.Header().Set("Access-Control-Expose-Headers", "X-Correlation-Id, X-Request-Id")
+
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusNoContent)
+            return
+        }
+
+        next.ServeHTTP(w, r)
+    })
 }
 
 func runInitScript(db *sql.DB) error {

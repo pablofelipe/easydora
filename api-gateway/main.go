@@ -97,6 +97,11 @@ var (
 			Name:        "billing-service",
 			Implemented: true,
 		},
+		"notification": {
+			URL:         getEnv("NOTIFICATION_SERVICE_URL", "http://notification-service:8086"),
+			Name:        "notification-service",
+			Implemented: true,
+		},
 	}
 )
 
@@ -185,6 +190,25 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 			}).DialContext,
 		}
 
+		// httputil.ReverseProxy copies every backend response header onto
+		// the client response via Header.Add, not Set -- since
+		// correlationMiddleware already wrote this Gin response's own
+		// X-Correlation-Id/X-Request-Id before this handler ever runs, the
+		// downstream service's own copies of those same header names would
+		// otherwise be appended alongside them, producing a single header
+		// with two comma-joined values. curl prints duplicate header lines
+		// (easy to miss); a browser's fetch().headers.get() joins them into
+		// one confusing "id, id" string. The client's actual request/
+		// response pair is with the Gateway, so the Gateway's own hop
+		// values -- already correct (CorrelationId reused, RequestId fresh)
+		// -- are what should reach the client; the downstream's copies are
+		// an internal hop detail that belongs in its own logs only.
+		proxy.ModifyResponse = func(res *http.Response) error {
+			res.Header.Del(correlation.CorrelationIDHeader)
+			res.Header.Del(correlation.RequestIDHeader)
+			return nil
+		}
+
 		originalPath := c.Request.URL.Path
 
 		correlation.Info(gatewayLogger, c.Request.Context(), "proxying request",
@@ -195,9 +219,9 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		c.Request.URL.Host = targetURL.Host
 		// The Gateway is a transparent routing layer (ADR-0025): the
 		// incoming path -- including the /auth, /products, /orders,
-		// /billing, /inventory segment -- is forwarded byte-for-byte.
-		// Every service is expected to expose that same segment itself, so
-		// no rewrite happens here.
+		// /billing, /inventory, /notification segment -- is forwarded
+		// byte-for-byte. Every service is expected to expose that same
+		// segment itself, so no rewrite happens here.
 		c.Request.Host = targetURL.Host
 
 		// Headers for tracing

@@ -202,7 +202,8 @@ func TestPlainProxy_DoesNotShortCircuit(t *testing.T) {
 // TestSetupServiceRoutes_ForwardsPathUnchanged proves the Gateway acts as a
 // transparent routing layer (see ADR-0025): the full incoming path,
 // including the service's own routing segment (/auth, /products, /orders,
-// /billing, /inventory), must reach the downstream service byte-for-byte.
+// /billing, /inventory, /notification), must reach the downstream service
+// byte-for-byte.
 // Before this fix, setupServiceRoutes stripped that segment before
 // forwarding, which happened to still work for four services only because
 // their own routes were mounted bare (not self-namespaced) -- this test
@@ -217,6 +218,7 @@ func TestSetupServiceRoutes_ForwardsPathUnchanged(t *testing.T) {
 		{"orders", "/orders/createOrder"},
 		{"billing", "/billing/api/payments/process"},
 		{"inventory", "/inventory/123"},
+		{"notification", "/notification/notifications/456"},
 	}
 
 	for _, tt := range tests {

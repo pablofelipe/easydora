@@ -2,6 +2,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth_client import AuthServiceClient
 from app.config import load_settings
@@ -36,6 +37,24 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="notification-service", lifespan=lifespan)
 
+# The frontend calls this service through the Gateway with an Authorization
+# header, which the browser treats as a non-simple request requiring a
+# preflight OPTIONS -- mirrors the CORS policy applied to the other five
+# services (allow any origin, no credentials, since there is no cookie-based
+# session anywhere in this project).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=False,
+    # Response headers are NOT readable by browser JS unless explicitly
+    # exposed -- without this, fetch()'s response.headers.get(...) always
+    # returns null for these in a real browser even though curl (not
+    # subject to CORS) sees them fine.
+    expose_headers=["X-Correlation-Id", "X-Request-Id"],
+)
+
 
 @app.middleware("http")
 async def correlation_middleware(request: Request, call_next):
@@ -56,17 +75,24 @@ async def correlation_middleware(request: Request, call_next):
 
 
 @app.get("/health")
+@app.get("/notification/health")
 def health():
     return {"status": "OK", "service": "notification-service"}
 
 
 @app.get("/notifications/{order_id}")
+@app.get("/notification/notifications/{order_id}")
 def get_notifications(order_id: str):
     """Read-only lookup of every notification persisted for one order, in
     the order they were produced. Public-API replacement for querying
     notification_schema.notifications directly during flow validation --
     no edit/delete endpoints exist, this service never mutates a
     notification once persisted.
+
+    Registered under both the bare path (existing direct callers, e.g.
+    docs/walkthrough.md) and the self-namespaced /notification path (the
+    one reachable through the Gateway, which forwards paths unchanged --
+    see ADR-0025).
     """
     notifications = repository.find_by_aggregate_id(order_id)
     if not notifications:
