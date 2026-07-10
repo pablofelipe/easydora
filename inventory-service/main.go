@@ -72,10 +72,15 @@ func main() {
     // request gets a CorrelationId (reused from X-Correlation-Id if the
     // caller sent one) and a fresh RequestId, both echoed back as response
     // headers and available to every log line for the request.
-    http.Handle("/health", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
-    })))
+    //
+    // healthHandler is registered under both /health (bare, for Docker's
+    // own HEALTHCHECK hitting the container directly) and /inventory/health
+    // (self-namespaced, so a call proxied through the Gateway -- which
+    // forwards the incoming path unchanged, see ADR-0025 -- reaches the
+    // same handler instead of being swallowed by the /inventory/ catch-all
+    // below, which would otherwise treat "health" as a product ID).
+    http.Handle("/health", correlation.Middleware(http.HandlerFunc(healthHandler)))
+    http.Handle("/inventory/health", correlation.Middleware(http.HandlerFunc(healthHandler)))
 
     http.Handle("/inventory/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         productID := r.URL.Path[len("/inventory/"):]
@@ -129,6 +134,11 @@ func main() {
 
     log.Println("Inventory Service started on :8083")
     log.Fatal(http.ListenAndServe(":8083", nil))
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
 }
 
 func runInitScript(db *sql.DB) error {
