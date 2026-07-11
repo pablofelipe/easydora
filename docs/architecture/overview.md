@@ -46,6 +46,15 @@ other, how data is persisted, and where to go for more depth on any of it.
   already used — notification-service needs no payment-domain knowledge at
   all to react to it. See the [walkthrough](../walkthrough.md) and the
   [sequence diagram](../sequence-diagram.md).
+- **Fulfillment (ship → deliver)** — the same state machine continues past
+  `PAYMENT_APPROVED`: a platform-operations account (role `ADMIN`, the
+  first role-gated rather than ownership-gated action in this project)
+  marks an order `SHIPPED` (`POST /orders/{orderId}/ship`), and the
+  order's own buyer confirms `DELIVERED` (`POST /orders/{orderId}/deliver`,
+  ownership-gated like cancellation). Both transitions reuse
+  `order.status-changed` unchanged — no new event type, no new consumer
+  code in notification-service. See
+  [ADR-0029](../adr/0029-order-fulfillment-lifecycle.md).
 
 ## Communication
 

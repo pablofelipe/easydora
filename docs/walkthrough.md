@@ -357,6 +357,76 @@ curl -s http://localhost:8086/notifications/$ORDER_ID -H "Authorization: Bearer 
 All three calls succeeding with the states above is the end-to-end success
 criterion for this walkthrough.
 
+## 12. Ship and deliver the order (fulfillment)
+
+The commands and responses in this step are real, but come from a
+separate verification run rather than a continuation of the exact order
+from steps 1–11 above (a different `$ORDER_ID`/`$BUYER_TOKEN`) — the
+order there was already fast-forwarded to `PAYMENT_APPROVED` directly,
+since steps 1–10 already demonstrate how a real order reaches that state
+through checkout, stock reservation, and payment. See
+[ADR-0029](adr/0029-order-fulfillment-lifecycle.md).
+
+Shipping is a platform-operations action (role `ADMIN`), not a buyer or
+seller action — an order can contain products from more than one seller,
+so no single seller unambiguously owns "the" order. The one operations
+account is bootstrapped at auth-service startup from the `ADMIN_EMAIL`/
+`ADMIN_PASSWORD` environment variables (never through `/auth/signup`,
+which now rejects `role: "ADMIN"` outright):
+
+```bash
+curl -s -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"<ADMIN_EMAIL>","password":"<ADMIN_PASSWORD>"}'
+```
+
+Save `ADMIN_TOKEN` from the response, same shape as any other login.
+
+```bash
+curl -s http://localhost:8080/orders/fulfillment -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Response (real example — every order currently waiting to be shipped,
+across every buyer):
+```json
+[{"id":"test-order-fulfillment-1","userId":24,"totalAmount":42.50,"state":"PAYMENT_APPROVED","items":[...],"createdAt":"...","updatedAt":"..."}]
+```
+
+The same call with a `BUYER_TOKEN` instead returns `403` — this endpoint
+is role-gated, not ownership-gated.
+
+```bash
+curl -s -X POST http://localhost:8080/orders/$ORDER_ID/ship -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+Response (real example):
+```json
+{"id":"test-order-fulfillment-2","userId":24,"totalAmount":15.00,"state":"SHIPPED","items":[],"createdAt":"2026-07-11T12:28:09.595788Z","updatedAt":"2026-07-11T12:28:10.934621100Z"}
+```
+
+**Event published**: the same `order.status-changed` used by every other
+transition in this walkthrough — `previousState":"PAYMENT_APPROVED"`,
+`"newState":"SHIPPED"`. No new event type. Calling `/orders/fulfillment`
+again with `$ADMIN_TOKEN` no longer lists this order.
+
+The buyer — not the operations account — confirms delivery, the same
+ownership check `cancelOrder` already uses:
+
+```bash
+curl -s -X POST http://localhost:8080/orders/$ORDER_ID/deliver -H "Authorization: Bearer $BUYER_TOKEN"
+```
+
+Response (real example):
+```json
+{"id":"test-order-fulfillment-2","userId":24,"totalAmount":15.00,"state":"DELIVERED","items":[],"createdAt":"2026-07-11T12:28:09.595788Z","updatedAt":"2026-07-11T12:28:11.089714800Z"}
+```
+
+Attempting `/deliver` before the order was shipped (real example, tried
+against a `PAYMENT_APPROVED` order) fails clean with the real state in the
+message, not a generic error:
+```json
+{"error":"Bad Request","message":"Cannot deliver order in state: PAYMENT_APPROVED","timestamp":"2026-07-11T12:22:13.335839200Z","status":400}
+```
+
 ## Tracing this whole flow with one CorrelationId
 
 Every `curl` call above can carry an `X-Correlation-Id` header. Add the
@@ -396,6 +466,8 @@ exact flow.
 | Stock reserved | `order.status-changed` | orders-service | notification-service | second notification persisted (`PROCESSING` → `INVENTORY_RESERVED`), reusing the `order.created` notification's enriched user info |
 | Process payment | `payment.approved` / `payment.failed` | billing-service | orders-service | order → `PAYMENT_APPROVED`/`PAYMENT_FAILED` |
 | Process payment | `order.status-changed` | orders-service | notification-service | third notification persisted (`INVENTORY_RESERVED` → `PAYMENT_APPROVED`/`PAYMENT_FAILED`) |
+| Ship (`ADMIN` role) | `order.status-changed` | orders-service | notification-service | order → `SHIPPED`; notification persisted (`PAYMENT_APPROVED` → `SHIPPED`) |
+| Confirm delivery (buyer) | `order.status-changed` | orders-service | notification-service | order → `DELIVERED`; notification persisted (`SHIPPED` → `DELIVERED`) |
 
 ## Troubleshooting
 

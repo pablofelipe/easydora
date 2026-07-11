@@ -74,7 +74,9 @@ issue):
    generated uniquely on each run (via a pre-request script), so the
    whole collection can be re-run repeatedly without resetting anything.
 
-### Folder order (within either tree)
+### Folder order
+
+Shared by both trees:
 
 | # | Folder | Mirrors walkthrough step |
 |---|---|---|
@@ -85,9 +87,16 @@ issue):
 | 4 | Order Creation | step 6 |
 | 5 | Stock Reservation | step 7 |
 | 6 | Payment | step 8 |
-| 7 | Notification (limitation: `Direct (debug)` only, see below) | step 9 |
 | 8 | Final State | step 10 |
 | 9 | Extras — Beyond the Walkthrough (optional) | — |
+
+Folder 7 differs between the two trees (a known asymmetry, see "Known
+limitations" below — neither tree has both):
+
+| Tree | Folder 7 | Mirrors walkthrough step |
+|---|---|---|
+| `Via Gateway (primary)` | Fulfillment (Ship & Deliver) — the new `ADMIN`-role-gated ship endpoint and ownership-gated deliver endpoint | step 12 |
+| `Direct (debug)` | Notification (limitation: no public API — stale, see below) | step 9 |
 
 ## Async waits: retry loops, not sleeps
 
@@ -115,12 +124,20 @@ Set once (fixed):
   `billing_url`, `notification_url`, `gateway_url` — service base URLs.
 - `seller_password`, `buyer_password` — fixed passwords used for both
   test users.
+- `admin_email`, `admin_password` — the platform-operations account used
+  by folder 7's "Login (Admin)" request (`Via Gateway (primary)` only).
+  Unlike the seller/buyer credentials above, this isn't a throwaway demo
+  signup — it's the one account bootstrapped from auth-service's
+  `ADMIN_EMAIL`/`ADMIN_PASSWORD` environment variables (see ADR-0029), so
+  these two are left blank in the committed environment file; set them
+  locally to match your own `.env` before running that request.
 
 Captured automatically while running:
 
 - `seller_email`, `seller_id`, `seller_verification_token`,
   `seller_token`
 - `buyer_email`, `buyer_id`, `buyer_verification_token`, `buyer_token`
+- `admin_token` — captured by "Login (Admin)" (folder 7)
 - `product_id`, `product_price`, `product_initial_stock`
 - `order_id`, `order_quantity`, `order_total_amount`
 - `payment_id`
@@ -169,7 +186,7 @@ in the walkthrough, not exhaustive coverage of every edge case.
 - A Newman-based CI job could run this collection against a
   freshly-started stack as an additional smoke test, alongside the
   existing Phase 3 e2e suite (`e2e-tests/`) — not implemented here, since
-  this etapa is documentation-only.
+  this change is documentation-only.
 - Folder 7 should be restructured with a `Via Gateway (primary)` twin
   calling `GET /notification/notifications/{orderId}` through the
   Gateway, matching every other folder — not done here (see "Known

@@ -815,6 +815,208 @@
 					"description": "Mirrors docs/walkthrough.md step 8. billing-service consumes order.created and creates a Payment; it authenticates via the same JWT broadcast cache as products-service/orders-service (ADR-0015) -- the buyer's own token from folder 3 works here too, no separate billing login. The negative check mirrors the walkthrough's own 403-without-token confirmation."
 				},
 				{
+					"name": "7. Fulfillment (Ship & Deliver)",
+					"item": [
+						{
+							"name": "Login (Admin)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+								},
+								"url": {
+									"raw": "{{gateway_url}}/auth/login",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"auth",
+										"login"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('response has a Bearer token with role ADMIN', function () {",
+											"  pm.expect(json).to.have.property('token');",
+											"  pm.expect(json.type).to.eql('Bearer');",
+											"  pm.expect(json.role).to.eql('ADMIN');",
+											"});",
+											"pm.environment.set('admin_token', json.token);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": [],
+							"description": "The one platform-operations account, bootstrapped at auth-service startup from ADMIN_EMAIL/ADMIN_PASSWORD (never through /auth/signup, which rejects role: \"ADMIN\" -- see ADR-0029). Set admin_email/admin_password in your local Postman environment to match your own .env before running this request; they are never committed with real values."
+						},
+						{
+							"name": "View Fulfillment Queue Requires Admin (negative check)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/fulfillment",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"fulfillment"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 403 for a non-admin token', function () { pm.response.to.have.status(403); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": []
+						},
+						{
+							"name": "View Fulfillment Queue (Admin)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{admin_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/fulfillment",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"fulfillment"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('this order is waiting to be shipped', function () {",
+											"  const ids = json.map((o) => o.id);",
+											"  pm.expect(ids).to.include(pm.environment.get('order_id'));",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": [],
+							"description": "GET /orders/fulfillment -- orders in PAYMENT_APPROVED, waiting to be shipped. No join, no seller scoping: an order can span more than one seller's products, so shipping is a platform-operations action, not a per-seller one."
+						},
+						{
+							"name": "Ship Order",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{admin_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/{{order_id}}/ship",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"{{order_id}}",
+										"ship"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('order moved to SHIPPED', function () { pm.expect(json.state).to.eql('SHIPPED'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": [],
+							"description": "PAYMENT_APPROVED -> SHIPPED. Publishes order.status-changed through the same path every other transition in this collection already uses -- no new event type."
+						},
+						{
+							"name": "Confirm Delivery",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{buyer_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{gateway_url}}/orders/{{order_id}}/deliver",
+									"host": [
+										"{{gateway_url}}"
+									],
+									"path": [
+										"orders",
+										"{{order_id}}",
+										"deliver"
+									]
+								}
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+											"const json = pm.response.json();",
+											"pm.test('order moved to DELIVERED', function () { pm.expect(json.state).to.eql('DELIVERED'); });"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"response": [],
+							"description": "SHIPPED -> DELIVERED, ownership-gated exactly like Cancel Order -- only the order's own buyer can confirm receipt."
+						}
+					],
+					"description": "Mirrors docs/walkthrough.md step 12. Ship is a platform-operations action (role ADMIN, the first role-gated rather than ownership-gated endpoint in this project) since an order can span more than one seller's products; deliver stays ownership-gated like cancellation. See ADR-0029."
+				},
+				{
 					"name": "8. Final State",
 					"item": [
 						{
@@ -1835,7 +2037,7 @@
 							"response": []
 						}
 					],
-					"description": "notification-service consumes the same order.created event and persists a notification row, but exposes no public API to read it back (only GET /health) -- see docs/walkthrough.md step 9 and the README Roadmap. This collection cannot verify the persisted notification without breaking the 'public APIs only' constraint this etapa was scoped to; the request above only confirms the service was reachable during this run. To inspect the actual row, run the optional direct Postgres query documented in docs/walkthrough.md step 9."
+					"description": "notification-service consumes the same order.created event and persists a notification row, but exposes no public API to read it back (only GET /health) -- see docs/walkthrough.md step 9 and the README Roadmap. This collection cannot verify the persisted notification without breaking the 'public APIs only' constraint this work was scoped to; the request above only confirms the service was reachable during this run. To inspect the actual row, run the optional direct Postgres query documented in docs/walkthrough.md step 9."
 				},
 				{
 					"name": "8. Final State",

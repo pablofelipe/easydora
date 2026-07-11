@@ -197,10 +197,10 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Service | Stack | Port | Status | Test Coverage |
 |---|---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented | 9 test functions — circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)), correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)), and transparent routing across all 6 services ([ADR-0025](docs/adr/0025-gateway-transparent-routing.md)) |
-| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 19 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
+| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 20 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 27 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 61 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention and 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix) |
 | Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 26 tests — unit + `*IT` (real Postgres/RabbitMQ) |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
@@ -261,6 +261,7 @@ The stack split is deliberate:
 | [0026](docs/adr/0026-frontend-thin-client.md) | SvelteKit frontend as a thin client over the API Gateway | Accepted | New `frontend/` (SvelteKit + TypeScript, SSR disabled, `adapter-node`) consumes only the Gateway. Building it surfaced and fixed four real defects no prior `curl`-based client could catch: CORS wired but shadowed by Spring Security in two services and entirely missing in four; `products-service`'s JWT filter terminating requests before `permitAll()` paths could ever be reached; its catalog endpoints unreachable by any buyer token by design; and the Gateway echoing `X-Correlation-Id`/`X-Request-Id` twice under one header. `notification-service` gains a Gateway route, closing the one gap ADR-0025 left open. |
 | [0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md) | JWT principal as the sole identity source for orders/products | Accepted | Closes a Critical Roadmap item: `orders-service`/`products-service` derived business identity from a client-supplied `X-User-Id` header instead of the authenticated JWT principal, letting any valid token impersonate any other user by changing one header — confirmed live with a real two-buyer impersonation before the fix. Both controllers now derive identity exclusively from `@AuthenticationPrincipal`; `X-User-Id` no longer exists anywhere in either service's request path. Its 2026-07-10 Update extends the same pattern to `billing-service`'s `PaymentController` (all four endpoints, closing a separate High Roadmap item). |
 | [0028](docs/adr/0028-notification-service-authentication.md) | notification-service authentication and ownership check | Accepted | Closes a High Roadmap item (a real IDOR): `GET /notifications/{orderId}` had no authentication at all. notification-service gains its own JWT broadcast cache (consuming `jwt.created` for the first time, same pattern as every Spring service's `JwtConsumer`) and now requires the caller to be the order's own buyer, read from that order's real `order.created` payload — 403 otherwise. Confirmed live with a real two-buyer test. |
+| [0029](docs/adr/0029-order-fulfillment-lifecycle.md) | Activating the order fulfillment lifecycle (ship/deliver) | Accepted | Closes a Medium Roadmap item: `SHIPPED`/`DELIVERED` were configured state machine transitions with no code path to reach them. Adds `POST /{orderId}/ship` (the project's first role-gated, not ownership-gated, endpoint — the new `ADMIN` platform-operations role) and `POST /{orderId}/deliver` (ownership-gated like `cancelOrder`); replaces `canCancel()`'s hand-written eligibility list with a single `isTransitionAllowed` derived from the state machine's own configured graph; closes a self-registration-as-admin path in auth-service's `/signup`. Live validation caught and fixed a real `previousState`-after-mutation bug in `cancelOrder` and both new methods. No new event type, no new table. |
 
 ## Roadmap
 
@@ -517,7 +518,7 @@ The stack split is deliberate:
       and looked already safe. Fixed the same way as products-service:
       `OrderDebugController` and the `/debug/**` permitAll rule removed
       entirely; confirmed live (403 on all three real paths). No new ADR.
-- [ ] **Opened 2026-07-10 (Medium).**
+- [x] **Opened 2026-07-10, closed 2026-07-11 (Medium).**
       `OrderStateMachineConfig` wires real transitions for `SHIPPED`/
       `DELIVERED` (`SHIP_ORDER`/`DELIVER_ORDER`), but no code anywhere in
       `orders-service` ever sends either event — both states are
@@ -528,9 +529,21 @@ The stack split is deliberate:
       `INVENTORY_RESERVED` — a cancel attempt from `PAYMENT_APPROVED`
       isn't cleanly rejected upfront, it fails later with "event not
       accepted" once the mismatch is hit. Two different sources of truth
-      for the same business rule, and they disagree; needs one decision
-      (implement shipping/delivery for real, or delete the dead states;
-      align `canCancel()` to whatever the state machine actually allows).
+      for the same business rule, and they disagree. Resolved by
+      activating both transitions (`POST /{orderId}/ship`, gated by the
+      new `ADMIN` platform-operations role; `POST /{orderId}/deliver`,
+      ownership-gated like `cancelOrder`) instead of deleting the dead
+      states, and replacing `canCancel()` with a single
+      `isTransitionAllowed(state, event)` derived directly from the state
+      machine's own configured transition graph, reused by cancel/ship/
+      deliver alike. Live validation against a real running stack also
+      caught and fixed a related, previously undetected bug: `cancelOrder`
+      (and the two new methods, copied from its pattern) read
+      `previousState` from the same `Order` entity *after* calling
+      `sendEvent`, which mutates that same Hibernate-managed instance in
+      place within the shared transaction — every `order.status-changed`
+      event these methods ever published had `previousState == newState`.
+      See [ADR-0029](docs/adr/0029-order-fulfillment-lifecycle.md).
 - [ ] **Opened 2026-07-10 (Medium).** `billing-service` has a
       `PaymentProvider` interface and a `PaymentMockService` implementing
       it (`service/provider/`), but `PaymentService.processPayment` never
