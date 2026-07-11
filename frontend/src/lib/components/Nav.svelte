@@ -13,6 +13,7 @@
 		{ href: '/checkout', label: 'Checkout' },
 		{ href: '/orders', label: 'My Orders' }
 	];
+	const adminLinks = [{ href: '/fulfillment', label: 'Fulfillment' }];
 </script>
 
 <nav>
@@ -25,6 +26,13 @@
 						{link.label}
 					</a>
 				{/each}
+				{#if $auth.role === 'ADMIN'}
+					{#each adminLinks as link (link.href)}
+						<a href={link.href} class:active={$page.url.pathname.startsWith(link.href)}>
+							{link.label}
+						</a>
+					{/each}
+				{/if}
 			</div>
 			<div class="right">
 				<span class="user">{$auth.firstName}</span>

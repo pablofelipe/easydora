@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { getOrder } from '$lib/api/orders';
+	import { getOrder, shipOrder, confirmDelivery } from '$lib/api/orders';
 	import { processPayment } from '$lib/api/billing';
 	import { getNotifications } from '$lib/api/notifications';
 	import { ApiError } from '$lib/api/client';
 	import RequestDetails from '$lib/components/RequestDetails.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { auth } from '$lib/stores/auth';
 	import type { Order } from '$lib/types/order';
 	import type { Notification } from '$lib/types/notification';
 	import { formatCurrency, formatDateTime } from '$lib/utils/format';
@@ -22,6 +23,8 @@
 		notificationsLoaded = false;
 		notificationsError = null;
 		paymentError = null;
+		shipError = null;
+		deliverError = null;
 	});
 
 	let notifications = $state<Notification[]>([]);
@@ -30,6 +33,12 @@
 
 	let paying = $state(false);
 	let paymentError = $state<string | null>(null);
+
+	let shipping = $state(false);
+	let shipError = $state<string | null>(null);
+
+	let delivering = $state(false);
+	let deliverError = $state<string | null>(null);
 
 	async function loadNotifications() {
 		notificationsError = null;
@@ -57,6 +66,30 @@
 			paying = false;
 		}
 	}
+
+	async function onShipOrder() {
+		shipError = null;
+		shipping = true;
+		try {
+			order = await shipOrder(order.id);
+		} catch (err) {
+			shipError = err instanceof ApiError ? err.message : 'Could not reach the Gateway.';
+		} finally {
+			shipping = false;
+		}
+	}
+
+	async function onConfirmDelivery() {
+		deliverError = null;
+		delivering = true;
+		try {
+			order = await confirmDelivery(order.id);
+		} catch (err) {
+			deliverError = err instanceof ApiError ? err.message : 'Could not reach the Gateway.';
+		} finally {
+			delivering = false;
+		}
+	}
 </script>
 
 <a href="/orders">&larr; Back to my orders</a>
@@ -77,6 +110,24 @@
 		</button>
 		{#if paymentError}
 			<p class="error-text">{paymentError}</p>
+		{/if}
+	{/if}
+
+	{#if order.state === 'PAYMENT_APPROVED' && $auth?.role === 'ADMIN'}
+		<button onclick={onShipOrder} disabled={shipping}>
+			{shipping ? 'Marking as shipped...' : 'Mark as shipped'}
+		</button>
+		{#if shipError}
+			<p class="error-text">{shipError}</p>
+		{/if}
+	{/if}
+
+	{#if order.state === 'SHIPPED' && $auth?.role === 'BUYER'}
+		<button onclick={onConfirmDelivery} disabled={delivering}>
+			{delivering ? 'Confirming delivery...' : 'Confirm delivery'}
+		</button>
+		{#if deliverError}
+			<p class="error-text">{deliverError}</p>
 		{/if}
 	{/if}
 </div>

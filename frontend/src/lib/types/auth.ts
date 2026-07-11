@@ -6,7 +6,7 @@ export interface LoginResponse {
 	email: string;
 	firstName: string;
 	lastName: string;
-	role: 'BUYER' | 'SELLER';
+	role: 'BUYER' | 'SELLER' | 'ADMIN';
 	expiresAt: string;
 }
 
@@ -16,5 +16,5 @@ export interface AuthSession {
 	email: string;
 	firstName: string;
 	lastName: string;
-	role: 'BUYER' | 'SELLER';
+	role: 'BUYER' | 'SELLER' | 'ADMIN';
 }

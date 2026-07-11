@@ -12,3 +12,15 @@ export function listMyOrders(): Promise<Order[]> {
 export function getOrder(orderId: string): Promise<Order> {
 	return apiFetch<Order>(`/orders/${orderId}`);
 }
+
+export function shipOrder(orderId: string): Promise<Order> {
+	return apiFetch<Order>(`/orders/${orderId}/ship`, { method: 'POST' });
+}
+
+export function confirmDelivery(orderId: string): Promise<Order> {
+	return apiFetch<Order>(`/orders/${orderId}/deliver`, { method: 'POST' });
+}
+
+export function listFulfillmentQueue(): Promise<Order[]> {
+	return apiFetch<Order[]>('/orders/fulfillment');
+}
