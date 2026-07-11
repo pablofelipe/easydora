@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.Set;
 import java.net.URLEncoder;
 
 @Service
@@ -77,8 +78,18 @@ public class UserService {
         return mapToSignupResponse(savedUser, verificationToken);
     }
 
+    // ADMIN is a real UserRole value (used by orders-service's fulfillment
+    // authorization), but is never self-service -- the public
+    // signup endpoint may only mint BUYER/SELLER accounts. The ADMIN account
+    // is provisioned exclusively via a Flyway seed migration.
+    private static final Set<String> SELF_SERVICE_ROLES = Set.of("BUYER", "SELLER");
+
     private UserRole validateAndConvertRole(String roleString) {
-        return UserRole.valueOf(roleString.toUpperCase());
+        String normalized = roleString.toUpperCase();
+        if (!SELF_SERVICE_ROLES.contains(normalized)) {
+            throw new IllegalArgumentException("Invalid role for signup: " + roleString);
+        }
+        return UserRole.valueOf(normalized);
     }
     
     private User createUserFromRequest(SignupRequest request, UserRole role) {
