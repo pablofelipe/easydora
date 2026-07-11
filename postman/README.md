@@ -165,13 +165,14 @@ in the walkthrough, not exhaustive coverage of every edge case.
   Postman-maintenance work, not something either of those changes
   required. `docs/walkthrough.md` step 9 calls the real endpoint
   directly.
-- **"Process Payment (Simulation)" (folder 9) is not part of the
-  documented walkthrough flow.** It's a real endpoint
-  (`PaymentService.processPayment`), included for completeness, but the
-  walkthrough deliberately stops at a `PENDING` payment — see
-  `docs/sequence-diagram.md`'s reading notes. Its outcome is a random
-  ~90% approval simulation, so the request accepts either `APPROVED` or
-  `FAILED` rather than asserting one.
+- **"Process Payment" (folder 9) is not part of the documented walkthrough
+  flow.** It's a real endpoint (`PaymentService.processPayment`), included
+  for completeness, but the walkthrough deliberately stops at a `PENDING`
+  payment — see `docs/sequence-diagram.md`'s reading notes. Its outcome is
+  now deterministic (`PaymentProvider`, ADR-0030: amount parity, no
+  `Math.random()`) — this collection's fixed test data (2 units at a fixed
+  `249.90` price) always resolves to `FAILED`, and the request asserts
+  exactly that instead of accepting either outcome.
 - **Re-running against a stack that still has data from a previous run**
   works for signup (emails are generated uniquely per run) but each run
   creates a new seller/product/order/payment rather than reusing the

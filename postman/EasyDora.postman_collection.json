@@ -1101,7 +1101,7 @@
 					"name": "9. Extras — Beyond the Walkthrough (optional)",
 					"item": [
 						{
-							"name": "Process Payment (Simulation)",
+							"name": "Process Payment",
 							"request": {
 								"method": "POST",
 								"header": [
@@ -1140,8 +1140,9 @@
 										"exec": [
 											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
 											"const json = pm.response.json();",
-											"pm.test('payment reaches a terminal status', function () {",
-											"  pm.expect(['APPROVED', 'FAILED']).to.include(json.status);",
+											"pm.test('this order (2 x 249.90 = 499.80, not evenly divisible by 2) deterministically fails', function () {",
+											"  pm.expect(json.status).to.eql('FAILED');",
+											"  pm.expect(json.failureReason).to.eql('Odd amount rejected by the mock policy');",
 											"});"
 										],
 										"type": "text/javascript"
@@ -1151,7 +1152,7 @@
 							"response": []
 						}
 					],
-					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. Outcome is a random ~90% approval simulation (PaymentService.java), so this request intentionally accepts either APPROVED or FAILED rather than asserting one."
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data."
 				}
 			]
 		},
@@ -2122,7 +2123,7 @@
 					"name": "9. Extras — Beyond the Walkthrough (optional)",
 					"item": [
 						{
-							"name": "Process Payment (Simulation)",
+							"name": "Process Payment",
 							"request": {
 								"method": "POST",
 								"header": [
@@ -2160,8 +2161,9 @@
 										"exec": [
 											"pm.test('status is 200', function () { pm.response.to.have.status(200); });",
 											"const json = pm.response.json();",
-											"pm.test('payment reaches a terminal status', function () {",
-											"  pm.expect(['APPROVED', 'FAILED']).to.include(json.status);",
+											"pm.test('this order (2 x 249.90 = 499.80, not evenly divisible by 2) deterministically fails', function () {",
+											"  pm.expect(json.status).to.eql('FAILED');",
+											"  pm.expect(json.failureReason).to.eql('Odd amount rejected by the mock policy');",
 											"});"
 										],
 										"type": "text/javascript"
@@ -2171,7 +2173,7 @@
 							"response": []
 						}
 					],
-					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. Outcome is a random ~90% approval simulation (PaymentService.java), so this request intentionally accepts either APPROVED or FAILED rather than asserting one."
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data."
 				}
 			]
 		}

@@ -201,7 +201,7 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
 | Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 61 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention and 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix) |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 26 tests — unit + `*IT` (real Postgres/RabbitMQ) |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 31 tests — unit + `*IT` (real Postgres/RabbitMQ), including 5 covering the deterministic payment provider |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
@@ -262,6 +262,7 @@ The stack split is deliberate:
 | [0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md) | JWT principal as the sole identity source for orders/products | Accepted | Closes a Critical Roadmap item: `orders-service`/`products-service` derived business identity from a client-supplied `X-User-Id` header instead of the authenticated JWT principal, letting any valid token impersonate any other user by changing one header — confirmed live with a real two-buyer impersonation before the fix. Both controllers now derive identity exclusively from `@AuthenticationPrincipal`; `X-User-Id` no longer exists anywhere in either service's request path. Its 2026-07-10 Update extends the same pattern to `billing-service`'s `PaymentController` (all four endpoints, closing a separate High Roadmap item). |
 | [0028](docs/adr/0028-notification-service-authentication.md) | notification-service authentication and ownership check | Accepted | Closes a High Roadmap item (a real IDOR): `GET /notifications/{orderId}` had no authentication at all. notification-service gains its own JWT broadcast cache (consuming `jwt.created` for the first time, same pattern as every Spring service's `JwtConsumer`) and now requires the caller to be the order's own buyer, read from that order's real `order.created` payload — 403 otherwise. Confirmed live with a real two-buyer test. |
 | [0029](docs/adr/0029-order-fulfillment-lifecycle.md) | Activating the order fulfillment lifecycle (ship/deliver) | Accepted | Closes a Medium Roadmap item: `SHIPPED`/`DELIVERED` were configured state machine transitions with no code path to reach them. Adds `POST /{orderId}/ship` (the project's first role-gated, not ownership-gated, endpoint — the new `ADMIN` platform-operations role) and `POST /{orderId}/deliver` (ownership-gated like `cancelOrder`); replaces `canCancel()`'s hand-written eligibility list with a single `isTransitionAllowed` derived from the state machine's own configured graph; closes a self-registration-as-admin path in auth-service's `/signup`. Live validation caught and fixed a real `previousState`-after-mutation bug in `cancelOrder` and both new methods. No new event type, no new table. |
+| [0030](docs/adr/0030-deterministic-payment-provider.md) | Deterministic payment provider | Accepted | Closes a Medium Roadmap item: `billing-service`'s `PaymentProvider`/`PaymentMockService` abstraction was dead code — `PaymentService.processPayment` decided approval with `Math.random() < 0.9` directly instead. `PaymentService` now depends exclusively on `PaymentProvider`; the fake's existing amount-parity rule (kept, not replaced with a hash) makes the same order always resolve the same way. Also removed a second, unused `PaymentResult` class sharing `PaymentService`'s package — a real name-collision risk once the real one got imported. `docs/walkthrough.md`/`docs/sequence-diagram.md`/`postman/README.md` no longer hedge with "either outcome". |
 
 ## Roadmap
 
@@ -544,14 +545,28 @@ The stack split is deliberate:
       place within the shared transaction — every `order.status-changed`
       event these methods ever published had `previousState == newState`.
       See [ADR-0029](docs/adr/0029-order-fulfillment-lifecycle.md).
-- [ ] **Opened 2026-07-10 (Medium).** `billing-service` has a
-      `PaymentProvider` interface and a `PaymentMockService` implementing
-      it (`service/provider/`), but `PaymentService.processPayment` never
-      calls either — it inlines `Math.random() < 0.9` directly instead.
-      The abstraction is dead code, and the actual approval logic is
-      non-deterministic with no seam to make it reproducible, which is
-      why `docs/walkthrough.md` can only describe the payment step as
-      "accepts either outcome" rather than asserting one.
+- [x] **Opened 2026-07-10, closed 2026-07-11 (Medium).** `billing-service`
+      had a `PaymentProvider` interface and a `PaymentMockService`
+      implementing it (`service/provider/`), but `PaymentService.
+      processPayment` never called either — it inlined
+      `Math.random() < 0.9` directly instead. The abstraction was dead
+      code, and the actual approval logic was non-deterministic with no
+      seam to make it reproducible. Resolved by wiring `PaymentService` to
+      depend exclusively on `PaymentProvider` (constructor injection,
+      `PaymentMockService` is `@Primary`) instead of deciding anything
+      itself; kept `PaymentMockService`'s existing amount-parity rule
+      (already deterministic, just never called) rather than switching to
+      a hash of `orderId` — simpler to explain, and the interface's
+      `orderId` parameter was fixed from `Long` to `String` to match the
+      real domain type regardless. Also removed a second, entirely unused
+      `PaymentResult` class (`service/PaymentResult.java`, same package as
+      `PaymentService`, a real name-collision risk once the real
+      `provider.PaymentResult` got imported) found in the same area.
+      `docs/walkthrough.md`, `docs/sequence-diagram.md`, and
+      `postman/README.md` no longer hedge with "either outcome" — this
+      walkthrough's fixed numbers (2 x `249.90` = `499.80`) now
+      deterministically resolve to `FAILED`, stated as fact. See
+      [ADR-0030](docs/adr/0030-deterministic-payment-provider.md).
 - [ ] **Opened 2026-07-10 (Architectural note).** `orders-service`'s
       Spring State Machine usage
       (`OrderStateMachineService.sendEvent`) rebuilds and rehydrates a
@@ -568,6 +583,20 @@ The stack split is deliberate:
       authority, or drop the framework for a validated plain transition
       table — keeping both halves of the current hybrid is the one option
       that isn't defensible.
+- [ ] **Opened 2026-07-11 (Low).** `billing-service`'s
+      `PaymentService.processPayment` has an "API fallback" branch that
+      builds a new `Payment` directly (for a call whose `orderId` has no
+      existing row yet) but never sets `userId`, violating the table's
+      `NOT NULL` constraint. Found while live-validating ADR-0030's
+      determinism fix, calling the endpoint directly for an `orderId`
+      that had never gone through the real `order.created` →
+      `createPendingPayment` flow (which does set `userId`). Neither
+      `docs/walkthrough.md` nor the Postman collection ever hit this path
+      — both always process an order that was created for real first —
+      so it's a latent gap, not a regression from that change. Fix is
+      presumably a missing `payment.setUserId(...)` in that branch, but
+      it needs its own caller (whoever knows the buyer for an orderId
+      with no prior payment record) worked out first.
 
 </details>
 

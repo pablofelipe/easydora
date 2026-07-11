@@ -293,14 +293,22 @@ curl -s -X POST "http://localhost:8080/billing/api/payments/process?orderId=$ORD
 
 Response (real example):
 ```json
-{"id":30,"orderId":"d35207ec-b9bd-44db-b62e-2aa31c5f8e68","userId":26,"amount":15.00,"status":"APPROVED","transactionId":"4910d986-13ae-4383-ab48-9ac15536a778","failureReason":null,"createdAt":"2026-07-08T17:59:35.022814","processedAt":"2026-07-08T17:59:42.000457217"}
+{"id":30,"orderId":"d35207ec-b9bd-44db-b62e-2aa31c5f8e68","userId":26,"amount":499.80,"status":"FAILED","transactionId":"35c81470-3335-4b0b-b51d-537e22951362","failureReason":"Odd amount rejected by the mock policy","createdAt":"2026-07-08T17:59:35.022814","processedAt":"2026-07-08T17:59:42.000457217"}
 ```
 
-This endpoint (`PaymentService.processPayment`) simulates payment
-processing with a random 90% approval chance — `status` in the response
-will be `APPROVED` or `FAILED` depending on the outcome. It always
-operates on the same order's existing `Payment` row, so it's safe to call
-again if you want to see the other branch.
+This endpoint (`PaymentService.processPayment`) now delegates the
+approval decision entirely to `PaymentProvider` (see
+[ADR-0030](adr/0030-deterministic-payment-provider.md)) -- no
+`Math.random()` anywhere in the domain. The mock provider's rule is
+simple and stable: an order whose total amount is evenly divisible by 2
+is `APPROVED`, otherwise `FAILED`. `$499.80` (2 × `$249.90` from step 6)
+is not evenly divisible by 2, so this call is **always** `FAILED` for
+this walkthrough's numbers -- not "may fail," will fail, every time you
+run this exact flow. Calling it again on the same order repeats the
+identical result (same `transactionId`, same `failureReason`), since the
+amount driving the decision hasn't changed. To see the `APPROVED` branch
+instead, create an order whose total is an even whole-dollar amount (e.g.
+2 units at `$250.00`).
 
 **Event published**: `billing-service` publishes a `PaymentEvent` on
 `order.exchange`/`payment.approved` (or `payment.failed`) once the
@@ -320,14 +328,18 @@ payment-specific changes at all.
 curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
-Expected: `"state":"PAYMENT_APPROVED"` (or `PAYMENT_FAILED`) (real example
-confirmed).
+Expected: `"state":"PAYMENT_FAILED"` -- deterministic for this walkthrough's
+numbers, not a hedge.
 
 ```bash
 curl -s http://localhost:8086/notifications/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
-Response (real example, `APPROVED` case):
+Response (real example, captured before the payment provider became
+deterministic -- the notification shape itself is unaffected by that
+change, only the terminal `newState` value would now read
+`PAYMENT_FAILED` instead of `PAYMENT_APPROVED` for this walkthrough's
+exact numbers):
 ```json
 [
   {"eventType":"order.created","status":"SENT","payload":{"email":"buyer-e19b-1783533570@example.com","userId":26,"firstName":"Bea","lastName":"Buyer","totalAmount":15.0},"createdAt":"2026-07-08T17:59:35.034452+00:00"},
@@ -338,14 +350,17 @@ Response (real example, `APPROVED` case):
 
 Three notifications now exist for this order — one per relevant event, in
 order. This is the same read-only endpoint step 9 already used; nothing
-about it changed to support the payment outcome.
+about it changed to support the payment outcome (`notification-service`
+already treated `newState` as an opaque string with no per-value branch).
 
 ## 11. Final state
 
 At this point you have, driven entirely by public HTTP APIs:
 - 1 verified seller, 1 active product, 1 verified buyer
-- 1 order in `PAYMENT_APPROVED` (or `PAYMENT_FAILED`)
-- 1 `Payment` in `APPROVED` (or `FAILED`)
+- 1 order in `PAYMENT_FAILED` for this walkthrough's numbers (deterministic
+  -- see step 10; use an even whole-dollar total instead to land in
+  `PAYMENT_APPROVED`)
+- 1 `Payment` in `FAILED` (or `APPROVED`, for an even-amount order)
 - 3 persisted notifications (`order.created`, and two `order.status-changed`), all `SENT`
 
 ```bash
@@ -362,9 +377,10 @@ criterion for this walkthrough.
 The commands and responses in this step are real, but come from a
 separate verification run rather than a continuation of the exact order
 from steps 1–11 above (a different `$ORDER_ID`/`$BUYER_TOKEN`) — the
-order there was already fast-forwarded to `PAYMENT_APPROVED` directly,
-since steps 1–10 already demonstrate how a real order reaches that state
-through checkout, stock reservation, and payment. See
+order there was already fast-forwarded to `PAYMENT_APPROVED` directly
+(steps 1–10 demonstrate the real checkout/stock-reservation/payment path
+itself, but land on `PAYMENT_FAILED` for this walkthrough's specific
+numbers -- see step 10). See
 [ADR-0029](adr/0029-order-fulfillment-lifecycle.md).
 
 Shipping is a platform-operations action (role `ADMIN`), not a buyer or

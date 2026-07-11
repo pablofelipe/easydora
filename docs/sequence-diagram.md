@@ -106,7 +106,7 @@ sequenceDiagram
     rect rgb(240, 235, 255)
     Note over Client,Notif: Payment processing -> order status change -> notification
     Client->>Billing: POST /api/payments/process (Bearer BUYER_TOKEN)
-    Billing->>Billing: resolve Payment to APPROVED or FAILED (random simulation)
+    Billing->>Billing: resolve Payment via PaymentProvider (deterministic: amount parity)
     Billing-->>Client: 200 Payment status=APPROVED|FAILED
     Billing->>MQ: publish PaymentEvent (payment.approved | payment.failed, order.exchange)
 
@@ -185,7 +185,9 @@ sequenceDiagram
   keep this stage simple and readable rather than runtime-configurable.
 - **The payment outcome closes the loop the same way the stock outcome
   does**: `billing-service`'s `POST /api/payments/process`
-  (`PaymentService.processPayment`, a random 90%-approval simulation)
+  (`PaymentService.processPayment`, delegating entirely to a deterministic
+  `PaymentProvider` -- same order, same amount, always the same outcome;
+  see [ADR-0030](adr/0030-deterministic-payment-provider.md))
   now publishes `payment.approved`/`payment.failed` once it resolves,
   and `orders-service`'s `PaymentEventsConsumer` reacts by calling
   `OrderService.handlePaymentReceived`/`handlePaymentFailed` — the same
