@@ -22,7 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * Behavior contract for the billing -> orders hop this etapa completes:
+ * Behavior contract for the billing -> orders hop:
  * once a payment resolves to APPROVED or FAILED, publishPaymentEvent must
  * put the right event on order.exchange with the right routing key -- the
  * missing link ADR-0001 (finding 5) left unreachable after removing the

@@ -59,7 +59,7 @@ public class RabbitMQConfig {
     public static final String STOCK_INSUFFICIENT_QUEUE = "orders.stock.insufficient.queue";
     public static final String STOCK_INSUFFICIENT_ROUTING_KEY = "stock.insufficient";
 
-    // products-service's product.exchange (ADR-0026's Etapa 27): only
+    // products-service's product.exchange (ADR-0026): only
     // product.created is consumed today -- ownership is set once, at
     // creation time, and never anticipated to move. See ProductCreatedEvent.
     public static final String PRODUCT_EXCHANGE = "product.exchange";

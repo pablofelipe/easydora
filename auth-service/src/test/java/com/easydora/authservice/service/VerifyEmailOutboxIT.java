@@ -27,7 +27,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Reproduces the Etapa 0 catalogued finding: UserService.verifyEmail
+ * Reproduces a catalogued finding: UserService.verifyEmail
  * published user.verified over RabbitMQ before saving the activated user,
  * so a DB failure after the publish still let the event out even though
  * the corresponding state change was never persisted. Talks to a real

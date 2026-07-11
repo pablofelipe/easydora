@@ -27,9 +27,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Behavior contract for the products -> inventory hop (ADR-0007, migrated in
- * Etapa 6): creating, updating or deleting a product must publish a domain
- * event some other service can react to. No assertion here inspects a
+ * Behavior contract for the products -> inventory hop (ADR-0007, migrated
+ * from Kafka to RabbitMQ): creating, updating or deleting a product must
+ * publish a domain event some other service can react to. No assertion here inspects a
  * RabbitMQ-specific wire detail — only the business-level exchange/routing
  * key and payload.
  *
