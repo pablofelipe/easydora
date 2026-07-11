@@ -2,6 +2,7 @@ package com.easydora.billing.controller;
 
 import com.easydora.billing.config.JwtAuthenticationFilter.JwtUserInfo;
 import com.easydora.billing.dto.PaymentDTO;
+import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.service.PaymentService;
 
 import org.springframework.http.HttpStatus;
@@ -9,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -59,18 +59,17 @@ public class PaymentController {
     }
     
     @PostMapping("/process")
-    public ResponseEntity<PaymentDTO> processPayment(
-            @RequestParam String orderId,
-            @RequestParam BigDecimal amount) {
-        
+    public ResponseEntity<PaymentDTO> processPayment(@RequestParam String orderId) {
         try {
-            PaymentDTO payment = paymentService.processPayment(orderId, amount);
+            PaymentDTO payment = paymentService.processPayment(orderId);
             return ResponseEntity.ok(payment);
+        } catch (PaymentNotFoundException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
     }
-    
+
     @PostMapping("/{orderId}/retry")
     public ResponseEntity<PaymentDTO> retryPayment(@PathVariable String orderId) {
         try {
@@ -80,22 +79,7 @@ public class PaymentController {
             return ResponseEntity.badRequest().build();
         }
     }
-    
-    @PostMapping("/pending")
-    public ResponseEntity<PaymentDTO> createPendingPayment(
-            @RequestParam String orderId,
-            @RequestParam BigDecimal amount) {
-        
-        try {
-            // Para API REST, primeiro criamos o pagamento pendente
-            // e depois processamos (isso poderia ser melhorado)
-            PaymentDTO payment = paymentService.processPayment(orderId, amount);
-            return ResponseEntity.ok(payment);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-    
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletePayment(@PathVariable Long id, @AuthenticationPrincipal JwtUserInfo principal) {
         try {

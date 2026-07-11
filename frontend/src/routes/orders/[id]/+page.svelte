@@ -58,7 +58,7 @@
 		paymentError = null;
 		paying = true;
 		try {
-			await processPayment(order.id, order.totalAmount);
+			await processPayment(order.id);
 			order = await getOrder(order.id);
 		} catch (err) {
 			paymentError = err instanceof ApiError ? err.message : 'Could not reach the Gateway.';

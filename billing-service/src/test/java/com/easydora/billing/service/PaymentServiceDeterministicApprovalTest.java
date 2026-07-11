@@ -1,6 +1,7 @@
 package com.easydora.billing.service;
 
 import com.easydora.billing.dto.PaymentDTO;
+import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.service.provider.PaymentMockService;
@@ -20,6 +21,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -48,23 +50,33 @@ class PaymentServiceDeterministicApprovalTest {
 
     @Test
     void evenAmountIsApproved() {
-        when(paymentRepository.findByOrderId("order-even")).thenReturn(Optional.empty());
+        Payment existing = new Payment("order-even", new BigDecimal("100.00"));
+        when(paymentRepository.findByOrderId("order-even")).thenReturn(Optional.of(existing));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PaymentDTO result = newPaymentService().processPayment("order-even", new BigDecimal("100.00"));
+        PaymentDTO result = newPaymentService().processPayment("order-even");
 
         assertThat(result.getStatus()).isEqualTo("APPROVED");
     }
 
     @Test
     void oddAmountIsRejected() {
-        when(paymentRepository.findByOrderId("order-odd")).thenReturn(Optional.empty());
+        Payment existing = new Payment("order-odd", new BigDecimal("99.00"));
+        when(paymentRepository.findByOrderId("order-odd")).thenReturn(Optional.of(existing));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PaymentDTO result = newPaymentService().processPayment("order-odd", new BigDecimal("99.00"));
+        PaymentDTO result = newPaymentService().processPayment("order-odd");
 
         assertThat(result.getStatus()).isEqualTo("FAILED");
         assertThat(result.getFailureReason()).isNotBlank();
+    }
+
+    @Test
+    void processingAnOrderWithNoExistingPaymentThrowsADomainNotFoundError() {
+        when(paymentRepository.findByOrderId("order-never-created")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> newPaymentService().processPayment("order-never-created"))
+                .isInstanceOf(PaymentNotFoundException.class);
     }
 
     @Test
@@ -86,8 +98,8 @@ class PaymentServiceDeterministicApprovalTest {
 
         PaymentService paymentService = newPaymentService();
 
-        PaymentDTO firstAttempt = paymentService.processPayment("order-retry", new BigDecimal("13.00"));
-        PaymentDTO secondAttempt = paymentService.processPayment("order-retry", new BigDecimal("13.00"));
+        PaymentDTO firstAttempt = paymentService.processPayment("order-retry");
+        PaymentDTO secondAttempt = paymentService.processPayment("order-retry");
 
         assertThat(firstAttempt.getStatus()).isEqualTo("FAILED");
         assertThat(secondAttempt.getStatus()).isEqualTo("FAILED");

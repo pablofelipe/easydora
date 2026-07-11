@@ -4,6 +4,7 @@ import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationMessaging;
 import com.easydora.billing.dto.PaymentDTO;
+import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
@@ -103,33 +104,25 @@ public class PaymentService {
     }
     
     @Transactional
-    public PaymentDTO processPayment(String orderId, BigDecimal amount) {
-        logger.info("Processing payment via API - Order: {}, Amount: {}", orderId, amount);
+    public PaymentDTO processPayment(String orderId) {
+        logger.info("Processing payment via API - Order: {}", orderId);
 
-        // Look up existing payment
-        Optional<Payment> paymentOpt = paymentRepository.findByOrderId(orderId);
-        Payment payment;
+        // A Payment row is only ever created by createPendingPayment,
+        // reacting to order.created -- there is exactly one way for a
+        // Payment to come into existence. Its absence here is a domain
+        // error, not an opportunity to create one on the fly.
+        Payment payment = paymentRepository.findByOrderId(orderId)
+            .orElseThrow(() -> new PaymentNotFoundException(orderId));
+        logger.info("Payment found: {}", payment.getStatus());
 
-        if (paymentOpt.isPresent()) {
-            payment = paymentOpt.get();
-            logger.info("Payment found: {}", payment.getStatus());
-
-            // If already approved, return it
-            if (payment.getStatus() == PaymentStatus.APPROVED) {
-                logger.warn("Payment already APPROVED for order {}", orderId);
-                return convertToDTO(payment);
-            }
-        } else {
-            // Create new payment (fallback for a direct API call)
-            logger.info("Creating new payment (API fallback)");
-            payment = new Payment();
-            payment.setOrderId(orderId);
-            payment.setAmount(amount);
-            payment.setStatus(PaymentStatus.PENDING);
-            payment.setCreatedAt(LocalDateTime.now());
-            payment.setTransactionId(UUID.randomUUID().toString());
+        // If already approved, return it
+        if (payment.getStatus() == PaymentStatus.APPROVED) {
+            logger.warn("Payment already APPROVED for order {}", orderId);
+            return convertToDTO(payment);
         }
-        
+
+        BigDecimal amount = payment.getAmount();
+
         // Every approval decision lives inside PaymentProvider -- this
         // method only reacts to the result, never decides on its own.
         try {
@@ -206,10 +199,10 @@ public class PaymentService {
         payment.setStatus(PaymentStatus.PENDING);
         payment.setFailureReason(null);
 
-        Payment savedPayment = paymentRepository.save(payment);
+        paymentRepository.save(payment);
 
         // Process payment
-        return processPayment(orderId, payment.getAmount());
+        return processPayment(orderId);
     }
     
     @Transactional
