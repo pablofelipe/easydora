@@ -172,7 +172,10 @@ in the walkthrough, not exhaustive coverage of every edge case.
   now deterministic (`PaymentProvider`, ADR-0030: amount parity, no
   `Math.random()`) — this collection's fixed test data (2 units at a fixed
   `249.90` price) always resolves to `FAILED`, and the request asserts
-  exactly that instead of accepting either outcome.
+  exactly that instead of accepting either outcome. The request only
+  sends `orderId` — no `amount` — since `processPayment` now always acts
+  on the `Payment` row already created by `order.created` and no longer
+  accepts (or needs) one from the caller (ADR-0031).
 - **Re-running against a stack that still has data from a previous run**
   works for signup (emails are generated uniquely per run) but each run
   creates a new seller/product/order/payment rather than reusing the

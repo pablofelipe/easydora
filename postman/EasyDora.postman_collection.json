@@ -1111,7 +1111,7 @@
 									}
 								],
 								"url": {
-									"raw": "{{gateway_url}}/billing/api/payments/process?orderId={{order_id}}&amount={{order_total_amount}}",
+									"raw": "{{gateway_url}}/billing/api/payments/process?orderId={{order_id}}",
 									"host": [
 										"{{gateway_url}}"
 									],
@@ -1125,10 +1125,6 @@
 										{
 											"key": "orderId",
 											"value": "{{order_id}}"
-										},
-										{
-											"key": "amount",
-											"value": "{{order_total_amount}}"
 										}
 									]
 								}
@@ -1152,7 +1148,7 @@
 							"response": []
 						}
 					],
-					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data."
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data. Takes only orderId -- no amount parameter -- since it now always acts on the Payment row already created by order.created, never creating one itself (ADR-0031)."
 				}
 			]
 		},
@@ -2133,7 +2129,7 @@
 									}
 								],
 								"url": {
-									"raw": "{{billing_url}}/api/payments/process?orderId={{order_id}}&amount={{order_total_amount}}",
+									"raw": "{{billing_url}}/api/payments/process?orderId={{order_id}}",
 									"host": [
 										"{{billing_url}}"
 									],
@@ -2146,10 +2142,6 @@
 										{
 											"key": "orderId",
 											"value": "{{order_id}}"
-										},
-										{
-											"key": "amount",
-											"value": "{{order_total_amount}}"
 										}
 									]
 								}
@@ -2173,7 +2165,7 @@
 							"response": []
 						}
 					],
-					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data."
+					"description": "A real endpoint (PaymentService.processPayment) that exists in billing-service's code but is NOT part of docs/walkthrough.md's documented flow -- the walkthrough deliberately stops at PENDING (see docs/sequence-diagram.md's reading notes). Included here, clearly separated, because it's a real capability worth demonstrating, not because it's part of the core flow. The approval decision is delegated entirely to PaymentProvider (ADR-0030) -- deterministic, not random: 2 x this collection's fixed 249.90 product price = 499.80, not evenly divisible by 2, so this request always resolves to FAILED for this collection's fixed test data. Takes only orderId -- no amount parameter -- since it now always acts on the Payment row already created by order.created, never creating one itself (ADR-0031)."
 				}
 			]
 		}

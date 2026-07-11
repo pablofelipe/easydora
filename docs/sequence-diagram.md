@@ -189,6 +189,10 @@ sequenceDiagram
   `PaymentProvider` -- same order, same amount, always the same outcome;
   see [ADR-0030](adr/0030-deterministic-payment-provider.md))
   now publishes `payment.approved`/`payment.failed` once it resolves,
+  acting only on a `Payment` row that already exists (created solely by
+  the `order.created` consumer shown above -- there is no path in this
+  diagram where `processPayment` itself creates one; see
+  [ADR-0031](adr/0031-single-source-of-truth-for-payment-creation.md)),
   and `orders-service`'s `PaymentEventsConsumer` reacts by calling
   `OrderService.handlePaymentReceived`/`handlePaymentFailed` — the same
   state-machine methods that existed before this diagram's payment block

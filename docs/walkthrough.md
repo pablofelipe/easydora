@@ -287,7 +287,7 @@ templating mechanism it has no present need for.
 ## 10. Process the payment
 
 ```bash
-curl -s -X POST "http://localhost:8080/billing/api/payments/process?orderId=$ORDER_ID&amount=499.80" \
+curl -s -X POST "http://localhost:8080/billing/api/payments/process?orderId=$ORDER_ID" \
   -H "Authorization: Bearer $BUYER_TOKEN"
 ```
 
@@ -309,6 +309,15 @@ identical result (same `transactionId`, same `failureReason`), since the
 amount driving the decision hasn't changed. To see the `APPROVED` branch
 instead, create an order whose total is an even whole-dollar amount (e.g.
 2 units at `$250.00`).
+
+Note there is no `amount` parameter on this call anymore (see
+[ADR-0031](adr/0031-single-source-of-truth-for-payment-creation.md)):
+`amount` is read from the `Payment` row already created when
+`order.created` was consumed in step 8, the only place a `Payment` is
+ever created. Calling this endpoint for an `orderId` with no such row
+(e.g. a made-up id, or an order that was never actually created) now
+returns `404 Not Found` instead of silently creating an incomplete
+payment record.
 
 **Event published**: `billing-service` publishes a `PaymentEvent` on
 `order.exchange`/`payment.approved` (or `payment.failed`) once the
