@@ -14,13 +14,25 @@ import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 @Service
 public class OrderStateMachineService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(OrderStateMachineService.class);
-    
+
     private final StateMachineFactory<OrderState, OrderEvent> stateMachineFactory;
     private final OrderRepository orderRepository;
+
+    // Lazily computed, then cached: the transition graph never changes at
+    // runtime, and this is the single place the whole service consults to
+    // answer "is event E legal from state S" -- built directly from the
+    // real OrderStateMachineConfig instead of a hand-written duplicate of
+    // it, which is exactly what let canCancel() drift from the actual
+    // configured transitions before this refactor.
+    private volatile Map<OrderState, Set<OrderEvent>> allowedTransitionsCache;
 
     public OrderStateMachineService(
         StateMachineFactory<OrderState, OrderEvent> stateMachineFactory,
@@ -28,6 +40,24 @@ public class OrderStateMachineService {
     ) {
         this.stateMachineFactory = stateMachineFactory;
         this.orderRepository = orderRepository;
+    }
+
+    public boolean isTransitionAllowed(OrderState from, OrderEvent event) {
+        return allowedTransitions().getOrDefault(from, Set.of()).contains(event);
+    }
+
+    private Map<OrderState, Set<OrderEvent>> allowedTransitions() {
+        Map<OrderState, Set<OrderEvent>> cache = allowedTransitionsCache;
+        if (cache == null) {
+            StateMachine<OrderState, OrderEvent> probe = stateMachineFactory.getStateMachine();
+            cache = probe.getTransitions().stream()
+                .collect(Collectors.groupingBy(
+                    t -> t.getSource().getId(),
+                    Collectors.mapping(t -> t.getTrigger().getEvent(), Collectors.toSet())
+                ));
+            allowedTransitionsCache = cache;
+        }
+        return cache;
     }
     
     @Transactional

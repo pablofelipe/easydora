@@ -153,6 +153,13 @@ public class OrderService {
             throw new RuntimeException("Cannot cancel order in state: " + order.getState());
         }
 
+        // Captured before sendEvent: OrderStateMachineService.sendEvent
+        // mutates this same Hibernate-managed Order instance in place
+        // (findById inside the same transaction returns the identical
+        // object), so reading order.getState() afterward would already
+        // show the new state, not the real previous one.
+        OrderState previousState = order.getState();
+
         // Send cancellation event
         boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.CANCEL_ORDER);
 
@@ -168,7 +175,6 @@ public class OrderService {
             }
 
             // Update state in the database (only if the State Machine accepted it)
-            OrderState previousState = order.getState();
             order.setState(newState);
             order.setUpdatedAt(Instant.now());
             Order updatedOrder = orderRepository.save(order);
@@ -194,10 +200,98 @@ public class OrderService {
     }
 
     private boolean canCancel(Order order) {
-        return order.getState() == OrderState.PENDING || 
-            order.getState() == OrderState.PAYMENT_APPROVED ||
-            order.getState() == OrderState.PROCESSING ||
-            order.getState() == OrderState.INVENTORY_RESERVED;
+        return stateMachineService.isTransitionAllowed(order.getState(), OrderEvent.CANCEL_ORDER);
+    }
+
+    // Platform-operations action, not seller- or buyer-scoped: OrderItem
+    // has no sellerId, so "the seller of this order" isn't a well-defined
+    // question once an order spans more than one seller's products.
+    // Authorization (ADMIN role) is enforced in the controller.
+    public OrderResponse shipOrder(String orderId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+        if (!stateMachineService.isTransitionAllowed(order.getState(), OrderEvent.SHIP_ORDER)) {
+            logger.error("Order {} cannot be shipped in state: {}", orderId, order.getState());
+            throw new RuntimeException("Cannot ship order in state: " + order.getState());
+        }
+
+        // Captured before sendEvent -- see cancelOrder's comment above for why.
+        OrderState previousState = order.getState();
+        boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.SHIP_ORDER);
+
+        if (eventSent) {
+            OrderState newState = stateMachineService.getCurrentState(orderId);
+            logger.info("SHIP_ORDER event accepted. New state: {}", newState);
+
+            if (newState != OrderState.SHIPPED) {
+                logger.error("Unexpected state after shipping: {}", newState);
+                throw new RuntimeException("Order not shipped - unexpected state: " + newState);
+            }
+
+            order.setState(newState);
+            order.setUpdatedAt(Instant.now());
+            Order updatedOrder = orderRepository.save(order);
+
+            publishOrderStatusChanged(orderId, previousState, newState);
+
+            return mapToOrderResponse(updatedOrder);
+        } else {
+            logger.error("SHIP_ORDER event not accepted by the State Machine");
+            OrderState currentState = stateMachineService.getCurrentState(orderId);
+            throw new RuntimeException("Failed to ship order - event not accepted. Current state: " + currentState);
+        }
+    }
+
+    // Buyer-owned, mirroring cancelOrder's ownership pattern exactly:
+    // only the order's own buyer can confirm delivery of what only they
+    // can know they received.
+    public OrderResponse deliverOrder(String orderId, Long userId) {
+        buyerRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("Buyer not found: " + userId));
+
+        Order order = orderRepository.findByIdAndUserId(orderId, userId)
+            .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+        if (!stateMachineService.isTransitionAllowed(order.getState(), OrderEvent.DELIVER_ORDER)) {
+            logger.error("Order {} cannot be delivered in state: {}", orderId, order.getState());
+            throw new RuntimeException("Cannot deliver order in state: " + order.getState());
+        }
+
+        // Captured before sendEvent -- see cancelOrder's comment above for why.
+        OrderState previousState = order.getState();
+        boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.DELIVER_ORDER);
+
+        if (eventSent) {
+            OrderState newState = stateMachineService.getCurrentState(orderId);
+            logger.info("DELIVER_ORDER event accepted. New state: {}", newState);
+
+            if (newState != OrderState.DELIVERED) {
+                logger.error("Unexpected state after delivery: {}", newState);
+                throw new RuntimeException("Order not delivered - unexpected state: " + newState);
+            }
+
+            order.setState(newState);
+            order.setUpdatedAt(Instant.now());
+            Order updatedOrder = orderRepository.save(order);
+
+            publishOrderStatusChanged(orderId, previousState, newState);
+
+            return mapToOrderResponse(updatedOrder);
+        } else {
+            logger.error("DELIVER_ORDER event not accepted by the State Machine");
+            OrderState currentState = stateMachineService.getCurrentState(orderId);
+            throw new RuntimeException("Failed to deliver order - event not accepted. Current state: " + currentState);
+        }
+    }
+
+    // Platform-operations read model: which paid orders are waiting to be
+    // shipped. Reuses OrderRepository.findByState -- no join, no new
+    // table, since ship is not seller-scoped (see shipOrder above).
+    public List<OrderResponse> getFulfillmentQueue() {
+        return orderRepository.findByState(OrderState.PAYMENT_APPROVED).stream()
+            .map(this::mapToOrderResponse)
+            .collect(Collectors.toList());
     }
     
     @Transactional

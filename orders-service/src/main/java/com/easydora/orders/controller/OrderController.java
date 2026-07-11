@@ -5,6 +5,7 @@ import com.easydora.orders.dto.OrderRequest;
 import com.easydora.orders.dto.OrderResponse;
 import com.easydora.orders.service.OrderService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -68,5 +69,40 @@ public class OrderController {
             @AuthenticationPrincipal JwtUserInfo principal) {
         OrderResponse response = orderService.cancelOrder(orderId, principal.getUserId());
         return ResponseEntity.ok(response);
+    }
+
+    // Platform-operations action: any order, gated by role (not
+    // ownership) since no single seller owns a whole order. This is the
+    // first role-gated (as opposed to ownership-gated) mutation in this
+    // service -- see OrderService.shipOrder for why.
+    @PostMapping("/{orderId}/ship")
+    public ResponseEntity<OrderResponse> shipOrder(
+            @PathVariable String orderId,
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        if (!"ADMIN".equals(principal.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        OrderResponse response = orderService.shipOrder(orderId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{orderId}/deliver")
+    public ResponseEntity<OrderResponse> deliverOrder(
+            @PathVariable String orderId,
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        OrderResponse response = orderService.deliverOrder(orderId, principal.getUserId());
+        return ResponseEntity.ok(response);
+    }
+
+    // Platform-operations read model: orders currently waiting to be
+    // shipped. Same role gate as shipOrder.
+    @GetMapping("/fulfillment")
+    public ResponseEntity<List<OrderResponse>> getFulfillmentQueue(
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        if (!"ADMIN".equals(principal.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        List<OrderResponse> orders = orderService.getFulfillmentQueue();
+        return ResponseEntity.ok(orders);
     }
 }
