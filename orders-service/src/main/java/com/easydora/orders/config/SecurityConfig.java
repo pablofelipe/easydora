@@ -74,8 +74,7 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/ping",
                     "/health",
-                    "/error",
-                    "/debug/**"
+                    "/error"
                 ).permitAll()
                 // Endpoints that require authentication
                 .anyRequest().authenticated()

@@ -503,15 +503,20 @@ The stack split is deliberate:
       `orders-service`'s `OrderDebugController` under the same
       `permitAll()` pattern — found while fixing this item, out of its
       scope, not fixed here; tracked below as a new item.
-- [ ] **Opened 2026-07-10 (High).** `orders-service`'s
-      `OrderDebugController` has the same unauthenticated `/debug/**`
-      surface products-service just had fixed above: `GET /debug/tokens`
-      (logs cached user emails, same as products-service's since-removed
-      version), `GET /debug/buyers` (returns every buyer row — real PII,
-      not just a count), and a no-op `POST /debug/clear-tokens` that
-      claims to work but does nothing. Found while fixing the
-      products-service item above; out of that item's scope, so not
-      fixed here.
+- [x] **Opened 2026-07-10.** `orders-service`'s `OrderDebugController`
+      had the same unauthenticated `/debug/**` surface products-service's
+      equivalent had just been fixed for above: `GET /debug/tokens`
+      (logged cached user emails), `GET /debug/buyers` (returned every
+      buyer row — real PII, not just a count), and a no-op
+      `POST /debug/clear-tokens`. Also found while fixing this: the
+      controller's class-level `@RequestMapping("/debug")` combined with
+      each method's own `/debug/...` mapping duplicated the path segment
+      (the real, live-confirmed endpoint was `/debug/debug/buyers`, not
+      `/debug/buyers`) — moot now, but the actual reason a quick manual
+      `curl /debug/buyers` during earlier review would have found nothing
+      and looked already safe. Fixed the same way as products-service:
+      `OrderDebugController` and the `/debug/**` permitAll rule removed
+      entirely; confirmed live (403 on all three real paths). No new ADR.
 - [ ] **Opened 2026-07-10 (Medium).**
       `OrderStateMachineConfig` wires real transitions for `SHIPPED`/
       `DELIVERED` (`SHIP_ORDER`/`DELIVER_ORDER`), but no code anywhere in
