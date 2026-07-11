@@ -4,6 +4,7 @@ import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
+import com.easydora.billing.service.provider.PaymentProvider;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,12 +39,14 @@ class PaymentServiceOrderCreatedBehaviorTest {
     private PaymentRepository paymentRepository;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private PaymentProvider paymentProvider;
 
     @Test
     void orderCreatedEventCreatesAPendingPayment() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.empty());
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
@@ -65,7 +68,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventIsIgnoredWhenAPaymentAlreadyExistsForTheOrder() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.of(new Payment()));
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");

@@ -5,6 +5,7 @@ import com.easydora.billing.messaging.events.PaymentEvent;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
+import com.easydora.billing.service.provider.PaymentProvider;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,10 +28,10 @@ import static org.mockito.Mockito.verify;
  * put the right event on order.exchange with the right routing key -- the
  * missing link ADR-0001 (finding 5) left unreachable after removing the
  * previous, incorrectly-typed PaymentEventProducer. Doesn't exercise
- * processPayment's random simulation (already untested elsewhere in this
- * codebase for the same reason: there is no seam to force a specific
- * outcome) -- calls publishPaymentEvent directly with a Payment already in
- * the state under test instead.
+ * processPayment's approval decision (see PaymentServiceDeterministicApprovalTest
+ * for that) -- calls publishPaymentEvent directly with a Payment already in
+ * the state under test instead. paymentProvider is unused by these tests
+ * (never invoked), only required to satisfy the constructor.
  */
 @ExtendWith(MockitoExtension.class)
 class PaymentEventPublishBehaviorTest {
@@ -39,10 +40,12 @@ class PaymentEventPublishBehaviorTest {
     private PaymentRepository paymentRepository;
     @Mock
     private org.springframework.amqp.rabbit.core.RabbitTemplate rabbitTemplate;
+    @Mock
+    private PaymentProvider paymentProvider;
 
     @Test
     void approvedPaymentPublishesPaymentApprovedEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
 
         Payment payment = new Payment("order-123", new BigDecimal("99.90"));
         payment.setTransactionId("txn-1");
@@ -59,7 +62,7 @@ class PaymentEventPublishBehaviorTest {
 
     @Test
     void failedPaymentPublishesPaymentFailedEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
 
         Payment payment = new Payment("order-456", new BigDecimal("49.90"));
         payment.setTransactionId("txn-2");
@@ -76,7 +79,7 @@ class PaymentEventPublishBehaviorTest {
 
     @Test
     void pendingPaymentPublishesNoEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
 
         Payment payment = new Payment("order-789", new BigDecimal("10.00"));
 

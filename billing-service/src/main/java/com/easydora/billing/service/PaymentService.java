@@ -9,6 +9,8 @@ import com.easydora.billing.model.PaymentStatus;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import com.easydora.billing.messaging.events.PaymentEvent;
+import com.easydora.billing.service.provider.PaymentProvider;
+import com.easydora.billing.service.provider.PaymentResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -29,10 +31,13 @@ public class PaymentService {
     
     private final PaymentRepository paymentRepository;
     private final RabbitTemplate rabbitTemplate;
+    private final PaymentProvider paymentProvider;
 
-    public PaymentService(PaymentRepository paymentRepository, RabbitTemplate rabbitTemplate) {
+    public PaymentService(PaymentRepository paymentRepository, RabbitTemplate rabbitTemplate,
+            PaymentProvider paymentProvider) {
         this.paymentRepository = paymentRepository;
         this.rabbitTemplate = rabbitTemplate;
+        this.paymentProvider = paymentProvider;
     }
     
     // ========== METHODS FOR ORDER-CREATED EVENTS (RabbitMQ) ==========
@@ -125,20 +130,19 @@ public class PaymentService {
             payment.setTransactionId(UUID.randomUUID().toString());
         }
         
-        // Simulate payment processing
+        // Every approval decision lives inside PaymentProvider -- this
+        // method only reacts to the result, never decides on its own.
         try {
-            Thread.sleep(1000); // Simulate processing
+            PaymentResult result = paymentProvider.processPayment(orderId, amount);
 
-            // Simulation: 90% chance of approval
-            boolean approved = Math.random() < 0.9;
-
-            if (approved) {
+            if (result.isApproved()) {
                 payment.setStatus(PaymentStatus.APPROVED);
+                payment.setTransactionId(result.getTransactionId());
                 payment.setProcessedAt(LocalDateTime.now());
                 logger.info("Payment APPROVED for order {}", orderId);
             } else {
                 payment.setStatus(PaymentStatus.FAILED);
-                payment.setFailureReason("Payment declined by the processor");
+                payment.setFailureReason(result.getFailureReason());
                 payment.setProcessedAt(LocalDateTime.now());
                 logger.warn("Payment FAILED for order {}", orderId);
             }
