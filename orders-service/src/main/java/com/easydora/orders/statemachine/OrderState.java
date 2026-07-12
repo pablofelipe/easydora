@@ -10,5 +10,7 @@ public enum OrderState {
     SHIPPED,           // Shipped
     DELIVERED,         // Delivered
     CANCELLED,         // Cancelled
-    REFUNDING          // Refunding
+    REFUNDING,         // Compensation requested, awaiting Billing (ADR-0034)
+    REFUNDED,          // Compensation confirmed by Billing (ADR-0034)
+    REFUND_FAILED      // Compensation could not be confirmed (ADR-0034)
 }

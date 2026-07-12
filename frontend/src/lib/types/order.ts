@@ -9,7 +9,10 @@ export type OrderState =
 	| 'PAYMENT_FAILED'
 	| 'SHIPPED'
 	| 'DELIVERED'
-	| 'CANCELLED';
+	| 'CANCELLED'
+	| 'REFUNDING'
+	| 'REFUNDED'
+	| 'REFUND_FAILED';
 
 export interface OrderItem {
 	id: string;

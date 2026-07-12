@@ -8,6 +8,7 @@ import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
 import com.easydora.orders.entity.OrderItem;
 import com.easydora.orders.event.OrderCreatedEvent;
+import com.easydora.orders.event.RefundPaymentCommand;
 import com.easydora.orders.event.ReserveStockCommand;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
@@ -314,7 +315,51 @@ public class OrderService {
             orderRepository.saveAndFlush(order);
 
             publishOrderStatusChanged(orderId, previousState, newState);
+            return;
         }
+
+        // PAYMENT_RECEIVED was not accepted from the order's current state.
+        // ADR-0034: if that's because the order already reached
+        // INVENTORY_FAILED/CANCELLED, Billing already approved a charge for
+        // an order that can no longer be honored -- this is the one place
+        // Orders detects that, and the one that initiates compensation.
+        // Any other rejection (e.g. a duplicate/redelivered payment.approved
+        // for an order already REFUNDING/REFUNDED/REFUND_FAILED) is a
+        // legitimate no-op, guarded by the state machine itself: only
+        // INVENTORY_FAILED/CANCELLED have an INITIATE_REFUND transition.
+        if (previousState == OrderState.INVENTORY_FAILED || previousState == OrderState.CANCELLED) {
+            initiateRefundCompensation(order, previousState);
+        } else {
+            logger.warn("PAYMENT_RECEIVED not accepted for order {} in state {} -- no compensation triggered",
+                orderId, previousState);
+        }
+    }
+
+    private void initiateRefundCompensation(Order order, OrderState previousState) {
+        String orderId = order.getId();
+        boolean refundInitiated = stateMachineService.sendEvent(orderId, OrderEvent.INITIATE_REFUND);
+
+        if (!refundInitiated) {
+            logger.error("INITIATE_REFUND not accepted for order {} in state {} -- unexpected", orderId, previousState);
+            return;
+        }
+
+        OrderState newState = stateMachineService.getCurrentState(orderId);
+        order.setState(newState);
+        // saveAndFlush (ADR-0033): see OrderService.cancelOrder's comment.
+        orderRepository.saveAndFlush(order);
+
+        publishOrderStatusChanged(orderId, previousState, newState);
+        publishRefundPaymentCommand(orderId);
+    }
+
+    private void publishRefundPaymentCommand(String orderId) {
+        RefundPaymentCommand command = new RefundPaymentCommand();
+        command.setOrderId(orderId);
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.REFUND_PAYMENT_REQUESTED_KEY,
+            command, CorrelationMessaging.withCorrelation());
+        BusinessEventLog.info(logger, "payment.refund.requested.published", orderId, "RefundPaymentCommand published");
     }
 
     @Transactional
@@ -400,6 +445,65 @@ public class OrderService {
     // resource", but this service has no existing precedent for
     // status-per-rule-type differentiation; introducing one just for this
     // rule would break that consistency for no real benefit here.
+    // ADR-0034: the other end of the compensation round-trip -- Billing
+    // resolved the RefundPaymentCommand and published the outcome. Same
+    // saveAndFlush-then-publish pattern as every other outcome handler in
+    // this class; a redelivered/duplicate outcome for an order that already
+    // left REFUNDING is a no-op, guarded by the state machine itself (only
+    // REFUNDING has these two transitions).
+    public void handleRefundCompleted(String orderId) {
+        try {
+            Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+            OrderState previousState = order.getState();
+            boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.REFUND_COMPLETED);
+
+            if (eventSent) {
+                OrderState newState = stateMachineService.getCurrentState(orderId);
+                order.setState(newState);
+                orderRepository.saveAndFlush(order);
+                publishOrderStatusChanged(orderId, previousState, newState);
+            } else {
+                logger.warn("REFUND_COMPLETED not accepted for order {} in state {}", orderId, previousState);
+            }
+        } catch (Exception e) {
+            logger.error("Error in handleRefundCompleted for order {}: {}", orderId, e.getMessage());
+            throw e;
+        }
+    }
+
+    // ADR-0034: payment.refund.failed signals either a genuine business
+    // decline from the provider or a precondition Billing found unmet
+    // (Payment not found / not APPROVED) -- both currently require the same
+    // action from Orders (a terminal, human-reviewable state; see the ADR
+    // for why they're not split into two different Order states). No
+    // automatic retry here: ADR-0019's transport-level retry already
+    // covers transient delivery failures, and this failure mode isn't
+    // transient.
+    public void handleRefundFailed(String orderId, String reason) {
+        try {
+            Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+            OrderState previousState = order.getState();
+            boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.REFUND_FAILED);
+
+            if (eventSent) {
+                OrderState newState = stateMachineService.getCurrentState(orderId);
+                order.setState(newState);
+                orderRepository.saveAndFlush(order);
+                logger.error("Refund failed for order {}: {}", orderId, reason);
+                publishOrderStatusChanged(orderId, previousState, newState);
+            } else {
+                logger.warn("REFUND_FAILED not accepted for order {} in state {}", orderId, previousState);
+            }
+        } catch (Exception e) {
+            logger.error("Error in handleRefundFailed for order {}: {}", orderId, e.getMessage());
+            throw e;
+        }
+    }
+
     private void rejectSelfPurchase(OrderRequest request, Long userId) {
         String buyerId = String.valueOf(userId);
         for (OrderItemRequest item : request.getItems()) {

@@ -217,6 +217,72 @@ public class PaymentService {
         return processPayment(orderId);
     }
     
+    // ADR-0034: reacts to a RefundPaymentCommand from orders-service.
+    // Billing is the sole decider here -- Orders only published intent,
+    // never touched this entity directly. Idempotent: a
+    // redelivered/duplicate command for a Payment already REFUNDED is a
+    // no-op, not an error (no second provider call, no second publish).
+    // payment.refund.failed covers both a genuine provider decline and a
+    // precondition Billing itself found unmet (Payment missing / not
+    // APPROVED) -- the latter is an architectural inconsistency (this
+    // command should only ever arrive for a Payment this service already
+    // approved), never expected in normal operation; the reason text
+    // distinguishes the two for whoever investigates.
+    @Transactional
+    public void refundPayment(String orderId) {
+        Optional<Payment> paymentOpt = paymentRepository.findByOrderId(orderId);
+
+        if (paymentOpt.isEmpty()) {
+            logger.error("Refund requested for order {} but no Payment exists", orderId);
+            publishRefundFailed(orderId, "Payment not found for order " + orderId);
+            return;
+        }
+
+        Payment payment = paymentOpt.get();
+
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            logger.info("Refund already completed for order {} -- skipping (idempotent)", orderId);
+            return;
+        }
+
+        if (payment.getStatus() != PaymentStatus.APPROVED) {
+            logger.error("Refund requested for order {} but Payment is {} (expected APPROVED)",
+                orderId, payment.getStatus());
+            publishRefundFailed(orderId,
+                "Payment not in APPROVED status for order " + orderId + " (current: " + payment.getStatus() + ")");
+            return;
+        }
+
+        PaymentResult result = paymentProvider.refund(orderId, payment.getTransactionId(), payment.getAmount());
+
+        if (result.isApproved()) {
+            payment.setStatus(PaymentStatus.REFUNDED);
+            Payment savedPayment = paymentRepository.saveAndFlush(payment);
+            publishRefunded(savedPayment);
+        } else {
+            logger.warn("Provider declined refund for order {}: {}", orderId, result.getFailureReason());
+            publishRefundFailed(orderId, result.getFailureReason());
+        }
+    }
+
+    private void publishRefunded(Payment payment) {
+        PaymentEvent event = new PaymentEvent();
+        event.setOrderId(payment.getOrderId());
+        event.setTransactionId(payment.getTransactionId());
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUNDED_KEY, event, CorrelationMessaging.withCorrelation());
+        BusinessEventLog.info(logger, "payment.refunded.published", payment.getOrderId(), "PaymentEvent (refunded) published");
+    }
+
+    private void publishRefundFailed(String orderId, String reason) {
+        PaymentEvent event = new PaymentEvent();
+        event.setOrderId(orderId);
+        event.setFailureReason(reason);
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUND_FAILED_KEY, event, CorrelationMessaging.withCorrelation());
+        BusinessEventLog.info(logger, "payment.refund.failed.published", orderId, "PaymentEvent (refund failed) published: " + reason);
+    }
+
     @Transactional
     public void deletePayment(Long id) {
         if (!paymentRepository.existsById(id)) {

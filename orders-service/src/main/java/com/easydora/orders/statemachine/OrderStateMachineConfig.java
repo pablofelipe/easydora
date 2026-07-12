@@ -22,9 +22,15 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
                 .initial(OrderState.PENDING)
                 .states(EnumSet.allOf(OrderState.class))
                 .end(OrderState.DELIVERED)
-                .end(OrderState.CANCELLED)
                 .end(OrderState.PAYMENT_FAILED)
-                .end(OrderState.INVENTORY_FAILED);
+                // INVENTORY_FAILED/CANCELLED are no longer unconditionally
+                // final (ADR-0034): each still ends the order's own
+                // lifecycle by default, but now has one outgoing edge
+                // (INITIATE_REFUND) for the case a payment.approved arrives
+                // for an order that already reached one of these states --
+                // see OrderService.handlePaymentReceived.
+                .end(OrderState.REFUNDED)
+                .end(OrderState.REFUND_FAILED);
     }
 
     @Bean
@@ -84,6 +90,30 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
                 .source(OrderState.INVENTORY_RESERVED).target(OrderState.CANCELLED)
                 .event(OrderEvent.CANCEL_ORDER)
                 .action(releaseInventoryAction())
+            .and()
+
+            // PAYMENT COMPENSATION (ADR-0034): a payment.approved that
+            // arrives for an order already in one of these two states means
+            // Billing approved a charge this order can no longer honor.
+            // Orders is the one that detects this (its own PAYMENT_RECEIVED
+            // transition is rejected from here), and is the one that
+            // initiates compensation -- Billing never decides this on its
+            // own, it only reacts to the request.
+            .withExternal()
+                .source(OrderState.INVENTORY_FAILED).target(OrderState.REFUNDING)
+                .event(OrderEvent.INITIATE_REFUND)
+            .and()
+            .withExternal()
+                .source(OrderState.CANCELLED).target(OrderState.REFUNDING)
+                .event(OrderEvent.INITIATE_REFUND)
+            .and()
+            .withExternal()
+                .source(OrderState.REFUNDING).target(OrderState.REFUNDED)
+                .event(OrderEvent.REFUND_COMPLETED)
+            .and()
+            .withExternal()
+                .source(OrderState.REFUNDING).target(OrderState.REFUND_FAILED)
+                .event(OrderEvent.REFUND_FAILED)
             .and();
     }
 }

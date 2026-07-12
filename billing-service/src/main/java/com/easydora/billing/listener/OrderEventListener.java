@@ -1,7 +1,9 @@
 package com.easydora.billing.listener;
 
+import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.billing.service.PaymentService;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
+import com.easydora.billing.messaging.events.RefundPaymentCommand;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationConstants;
 import com.easydora.correlation.CorrelationContext;
@@ -48,6 +50,27 @@ public class OrderEventListener {
                 logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to process OrderCreatedEvent for order " + event.getOrderId(), e);
             }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
+    }
+
+    // ADR-0034: orders-service instructing this service to refund a
+    // payment it already approved for an order that can no longer be
+    // honored. See PaymentService.refundPayment for the actual decision.
+    @RabbitListener(queues = RabbitMQConfig.REFUND_PAYMENT_REQUESTED_QUEUE)
+    public void handleRefundPaymentRequested(
+            RefundPaymentCommand command,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "payment.refund.requested.received", command.getOrderId(),
+                    "RefundPaymentCommand received");
+            paymentService.refundPayment(command.getOrderId());
         } finally {
             MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
             MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);

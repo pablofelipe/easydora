@@ -9,7 +9,12 @@ const BADGE_BY_STATE: Record<OrderState, string> = {
 	PAYMENT_FAILED: 'badge-red',
 	SHIPPED: 'badge-blue',
 	DELIVERED: 'badge-green',
-	CANCELLED: 'badge-gray'
+	CANCELLED: 'badge-gray',
+	// ADR-0034: system-driven compensation states, no user action triggers
+	// or resolves them.
+	REFUNDING: 'badge-purple',
+	REFUNDED: 'badge-gray',
+	REFUND_FAILED: 'badge-red'
 };
 
 export function badgeClassFor(state: OrderState): string {

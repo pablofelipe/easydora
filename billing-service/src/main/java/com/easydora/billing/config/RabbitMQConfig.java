@@ -36,6 +36,16 @@ public class RabbitMQConfig {
     public static final String PAYMENT_APPROVED_KEY = "payment.approved";
     public static final String PAYMENT_FAILED_KEY = "payment.failed";
 
+    // Payment compensation (ADR-0034): RefundPaymentCommand is a command
+    // published by orders-service, not a fact-event -- consumed here via a
+    // dedicated queue. The two outcomes below are published back on the
+    // same order.exchange, no new queue needed (this service is the
+    // producer, not a consumer, of those routing keys).
+    public static final String REFUND_PAYMENT_REQUESTED_QUEUE = "billing.payment.refund.requested.queue";
+    public static final String REFUND_PAYMENT_REQUESTED_KEY = "payment.refund.requested";
+    public static final String PAYMENT_REFUNDED_KEY = "payment.refunded";
+    public static final String PAYMENT_REFUND_FAILED_KEY = "payment.refund.failed";
+
     // Exchange do auth-service (broadcast de JwtCreatedEvent)
     public static final String AUTH_EXCHANGE = "auth.exchange";
 
@@ -65,6 +75,18 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(orderCreatedQueue)
                 .to(orderExchange)
                 .with(ORDER_CREATED_KEY);
+    }
+
+    @Bean
+    public Queue refundPaymentRequestedQueue() {
+        return new Queue(REFUND_PAYMENT_REQUESTED_QUEUE, true);
+    }
+
+    @Bean
+    public Binding refundPaymentRequestedBinding(Queue refundPaymentRequestedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(refundPaymentRequestedQueue)
+                .to(orderExchange)
+                .with(REFUND_PAYMENT_REQUESTED_KEY);
     }
 
     @Bean

@@ -27,4 +27,18 @@ public class PaymentMockService implements PaymentProvider {
             return PaymentResult.failed("Odd amount rejected by the mock policy");
         }
     }
+
+    // ADR-0034: always succeeds, deterministically -- unlike the original
+    // charge, a refund of money already captured has no meaningful "decline"
+    // to simulate here (a real gateway's own decline modes -- funds already
+    // settled, account balance, etc. -- have no equivalent in this mock).
+    // No refund reference is generated: nothing downstream (Order,
+    // notification-service, the frontend) reads one today, and Payment.
+    // transactionId keeps referring to the original charge, unmodified by
+    // the refund -- inventing a second identifier nothing consumes would be
+    // decorative, not real domain modeling.
+    @Override
+    public PaymentResult refund(String orderId, String transactionId, BigDecimal amount) {
+        return PaymentResult.approved(null);
+    }
 }

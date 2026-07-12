@@ -76,6 +76,17 @@ public class RabbitMQConfig {
     public static final String PAYMENT_FAILED_QUEUE = "orders.payment.failed.queue";
     public static final String PAYMENT_FAILED_ROUTING_KEY = "payment.failed";
 
+    // Payment compensation (ADR-0034): RefundPaymentCommand is published
+    // here (no queue needed -- orders-service is the publisher, not a
+    // consumer, of this routing key, same as ORDER_CREATED_KEY/
+    // ORDER_STATUS_CHANGED_KEY above). The two outcomes billing-service
+    // publishes back are consumed here to close the loop.
+    public static final String REFUND_PAYMENT_REQUESTED_KEY = "payment.refund.requested";
+    public static final String PAYMENT_REFUNDED_QUEUE = "orders.payment.refunded.queue";
+    public static final String PAYMENT_REFUNDED_ROUTING_KEY = "payment.refunded";
+    public static final String PAYMENT_REFUND_FAILED_QUEUE = "orders.payment.refund.failed.queue";
+    public static final String PAYMENT_REFUND_FAILED_ROUTING_KEY = "payment.refund.failed";
+
     // Dead letter routing - every listener queue in this service
     // shares one DLX/DLQ pair; RepublishMessageRecoverer republishes using
     // the original received routing key, so the DLQ binds on "#" to catch
@@ -144,6 +155,16 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue paymentRefundedQueue() {
+        return new Queue(PAYMENT_REFUNDED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue paymentRefundFailedQueue() {
+        return new Queue(PAYMENT_REFUND_FAILED_QUEUE, true);
+    }
+
+    @Bean
     public Queue productCreatedQueue() {
         return new Queue(PRODUCT_CREATED_QUEUE, true);
     }
@@ -209,6 +230,20 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(paymentFailedQueue)
                 .to(orderExchange)
                 .with(PAYMENT_FAILED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding paymentRefundedBinding(Queue paymentRefundedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(paymentRefundedQueue)
+                .to(orderExchange)
+                .with(PAYMENT_REFUNDED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding paymentRefundFailedBinding(Queue paymentRefundFailedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(paymentRefundFailedQueue)
+                .to(orderExchange)
+                .with(PAYMENT_REFUND_FAILED_ROUTING_KEY);
     }
 
     @Bean

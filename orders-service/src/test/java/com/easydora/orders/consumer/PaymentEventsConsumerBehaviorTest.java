@@ -47,4 +47,30 @@ class PaymentEventsConsumerBehaviorTest {
 
         verify(orderService).handlePaymentFailed("order-456");
     }
+
+    @Test
+    void paymentRefundedCallsHandleRefundCompleted() {
+        PaymentEventsConsumer consumer = new PaymentEventsConsumer(orderService);
+
+        PaymentEvent event = new PaymentEvent();
+        event.setOrderId("order-789");
+        event.setTransactionId("txn-9");
+
+        consumer.onPaymentRefunded(event, "corr-3", "msg-3");
+
+        verify(orderService).handleRefundCompleted("order-789");
+    }
+
+    @Test
+    void paymentRefundFailedCallsHandleRefundFailed() {
+        PaymentEventsConsumer consumer = new PaymentEventsConsumer(orderService);
+
+        PaymentEvent event = new PaymentEvent();
+        event.setOrderId("order-321");
+        event.setFailureReason("Payment not found for order order-321");
+
+        consumer.onPaymentRefundFailed(event, "corr-4", "msg-4");
+
+        verify(orderService).handleRefundFailed("order-321", "Payment not found for order order-321");
+    }
 }

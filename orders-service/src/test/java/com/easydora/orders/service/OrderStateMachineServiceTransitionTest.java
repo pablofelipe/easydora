@@ -58,7 +58,24 @@ class OrderStateMachineServiceTransitionTest {
                 Arguments.of(OrderState.SHIPPED, OrderEvent.DELIVER_ORDER, true),
                 Arguments.of(OrderState.PENDING, OrderEvent.SHIP_ORDER, false),
                 Arguments.of(OrderState.PAYMENT_APPROVED, OrderEvent.DELIVER_ORDER, false),
-                Arguments.of(OrderState.DELIVERED, OrderEvent.DELIVER_ORDER, false)
+                Arguments.of(OrderState.DELIVERED, OrderEvent.DELIVER_ORDER, false),
+                // Payment compensation (ADR-0034): INVENTORY_FAILED/CANCELLED
+                // are no longer unconditionally final -- each has exactly
+                // one outgoing edge for a stray payment.approved.
+                Arguments.of(OrderState.INVENTORY_FAILED, OrderEvent.INITIATE_REFUND, true),
+                Arguments.of(OrderState.CANCELLED, OrderEvent.INITIATE_REFUND, true),
+                Arguments.of(OrderState.REFUNDING, OrderEvent.REFUND_COMPLETED, true),
+                Arguments.of(OrderState.REFUNDING, OrderEvent.REFUND_FAILED, true),
+                // INITIATE_REFUND is not a general-purpose event -- it must
+                // not be reachable from a state that never approved a
+                // payment or never got cancelled.
+                Arguments.of(OrderState.PENDING, OrderEvent.INITIATE_REFUND, false),
+                Arguments.of(OrderState.PAYMENT_APPROVED, OrderEvent.INITIATE_REFUND, false),
+                // REFUNDED/REFUND_FAILED are genuinely terminal -- no retry,
+                // no re-triggering (see ADR-0034's rationale for not
+                // auto-retrying a refund.failed).
+                Arguments.of(OrderState.REFUNDED, OrderEvent.REFUND_COMPLETED, false),
+                Arguments.of(OrderState.REFUND_FAILED, OrderEvent.INITIATE_REFUND, false)
         );
     }
 

@@ -69,4 +69,44 @@ public class PaymentEventsConsumer {
             MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
         }
     }
+
+    // ADR-0034: closes the compensation round-trip this service's own
+    // publishRefundPaymentCommand (OrderService.initiateRefundCompensation)
+    // opened. Reuses PaymentEvent (orderId/transactionId/failureReason) --
+    // no new payload shape needed, the same fields already carry everything
+    // both outcomes need.
+    @RabbitListener(queues = RabbitMQConfig.PAYMENT_REFUNDED_QUEUE)
+    public void onPaymentRefunded(
+            PaymentEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "payment.refunded.received", event.getOrderId(), "PaymentEvent (refunded) received");
+            orderService.handleRefundCompleted(event.getOrderId());
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
+    }
+
+    @RabbitListener(queues = RabbitMQConfig.PAYMENT_REFUND_FAILED_QUEUE)
+    public void onPaymentRefundFailed(
+            PaymentEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "payment.refund.failed.received", event.getOrderId(),
+                    "PaymentEvent (refund failed) received: reason=" + event.getFailureReason());
+            orderService.handleRefundFailed(event.getOrderId(), event.getFailureReason());
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
+    }
 }
