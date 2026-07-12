@@ -75,7 +75,7 @@ class OrderServiceShipDeliverTest {
         order.setId("order-1");
         order.setState(OrderState.PAYMENT_APPROVED);
         when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(stateMachineService.isTransitionAllowed(OrderState.PAYMENT_APPROVED, OrderEvent.SHIP_ORDER))
                 .thenReturn(true);
         when(stateMachineService.sendEvent("order-1", OrderEvent.SHIP_ORDER)).thenReturn(true);
@@ -126,7 +126,7 @@ class OrderServiceShipDeliverTest {
         order.setUserId(42L);
         order.setState(OrderState.SHIPPED);
         when(orderRepository.findByIdAndUserId("order-1", 42L)).thenReturn(Optional.of(order));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(stateMachineService.isTransitionAllowed(OrderState.SHIPPED, OrderEvent.DELIVER_ORDER))
                 .thenReturn(true);
         when(stateMachineService.sendEvent("order-1", OrderEvent.DELIVER_ORDER)).thenReturn(true);

@@ -5,6 +5,7 @@ import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.service.PaymentService;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -65,6 +66,8 @@ public class PaymentController {
             return ResponseEntity.ok(payment);
         } catch (PaymentNotFoundException e) {
             return ResponseEntity.notFound().build();
+        } catch (OptimisticLockingFailureException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
@@ -75,6 +78,8 @@ public class PaymentController {
         try {
             PaymentDTO payment = paymentService.retryPayment(orderId);
             return ResponseEntity.ok(payment);
+        } catch (OptimisticLockingFailureException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }

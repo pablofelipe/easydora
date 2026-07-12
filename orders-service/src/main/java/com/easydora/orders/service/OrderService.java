@@ -174,10 +174,13 @@ public class OrderService {
                 throw new RuntimeException("Order not cancelled - unexpected state: " + newState);
             }
 
-            // Update state in the database (only if the State Machine accepted it)
+            // Update state in the database (only if the State Machine accepted it).
+            // saveAndFlush (ADR-0033): forces the version check to happen here,
+            // before publishOrderStatusChanged -- a conflict must never be
+            // discovered after the event has already gone out.
             order.setState(newState);
             order.setUpdatedAt(Instant.now());
-            Order updatedOrder = orderRepository.save(order);
+            Order updatedOrder = orderRepository.saveAndFlush(order);
             logger.info("Order updated in database: {} -> {}", previousState, newState);
 
             // Publish state-change event
@@ -229,9 +232,10 @@ public class OrderService {
                 throw new RuntimeException("Order not shipped - unexpected state: " + newState);
             }
 
+            // saveAndFlush (ADR-0033): see cancelOrder's comment above.
             order.setState(newState);
             order.setUpdatedAt(Instant.now());
-            Order updatedOrder = orderRepository.save(order);
+            Order updatedOrder = orderRepository.saveAndFlush(order);
 
             publishOrderStatusChanged(orderId, previousState, newState);
 
@@ -271,9 +275,10 @@ public class OrderService {
                 throw new RuntimeException("Order not delivered - unexpected state: " + newState);
             }
 
+            // saveAndFlush (ADR-0033): see cancelOrder's comment above.
             order.setState(newState);
             order.setUpdatedAt(Instant.now());
-            Order updatedOrder = orderRepository.save(order);
+            Order updatedOrder = orderRepository.saveAndFlush(order);
 
             publishOrderStatusChanged(orderId, previousState, newState);
 
@@ -305,7 +310,8 @@ public class OrderService {
         if (eventSent) {
             OrderState newState = stateMachineService.getCurrentState(orderId);
             order.setState(newState);
-            orderRepository.save(order);
+            // saveAndFlush (ADR-0033): see OrderService.cancelOrder's comment.
+            orderRepository.saveAndFlush(order);
 
             publishOrderStatusChanged(orderId, previousState, newState);
         }
@@ -322,7 +328,8 @@ public class OrderService {
         if (eventSent) {
             OrderState newState = stateMachineService.getCurrentState(orderId);
             order.setState(newState);
-            orderRepository.save(order);
+            // saveAndFlush (ADR-0033): see OrderService.cancelOrder's comment.
+            orderRepository.saveAndFlush(order);
 
             publishOrderStatusChanged(orderId, previousState, newState);
         }
@@ -339,8 +346,9 @@ public class OrderService {
             if (eventSent) {
                 OrderState newState = stateMachineService.getCurrentState(orderId);
                 order.setState(newState);
-                orderRepository.save(order);
-                
+                // saveAndFlush (ADR-0033): see OrderService.cancelOrder's comment.
+                orderRepository.saveAndFlush(order);
+
                 publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);
             }
         } catch (Exception e) {
@@ -364,8 +372,9 @@ public class OrderService {
             if (eventSent) {
                 OrderState newState = stateMachineService.getCurrentState(orderId);
                 order.setState(newState);
-                orderRepository.save(order);
-                
+                // saveAndFlush (ADR-0033): see OrderService.cancelOrder's comment.
+                orderRepository.saveAndFlush(order);
+
                 logger.info("[SERVICE] Order {} updated to state: {}", orderId, newState);
 
                 publishOrderStatusChanged(orderId, OrderState.PROCESSING, newState);

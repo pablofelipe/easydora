@@ -8,6 +8,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.EnumType;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -38,8 +39,15 @@ public class Payment {
     
     @Column(nullable = false)
     private LocalDateTime createdAt;
-    
+
     private LocalDateTime processedAt;
+
+    // Optimistic locking (ADR-0033): a Payment is the kind of aggregate
+    // real gateways deliver duplicated callbacks/retries/polling for, so a
+    // lost update must be detected, not silently overwritten.
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     public Long getId() {
         return id;
@@ -111,6 +119,14 @@ public class Payment {
 
     public void setProcessedAt(LocalDateTime processedAt) {
         this.processedAt = processedAt;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     // Construtores, getters e setters

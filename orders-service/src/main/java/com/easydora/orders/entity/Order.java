@@ -37,7 +37,14 @@ public class Order {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private Instant updatedAt;
-    
+
+    // Optimistic locking (ADR-0033): Order is a critical aggregate updated
+    // from both HTTP endpoints and RabbitMQ consumers, so a lost update
+    // must be detected, not silently overwritten.
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     public String getId() {
         return id;
     }
@@ -105,6 +112,16 @@ public class Order {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+
+    public Long getVersion() {
+        return version;
+    }
+
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
 

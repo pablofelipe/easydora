@@ -113,7 +113,7 @@ class OrderEventsPublishBehaviorTest {
         order.setId("order-1");
         order.setState(OrderState.PROCESSING);
         when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(stateMachineService.sendEvent("order-1", OrderEvent.INVENTORY_RESERVED)).thenReturn(true);
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.INVENTORY_RESERVED);
 

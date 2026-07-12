@@ -15,6 +15,7 @@ import com.easydora.billing.service.provider.PaymentResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -140,10 +141,19 @@ public class PaymentService {
                 logger.warn("Payment FAILED for order {}", orderId);
             }
 
-            Payment savedPayment = paymentRepository.save(payment);
+            // saveAndFlush (ADR-0033): forces the version check here, before
+            // publishPaymentEvent -- a conflict must never be discovered
+            // after the outcome has already been published.
+            Payment savedPayment = paymentRepository.saveAndFlush(payment);
             publishPaymentEvent(savedPayment);
             return convertToDTO(savedPayment);
 
+        } catch (OptimisticLockingFailureException e) {
+            // A concurrent write already changed this Payment's version --
+            // a conflict for the caller to see (409), never a business
+            // payment failure. Must never overwrite the row or publish an
+            // event for a write that didn't actually happen.
+            throw e;
         } catch (Exception e) {
             logger.error("Error processing payment for order {}: {}", orderId, e.getMessage());
             payment.setStatus(PaymentStatus.FAILED);
@@ -195,11 +205,13 @@ public class PaymentService {
             throw new RuntimeException("Cannot retry payment with status: " + payment.getStatus());
         }
 
-        // Reset to PENDING and try again
+        // Reset to PENDING and try again. saveAndFlush (ADR-0033): a
+        // conflicting retry must fail fast here, before ever reaching
+        // processPayment.
         payment.setStatus(PaymentStatus.PENDING);
         payment.setFailureReason(null);
 
-        paymentRepository.save(payment);
+        paymentRepository.saveAndFlush(payment);
 
         // Process payment
         return processPayment(orderId);

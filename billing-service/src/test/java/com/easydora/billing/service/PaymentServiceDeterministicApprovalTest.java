@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.OptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +53,7 @@ class PaymentServiceDeterministicApprovalTest {
     void evenAmountIsApproved() {
         Payment existing = new Payment("order-even", new BigDecimal("100.00"));
         when(paymentRepository.findByOrderId("order-even")).thenReturn(Optional.of(existing));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PaymentDTO result = newPaymentService().processPayment("order-even");
 
@@ -63,7 +64,7 @@ class PaymentServiceDeterministicApprovalTest {
     void oddAmountIsRejected() {
         Payment existing = new Payment("order-odd", new BigDecimal("99.00"));
         when(paymentRepository.findByOrderId("order-odd")).thenReturn(Optional.of(existing));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PaymentDTO result = newPaymentService().processPayment("order-odd");
 
@@ -94,7 +95,7 @@ class PaymentServiceDeterministicApprovalTest {
     void retryingAFailedPaymentForTheSameOrderRepeatsTheSameOutcome() {
         Payment existing = new Payment("order-retry", new BigDecimal("13.00"));
         when(paymentRepository.findByOrderId("order-retry")).thenReturn(Optional.of(existing));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PaymentService paymentService = newPaymentService();
 
@@ -103,6 +104,21 @@ class PaymentServiceDeterministicApprovalTest {
 
         assertThat(firstAttempt.getStatus()).isEqualTo("FAILED");
         assertThat(secondAttempt.getStatus()).isEqualTo("FAILED");
+    }
+
+    @Test
+    void aConcurrentWriteConflictIsNeverSwallowedIntoAReturnedFailedPayment() {
+        Payment existing = new Payment("order-conflict", new BigDecimal("100.00"));
+        when(paymentRepository.findByOrderId("order-conflict")).thenReturn(Optional.of(existing));
+        when(paymentRepository.saveAndFlush(any(Payment.class)))
+                .thenThrow(new OptimisticLockingFailureException("stale payment"));
+
+        // Without a dedicated catch for this exception, PaymentService's
+        // own generic catch(Exception) would treat the conflict as a
+        // business failure, mark the payment FAILED, and return a DTO
+        // instead of ever throwing -- the caller must see a real conflict.
+        assertThatThrownBy(() -> newPaymentService().processPayment("order-conflict"))
+                .isInstanceOf(OptimisticLockingFailureException.class);
     }
 
     @Test
