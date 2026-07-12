@@ -119,6 +119,34 @@ sequenceDiagram
     Notif->>Notif: persist a third notification row (SENT or FAILED)
     end
 
+    rect rgb(255, 235, 235)
+    Note over Client,Billing: Payment compensation - a stray approval after CANCELLED/INVENTORY_FAILED
+    Client->>Orders: POST /{orderId}/cancel (Bearer BUYER_TOKEN)
+    Orders-->>Client: 200 order state=CANCELLED
+    Client->>Billing: POST /api/payments/process (Bearer BUYER_TOKEN)
+    Note right of Billing: Billing never checks Order's state - by design
+    Billing-->>Client: 200 Payment status=APPROVED
+    Billing->>MQ: publish PaymentEvent (payment.approved, order.exchange)
+
+    MQ->>Orders: payment.approved
+    Note right of Orders: PAYMENT_RECEIVED rejected from CANCELLED - the stray approval is detected here
+    Orders->>Orders: state machine -> REFUNDING
+    Orders->>MQ: publish OrderStatusChangedEvent (order.status-changed)
+    Orders->>MQ: publish RefundPaymentCommand (payment.refund.requested)
+    Note right of Orders: a command, not a fact-event (ADR-0034)
+
+    MQ->>Billing: payment.refund.requested
+    Billing->>Billing: Payment -> REFUNDED (Billing alone decides, Orders never touches Payment)
+    Billing->>MQ: publish PaymentEvent (payment.refunded, order.exchange)
+
+    MQ->>Orders: payment.refunded
+    Orders->>Orders: state machine -> REFUNDED
+    Orders->>MQ: publish OrderStatusChangedEvent (order.status-changed)
+
+    MQ->>Notif: order.status-changed (x2: REFUNDING, REFUNDED)
+    Notif->>Notif: persist one more notification row per transition, same as any other
+    end
+
     rect rgb(245, 245, 245)
     Note over Client,Notif: Final state validation (public APIs only)
     Client->>Orders: GET /{orderId} (Bearer BUYER_TOKEN)
@@ -156,9 +184,11 @@ sequenceDiagram
   notification-service), independent of the `stock.reserve` /
   `stock.reserved` round trip with inventory-service — a payment is created
   and a notification is persisted regardless of whether stock reservation
-  later succeeds or fails. This is a deliberate current gap, not modeled as
-  a fix here: `orders-service` does not currently compensate/cancel the
-  `Payment` if the order later transitions to `INVENTORY_FAILED`.
+  later succeeds or fails. `billing-service` never checks the order's state
+  before approving that payment, so a charge can be approved for an order
+  that later reaches `INVENTORY_FAILED`/`CANCELLED` — no longer a silent
+  gap: see the payment compensation block below and
+  [ADR-0034](adr/0034-payment-compensation-saga.md).
 - **Outbox pattern applies to exactly two services**, not universally:
   `auth-service` (ADR-0003) and `inventory-service` (ADR-0007). Everywhere
   else in this diagram (products-service, orders-service, billing-service),
@@ -204,3 +234,26 @@ sequenceDiagram
   produced it. `POST /api/payments/{orderId}/retry` (resets a `FAILED`
   payment back to `PENDING`) is not part of the documented flow and still
   doesn't appear in this diagram.
+- **`payment.refund.requested` is a command, not a fact-event** — the only
+  message in this diagram where the publisher is instructing a specific
+  consumer to act, rather than broadcasting something that already
+  happened. It shares that distinction with `stock.reserve` (`Orders`
+  instructing `Inventory`), not with any of the past-tense
+  `*.created`/`*.approved`/`*.reserved` events elsewhere in this flow. See
+  [ADR-0034](adr/0034-payment-compensation-saga.md).
+- **The compensation block only shows the success path** (`payment.refunded`
+  leading to `REFUNDED`). `payment.refund.failed` leading to
+  `REFUND_FAILED` follows the exact same shape, just with `Billing` finding
+  a precondition unmet (`Payment` missing or not `APPROVED`) instead of
+  confirming the refund — omitted here for diagram brevity, not because
+  it's unhandled. Neither path retries automatically; `REFUND_FAILED` is a
+  genuine dead end requiring manual review, deliberately, since the
+  transport-level retry
+  ([ADR-0019](adr/0019-message-consumption-resilience.md)) already covers
+  transient failures and this one isn't transient.
+- **A redelivered/duplicate `payment.approved` for an order already
+  `REFUNDING`/`REFUNDED` is a no-op** — the same `PAYMENT_RECEIVED`
+  rejection fires again, but `INITIATE_REFUND` is only valid from
+  `INVENTORY_FAILED`/`CANCELLED`, so nothing re-publishes. No deduplication
+  table or message-id tracking was needed; the state machine's own
+  transition graph is the idempotency guard.

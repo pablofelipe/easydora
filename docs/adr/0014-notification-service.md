@@ -158,6 +158,31 @@ cross-service database access) without requiring any exception to them.
   channel, potentially several `NotificationSender` implementations
   dispatched together — is deliberately left for a later, separate task.
 
+## Update — 2026-07-12: why Python, explicitly
+
+This choice can look arbitrary from the outside — "one service is in a
+different language" reads as a portfolio flourish unless the reasoning
+behind *which* service is written down. It wasn't chosen for Python being
+technically superior for this workload (it likely isn't); it was chosen
+because `notification-service` plays a specific architectural role: it is
+the least entangled service in this domain, and therefore the best
+candidate to prove that this project's event-driven, contract-based
+architecture ([ADR-0007](0007-remove-kafka-broker.md)'s RabbitMQ topic
+exchanges, [ADR-0002](0002-json-schema-contract-testing.md)'s JSON Schema
+contracts) permits real technological heterogeneity without coupling to a
+specific framework or language.
+
+Concretely, `notification-service` has no financial correctness invariant
+(unlike billing-service), no state machine or lifecycle to keep consistent
+(unlike orders-service), and exactly one synchronous outbound call in its
+entire design (the `auth-service` profile lookup) — the smallest possible
+surface for a first cross-language experiment to go wrong. Choosing
+`auth-service` or `orders-service` for this experiment instead would have
+entangled the language decision with much higher-stakes ones. The decision
+was: pick the most decoupled service, not any service, to validate
+heterogeneity — that is the rationale a reader should take away, not "the
+project speaks three languages."
+
 ## References
 
 - [ADR-0023](0023-notification-service-persistence-evolution-strategy.md) —

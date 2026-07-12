@@ -14,11 +14,21 @@ other, how data is persisted, and where to go for more depth on any of it.
 | **auth-service** | Identity: accounts, credentials, JWT issuance | `user.registered`, `user.verified`, `jwt.created` | — |
 | **products-service** | Catalog: sellers and products | `product.created`, `product.updated`, `product.deleted` | `user.registered`, `user.verified`, `jwt.created` (role `SELLER` only) |
 | **inventory-service** | Stock: quantity and reservation per product | `stock.reserved`, `stock.insufficient` | `product.created`/`updated`/`deleted`, `stock.reserve`, `stock.release` |
-| **orders-service** | Order lifecycle: a state machine from creation to delivery or cancellation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release` | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed`, `product.created` |
-| **billing-service** | Payment: simulated processing per order | `payment.approved`, `payment.failed` | `jwt.created`, `order.created` |
+| **orders-service** | Order lifecycle: a state machine from creation to delivery, cancellation, or payment compensation | `order.created`, `order.status-changed`, `stock.reserve`, `stock.release`, `payment.refund.requested` (a command, not a fact-event) | `user.registered`, `user.verified`, `jwt.created`, `stock.reserved`, `stock.insufficient`, `payment.approved`, `payment.failed`, `payment.refunded`, `payment.refund.failed`, `product.created` |
+| **billing-service** | Payment: simulated processing per order, plus compensation | `payment.approved`, `payment.failed`, `payment.refunded`, `payment.refund.failed` | `jwt.created`, `order.created`, `payment.refund.requested` |
 | **notification-service** | Notification: one record per order event | — | `order.created`, `order.status-changed`, `jwt.created` |
 | **api-gateway** | Edge: routing and circuit breaking — not a domain context | — | — |
 | **frontend** | Thin client: browses and drives the business flow through the Gateway, no business logic of its own | — | — |
+
+`notification-service` is the only backend service not on the JVM/Go split
+above (Python/FastAPI) — not a language-diversity showcase, but a
+deliberate choice of *which* service to prove technological heterogeneity
+on: it has no financial correctness invariant, no lifecycle/state machine
+to keep consistent, and the smallest synchronous surface (one outbound call)
+of any service here, making it the safest candidate to validate that this
+architecture's event-driven, contract-based design allows a real language
+swap without coupling to a specific framework. See
+[ADR-0014](../adr/0014-notification-service.md)'s 2026-07-12 Update.
 
 ## Business Flows
 
@@ -55,6 +65,19 @@ other, how data is persisted, and where to go for more depth on any of it.
   `order.status-changed` unchanged — no new event type, no new consumer
   code in notification-service. See
   [ADR-0029](../adr/0029-order-fulfillment-lifecycle.md).
+- **Payment compensation** — a `payment.approved` can legitimately arrive
+  for an order that already reached `INVENTORY_FAILED`/`CANCELLED` (Billing
+  never checks an order's current state before approving a charge, by
+  design). orders-service detects this the moment its own
+  `PAYMENT_RECEIVED` transition is rejected, moves the order to `REFUNDING`,
+  and publishes `payment.refund.requested` — a command, not a fact-event,
+  the same distinction `stock.reserve` already draws with inventory-service.
+  billing-service alone decides the outcome (it never lets Orders touch
+  `Payment` directly) and publishes `payment.refunded`/
+  `payment.refund.failed` back; orders-service closes the loop into
+  `REFUNDED`/`REFUND_FAILED`, riding the same `order.status-changed`
+  notification-service already reacts to generically — no new consumer code
+  there either. See [ADR-0034](../adr/0034-payment-compensation-saga.md).
 
 ## Communication
 

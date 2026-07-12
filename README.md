@@ -200,8 +200,8 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 20 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 67 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), and 6 covering optimistic locking on `Order` |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 36 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, and 4 covering optimistic locking on `Payment` |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 90 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), 6 covering optimistic locking on `Order`, and 23 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)) |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 43 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, 4 covering optimistic locking on `Payment`, and 7 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)) |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
@@ -266,6 +266,7 @@ The stack split is deliberate:
 | [0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md) | Single source of truth for payment creation | Accepted | Closes a Low Roadmap item: `PaymentService.processPayment` had an "API fallback" branch that created a new `Payment` on the spot when none existed, and it never set `userId`. Investigation found no legitimate caller ever exercised it — the frontend, walkthrough, and Postman collection always process an order that already went through `order.created`. Removed the fallback (and the dead `amount` parameter it alone used) instead of patching the bug; a missing `Payment` is now a `404` domain error via a new `PaymentNotFoundException`. Also removed `POST /api/payments/pending`, an already-dead second alias for `/process`. |
 | [0032](docs/adr/0032-accept-order-state-machine-hybrid.md) | Accept the hybrid Spring State Machine pattern in orders-service | Accepted | Closes an Architectural-note Roadmap item without changing code: investigated making the state machine a live authority (low value — no guards/extended state, single replica) and dropping the framework for a plain transition table (low risk, but no functional gain) before deciding the migration cost of either outweighs a benefit that resolves no active bug. Also opens a new, unrelated Low Roadmap item found along the way: `Order` has no `@Version` column, so concurrent writes from multiple RabbitMQ consumers and HTTP endpoints have no conflict detection. |
 | [0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md) | Optimistic locking on Order and Payment | Accepted | Closes the `@Version` Low Roadmap item ADR-0032 opened: adds `@Version` to `Order` and `Payment` only (not `Product`/`User`, which have no real concurrent-writer path), backed by `saveAndFlush` at the point each transition is persisted so a conflict is never discovered after its event already published, and a `409 Conflict` mapping in both services. Documents evaluating and rejecting pessimistic locking for this domain's current low-contention, event-driven shape, with explicit criteria for revisiting that later. |
+| [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id, no Outbox for the new publish — each deliberately rejected and documented, not omitted by oversight. |
 
 ## Roadmap
 
@@ -627,23 +628,24 @@ The stack split is deliberate:
       events, and every event introduced since ADR-0002 landed, still
       have no schema — a field/type drift there is caught by nothing
       until it fails at runtime.
-- [ ] **Opened 2026-07-12 (Medium).** `orders-service`'s state machine
-      has no compensation path for a `Payment` already `APPROVED` when
-      its order's stock reservation fails afterward —
-      `OrderService.handleInventoryFailed` transitions the order straight
-      to the terminal `INVENTORY_FAILED` state and never touches
-      billing-service's `Payment` at all. A buyer's payment can currently
-      end up approved for stock that will never ship, with nothing that
-      cancels or refunds it. This should have been part of the state
-      machine's original design — modeling payment approval and stock
-      reservation as two outcomes that can each fail independently, with
-      a defined compensating transition either way — rather than a gap
-      discovered after the transition graph already had a fixed,
-      documented shape (see
-      [ADR-0029](docs/adr/0029-order-fulfillment-lifecycle.md) and
-      [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md)).
-      Retrofitting a new terminal-adjacent transition now costs more than
-      designing it in from the start would have.
+- [x] **Opened 2026-07-12, closed 2026-07-12 (Medium).** `orders-service`'s
+      state machine had no compensation path for a `Payment` already
+      `APPROVED` when its order could no longer be fulfilled (stock failure
+      or cancellation) — `OrderService.handleInventoryFailed`/`cancelOrder`
+      transitioned the order to a terminal state and never touched
+      billing-service's `Payment` at all, so a buyer's payment could end up
+      approved for an order that would never ship, with nothing that
+      refunded it. Investigation found the real trigger narrower than
+      expected: `handlePaymentReceived` already detected a stray
+      `payment.approved` (its `PAYMENT_RECEIVED` transition rejected from
+      `INVENTORY_FAILED`/`CANCELLED`) but silently swallowed the rejection.
+      Resolved by activating the pre-existing, never-wired
+      `OrderState.REFUNDING`/`OrderEvent.INITIATE_REFUND`/
+      `REFUND_COMPLETED` (present since this project's first commit) plus a
+      new `REFUND_FAILED`, and a choreographed compensation saga
+      (`payment.refund.requested`/`payment.refunded`/`payment.refund.failed`)
+      — Orders publishes intent, Billing alone decides and owns `Payment`.
+      See [ADR-0034](docs/adr/0034-payment-compensation-saga.md).
 - [ ] **Opened 2026-07-12 (Low).** Event DTOs are hand-duplicated per
       service/language with no shared library — a deliberate polyglot
       trade-off that keeps every service's build independent, not an
@@ -657,6 +659,18 @@ The stack split is deliberate:
       a schema and its real DTO silently drifting apart across an update
       — the codegen step would fail the build instead of drifting
       silently.
+- [ ] **Opened 2026-07-12 (Low).** `orders-service` has no Outbox Pattern
+      for any of its publishes (`order.created`, `order.status-changed`,
+      the `stock.reserve` command, and now `payment.refund.requested`) —
+      unlike `auth-service`/`inventory-service`, which do. Found while
+      deciding, for [ADR-0034](docs/adr/0034-payment-compensation-saga.md),
+      not to give the new `payment.refund.requested` publish alone the
+      same crash-between-commit-and-publish protection Outbox provides:
+      doing so would have created an asymmetry with every other publish
+      this same service already makes the same way. The gap is real and
+      pre-existing, just not new — a crash between an `Order` write and its
+      matching publish can still silently lose that event today, for any of
+      this service's four publishes, not only the new one.
 
 </details>
 

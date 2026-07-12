@@ -452,6 +452,49 @@ message, not a generic error:
 {"error":"Bad Request","message":"Cannot deliver order in state: PAYMENT_APPROVED","timestamp":"2026-07-11T12:22:13.335839200Z","status":400}
 ```
 
+## Payment compensation (a stray approval after cancellation)
+
+`POST /billing/api/payments/process` never checks the order's current
+state before approving a charge (`billing-service` is the sole owner of
+`Payment`'s lifecycle, and this project deliberately avoids synchronous
+cross-service calls) — so it can be called for an order that has already
+been cancelled. This is deterministically reproducible via pure `curl`,
+not a timing race: cancel an order right after it reaches
+`INVENTORY_RESERVED`, then call `/process` anyway.
+
+```bash
+curl -s -X POST http://localhost:8080/orders/$ORDER_ID/cancel -H "Authorization: Bearer $BUYER_TOKEN"
+# order.state is now CANCELLED, stock released
+
+curl -s -X POST "http://localhost:8080/billing/api/payments/process?orderId=$ORDER_ID" \
+  -H "Authorization: Bearer $BUYER_TOKEN"
+# Payment becomes APPROVED (or FAILED, by the same amount-parity rule as
+# step 10) regardless of the order's CANCELLED state
+```
+
+If the payment resolves to `APPROVED`, `orders-service` detects the stray
+approval the moment its own `PAYMENT_RECEIVED` transition is rejected
+(no such transition exists from `CANCELLED`), moves the order to
+`REFUNDING`, and publishes a `RefundPaymentCommand` (a command, not a
+fact-event) on `payment.refund.requested`. `billing-service` alone decides
+the outcome and publishes `payment.refunded`/`payment.refund.failed` back;
+`orders-service` closes the loop into `REFUNDED`/`REFUND_FAILED`:
+
+```bash
+curl -s http://localhost:8080/orders/$ORDER_ID -H "Authorization: Bearer $BUYER_TOKEN"
+```
+```json
+{"id":"...","state":"REFUNDED", ...}
+```
+
+The same mechanism handles a stray approval after `INVENTORY_FAILED`, via
+the identical guard. No new screen, no new user-facing action — this is a
+system-driven compensation, not a feature a buyer requests. See
+[ADR-0034](adr/0034-payment-compensation-saga.md) for the
+full design (including why compensation is not modeled as a first-class
+refund feature) and a real trace of this exact sequence, captured with a
+shared `CorrelationId` across both services' logs.
+
 ## Tracing this whole flow with one CorrelationId
 
 Every `curl` call above can carry an `X-Correlation-Id` header. Add the
