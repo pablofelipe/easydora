@@ -264,6 +264,7 @@ The stack split is deliberate:
 | [0029](docs/adr/0029-order-fulfillment-lifecycle.md) | Activating the order fulfillment lifecycle (ship/deliver) | Accepted | Closes a Medium Roadmap item: `SHIPPED`/`DELIVERED` were configured state machine transitions with no code path to reach them. Adds `POST /{orderId}/ship` (the project's first role-gated, not ownership-gated, endpoint — the new `ADMIN` platform-operations role) and `POST /{orderId}/deliver` (ownership-gated like `cancelOrder`); replaces `canCancel()`'s hand-written eligibility list with a single `isTransitionAllowed` derived from the state machine's own configured graph; closes a self-registration-as-admin path in auth-service's `/signup`. Live validation caught and fixed a real `previousState`-after-mutation bug in `cancelOrder` and both new methods. No new event type, no new table. |
 | [0030](docs/adr/0030-deterministic-payment-provider.md) | Deterministic payment provider | Accepted | Closes a Medium Roadmap item: `billing-service`'s `PaymentProvider`/`PaymentMockService` abstraction was dead code — `PaymentService.processPayment` decided approval with `Math.random() < 0.9` directly instead. `PaymentService` now depends exclusively on `PaymentProvider`; the fake's existing amount-parity rule (kept, not replaced with a hash) makes the same order always resolve the same way. Also removed a second, unused `PaymentResult` class sharing `PaymentService`'s package — a real name-collision risk once the real one got imported. `docs/walkthrough.md`/`docs/sequence-diagram.md`/`postman/README.md` no longer hedge with "either outcome". |
 | [0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md) | Single source of truth for payment creation | Accepted | Closes a Low Roadmap item: `PaymentService.processPayment` had an "API fallback" branch that created a new `Payment` on the spot when none existed, and it never set `userId`. Investigation found no legitimate caller ever exercised it — the frontend, walkthrough, and Postman collection always process an order that already went through `order.created`. Removed the fallback (and the dead `amount` parameter it alone used) instead of patching the bug; a missing `Payment` is now a `404` domain error via a new `PaymentNotFoundException`. Also removed `POST /api/payments/pending`, an already-dead second alias for `/process`. |
+| [0032](docs/adr/0032-accept-order-state-machine-hybrid.md) | Accept the hybrid Spring State Machine pattern in orders-service | Accepted | Closes an Architectural-note Roadmap item without changing code: investigated making the state machine a live authority (low value — no guards/extended state, single replica) and dropping the framework for a plain transition table (low risk, but no functional gain) before deciding the migration cost of either outweighs a benefit that resolves no active bug. Also opens a new, unrelated Low Roadmap item found along the way: `Order` has no `@Version` column, so concurrent writes from multiple RabbitMQ consumers and HTTP endpoints have no conflict detection. |
 
 ## Roadmap
 
@@ -568,22 +569,24 @@ The stack split is deliberate:
       walkthrough's fixed numbers (2 x `249.90` = `499.80`) now
       deterministically resolve to `FAILED`, stated as fact. See
       [ADR-0030](docs/adr/0030-deterministic-payment-provider.md).
-- [ ] **Opened 2026-07-10 (Architectural note).** `orders-service`'s
-      Spring State Machine usage
+- [x] **Opened 2026-07-10, closed 2026-07-12 (Architectural note).**
+      `orders-service`'s Spring State Machine usage
       (`OrderStateMachineService.sendEvent`) rebuilds and rehydrates a
       brand new state machine instance from the database on every single
       event, reads the resulting state back out, writes it to
       `Order.state`, then stops and discards the machine — the actual
       persisted source of truth is always the `Order.state` column, never
-      the machine itself, which never stays alive between calls. This
-      pays the full complexity cost of a state machine framework
-      (factory, accessor, context reset boilerplate) without the benefit
-      state machines are supposed to provide (a live authority you query,
-      not just a disposable transition validator). Worth revisiting as
-      one of two clean options: make the state machine the actual live
-      authority, or drop the framework for a validated plain transition
-      table — keeping both halves of the current hybrid is the one option
-      that isn't defensible.
+      the machine itself, which never stays alive between calls. Investigated
+      both clean options (make the machine a live authority; drop the
+      framework for a validated plain transition table) plus whether the
+      hybrid is actually causing harm today. Decided to keep the hybrid
+      as-is: no bug is traceable to this pattern today, existing tests
+      mock around it entirely, and both alternatives would touch the order
+      lifecycle end-to-end for zero functional gain. Accepted as a
+      conscious, documented trade-off rather than left open by omission —
+      see [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md),
+      which also opens the `Order.@Version` item below, found along the
+      way.
 - [x] **Opened 2026-07-11, closed 2026-07-11 (Low).** `billing-service`'s
       `PaymentService.processPayment` had an "API fallback" branch that
       built a new `Payment` directly (for a call whose `orderId` has no
@@ -596,6 +599,15 @@ The stack split is deliberate:
       the fallback (and the `amount` parameter it alone used) was removed
       entirely; a missing `Payment` is now a `404` domain error. See
       [ADR-0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md).
+- [ ] **Opened 2026-07-12 (Low).** `orders-service`'s `Order` entity has no
+      `@Version` column — no optimistic-locking protection against
+      concurrent writes to the same order. `InventoryEventsConsumer`,
+      `PaymentEventsConsumer`, and the HTTP endpoints
+      (`cancelOrder`/`shipOrder`/`deliverOrder`) can all race to update the
+      same `Order` row with no conflict detection. Found while investigating
+      the state machine item resolved by
+      [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md);
+      orthogonal to that decision and not fixed here.
 
 </details>
 
