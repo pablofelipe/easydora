@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Contract test: the OrderCreatedEvent this service consumes from RabbitMQ
  * (order.exchange, routing key order.created, published by orders-service)
  * must conform to the schema shared across services at
- * /schemas/json/OrderCreatedEvent.schema.json. orders-service runs the same
+ * /schemas/json/order-created.schema.json. orders-service runs the same
  * check against its own copy of this DTO, since there is no shared DTO
  * library in this codebase.
  */
@@ -61,7 +61,7 @@ class OrderCreatedEventContractTest {
     }
 
     private JsonSchema loadSchema() throws IOException {
-        Path schemaPath = resolveSchemaPath("OrderCreatedEvent.schema.json");
+        Path schemaPath = resolveSchemaPath("order-created.schema.json");
         JsonNode schemaNode = MAPPER.readTree(Files.newBufferedReader(schemaPath));
         return JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schemaNode);
     }

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/product-deleted.schema.json",
+  "title": "product.deleted",
+  "description": "Published by products-service (RabbitMQ product.exchange, routing key product.deleted). Consumed by inventory-service.",
+  "type": "object",
+  "properties": {
+    "productId": { "type": "string" },
+    "deletedAt": { "type": "string" }
+  },
+  "required": ["productId", "deletedAt"]
+}

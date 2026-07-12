@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/payment-refunded.schema.json",
+  "title": "payment.refunded",
+  "description": "Published by billing-service (RabbitMQ order.exchange, ADR-0034) once PaymentService.refundPayment confirms a refund. Consumed by orders-service, driving REFUNDING -> REFUNDED. transactionId is the original charge's reference, never overwritten by the refund -- no refund-specific identifier is modeled (ADR-0034). Never carries failureReason.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "transactionId": { "type": "string" },
+    "failureReason": { "type": ["string", "null"] }
+  },
+  "required": ["orderId", "transactionId"]
+}

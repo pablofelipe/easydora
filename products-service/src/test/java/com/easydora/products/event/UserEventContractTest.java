@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Contract test: the UserEvent this service consumes from RabbitMQ
  * (auth.exchange, routing key user.registered, published by auth-service as
  * UserRegisteredEvent) must conform to the schema shared across services at
- * /schemas/json/UserRegisteredEvent.schema.json.
+ * /schemas/json/user-registered.schema.json.
  *
  * userId used to be typed String here, while auth-service (the publisher)
  * sends it as a number (Long) — the catalogued type drift, fixed to Long.
@@ -53,7 +53,7 @@ class UserEventContractTest {
     }
 
     private JsonSchema loadSchema() throws IOException {
-        Path schemaPath = resolveSchemaPath("UserRegisteredEvent.schema.json");
+        Path schemaPath = resolveSchemaPath("user-registered.schema.json");
         JsonNode schemaNode = MAPPER.readTree(Files.newBufferedReader(schemaPath));
         return JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schemaNode);
     }

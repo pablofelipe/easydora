@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/stock-insufficient.schema.json",
+  "title": "stock.insufficient",
+  "description": "Published by inventory-service (Go, via its Outbox -- ADR-0007) on order.exchange when reservation fails. Consumed by orders-service's InventoryEventsConsumer, which parses the raw JSON (not a fixed DTO) and reads orderId/productId/required/available.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "productId": { "type": "string" },
+    "required": { "type": "integer" },
+    "available": { "type": "integer" },
+    "timestamp": { "type": "string" }
+  },
+  "required": ["orderId", "productId", "required", "available", "timestamp"]
+}

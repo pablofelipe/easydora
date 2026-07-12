@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/jwt-created.schema.json",
+  "title": "jwt.created",
+  "description": "Published by auth-service (RabbitMQ auth.exchange, routing key jwt.created) on every login. Consumed by products-service (caches when role=SELLER), orders-service, billing-service, and notification-service (all cache unconditionally). userId is an integer here -- a real drift found and fixed (see ADR-0002's Update): JwtCreatedEvent.userId used to be a String (the JWT subject claim, unconverted), while every consumer already treated it as numeric and only worked by Jackson/Python's implicit string-to-number coercion.",
+  "type": "object",
+  "properties": {
+    "token": { "type": "string" },
+    "userId": { "type": "integer" },
+    "email": { "type": "string" },
+    "firstName": { "type": "string" },
+    "lastName": { "type": "string" },
+    "role": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "expiresIn": { "type": "integer" }
+  },
+  "required": ["token", "userId", "email", "firstName", "lastName", "role", "createdAt", "expiresIn"]
+}

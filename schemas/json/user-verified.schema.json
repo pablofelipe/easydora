@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/user-verified.schema.json",
+  "title": "user.verified",
+  "description": "Published by auth-service (RabbitMQ auth.exchange, routing key user.verified) after email verification. Unlike every other event in this project, the payload is a bare JSON integer (the user's id) -- not an object -- because UserService.verifyEmail's Outbox row wraps only String.valueOf(user.getId()) as the envelope body. Consumed by products-service (role SELLER only) and orders-service.",
+  "type": "integer"
+}

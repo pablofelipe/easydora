@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://easydora.internal/schemas/OrderCreatedEvent.schema.json",
-  "title": "OrderCreatedEvent",
-  "description": "Published by orders-service (RabbitMQ order.exchange, routing key order.created) after an order is created. Consumed by billing-service.",
+  "$id": "https://easydora.internal/schemas/order-created.schema.json",
+  "title": "order.created",
+  "description": "Published by orders-service (RabbitMQ order.exchange, routing key order.created) after an order is created. Consumed by billing-service and notification-service.",
   "type": "object",
   "properties": {
     "orderId": { "type": "string" },

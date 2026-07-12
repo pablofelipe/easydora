@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/order-status-changed.schema.json",
+  "title": "order.status-changed",
+  "description": "Published by orders-service (RabbitMQ order.exchange) on every state-machine transition. Consumed by notification-service, which persists a new notification row per transition -- it carries no userId of its own, reusing the email/name already captured by that order's order.created notification. previousState/newState are OrderState enum values serialized as their name strings.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "previousState": { "type": "string" },
+    "newState": { "type": "string" }
+  },
+  "required": ["orderId", "previousState", "newState"]
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/payment-refund-failed.schema.json",
+  "title": "payment.refund.failed",
+  "description": "Published by billing-service (RabbitMQ order.exchange, ADR-0034) when PaymentService.refundPayment finds a precondition unmet (Payment missing or not APPROVED) or the provider genuinely declines a refund. Consumed by orders-service, driving REFUNDING -> REFUND_FAILED (a dead end, no automatic retry). Always carries failureReason; never transactionId (the failure may occur before any Payment row is even found).",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "transactionId": { "type": ["string", "null"] },
+    "failureReason": { "type": "string" }
+  },
+  "required": ["orderId", "failureReason"]
+}

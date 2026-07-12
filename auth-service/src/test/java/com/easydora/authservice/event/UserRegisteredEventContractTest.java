@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Contract test: the UserRegisteredEvent this service publishes on RabbitMQ
  * (auth.exchange, routing key user.registered) must conform to the schema
  * shared across services at
- * /schemas/json/UserRegisteredEvent.schema.json. orders-service and
+ * /schemas/json/user-registered.schema.json. orders-service and
  * products-service run the same check against their own copy of this DTO
  * (both named UserEvent in their own packages), since there is no shared
  * DTO library in this codebase.
@@ -46,7 +46,7 @@ class UserRegisteredEventContractTest {
     }
 
     private JsonSchema loadSchema() throws IOException {
-        Path schemaPath = resolveSchemaPath("UserRegisteredEvent.schema.json");
+        Path schemaPath = resolveSchemaPath("user-registered.schema.json");
         JsonNode schemaNode = MAPPER.readTree(Files.newBufferedReader(schemaPath));
         return JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schemaNode);
     }

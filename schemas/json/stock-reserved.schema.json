@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/stock-reserved.schema.json",
+  "title": "stock.reserved",
+  "description": "Published by inventory-service (Go, via its Outbox -- ADR-0007) on order.exchange after a successful stock reservation. Consumed by orders-service's InventoryEventsConsumer, which parses the raw JSON (not a fixed DTO) and reads orderId/success/message only.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "success": { "type": "boolean" },
+    "message": { "type": "string" },
+    "timestamp": { "type": "string" }
+  },
+  "required": ["orderId", "success", "timestamp"]
+}

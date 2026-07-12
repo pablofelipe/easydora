@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://easydora.internal/schemas/UserRegisteredEvent.schema.json",
-  "title": "UserRegisteredEvent",
+  "$id": "https://easydora.internal/schemas/user-registered.schema.json",
+  "title": "user.registered",
   "description": "Published by auth-service (RabbitMQ auth.exchange, routing key user.registered) after user signup. Consumed by orders-service and products-service.",
   "type": "object",
   "properties": {

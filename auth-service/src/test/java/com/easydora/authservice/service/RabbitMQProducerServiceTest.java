@@ -26,7 +26,7 @@ class RabbitMQProducerServiceTest {
         when(exchange.getName()).thenReturn("auth.exchange");
 
         RabbitMQProducerService service = new RabbitMQProducerService(rabbitTemplate, exchange);
-        service.sendJwtCreatedEvent("token", "1", "e@x.com", "First", "Last", "BUYER", 3600L);
+        service.sendJwtCreatedEvent("token", 1L, "e@x.com", "First", "Last", "BUYER", 3600L);
 
         verify(rabbitTemplate).convertAndSend(eq("auth.exchange"), anyString(), any(Object.class), any(MessagePostProcessor.class));
     }

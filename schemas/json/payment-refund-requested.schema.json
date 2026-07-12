@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/payment-refund-requested.schema.json",
+  "title": "payment.refund.requested",
+  "description": "A command, not a fact-event (ADR-0034): orders-service instructs billing-service to refund a specific payment (RabbitMQ order.exchange). orderId is the only field -- billing-service already owns the authoritative transactionId/amount for this order's Payment, so relaying Orders' own copy of either would mean trusting a foreign echo of data billing-service is already the source of truth for.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" }
+  },
+  "required": ["orderId"]
+}

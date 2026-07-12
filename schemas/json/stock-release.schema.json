@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/stock-release.schema.json",
+  "title": "stock.release",
+  "description": "A command, not a fact-event: orders-service instructs inventory-service to release a previously reserved stock (RabbitMQ order.exchange, routing key stock.release), used by ReleaseInventoryAction on cancellation/payment-failure. Same unmodeled Timestamp asymmetry as stock.reserve -- see that schema's description.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer" }
+        },
+        "required": ["productId", "quantity"]
+      }
+    }
+  },
+  "required": ["orderId", "items"]
+}

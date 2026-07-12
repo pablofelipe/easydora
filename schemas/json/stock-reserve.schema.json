@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/stock-reserve.schema.json",
+  "title": "stock.reserve",
+  "description": "A command, not a fact-event: orders-service instructs inventory-service to reserve stock for an order (RabbitMQ order.exchange, routing key stock.reserve). inventory-service's own Go struct (ReserveStockCommand) additionally declares a Timestamp field that orders-service's producer never actually sends -- not part of the real wire contract, tolerated as a Go zero-value, not modeled here.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer" }
+        },
+        "required": ["productId", "quantity"]
+      }
+    }
+  },
+  "required": ["orderId", "items"]
+}

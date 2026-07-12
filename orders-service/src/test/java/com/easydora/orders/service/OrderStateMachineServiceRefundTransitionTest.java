@@ -22,7 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Spike for Etapa 39 (ADR-0034): INVENTORY_FAILED/CANCELLED are configured as
+ * Spike for ADR-0034: INVENTORY_FAILED/CANCELLED are configured as
  * .end() states today. Before building the whole compensation flow on top of
  * an assumption, this confirms that removing that declaration and adding a
  * real outgoing transition actually works at runtime -- not just in the

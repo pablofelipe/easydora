@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easydora.internal/schemas/payment-failed.schema.json",
+  "title": "payment.failed",
+  "description": "Published by billing-service (RabbitMQ order.exchange) once PaymentService.processPayment resolves a charge to FAILED. Consumed by orders-service's PaymentEventsConsumer, driving the state machine into PAYMENT_FAILED (and releasing reserved inventory). Always carries failureReason, never transactionId.",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string" },
+    "transactionId": { "type": ["string", "null"] },
+    "failureReason": { "type": "string" }
+  },
+  "required": ["orderId", "failureReason"]
+}
