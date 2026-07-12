@@ -615,6 +615,48 @@ The stack split is deliberate:
       Conflict` in both services. `Product`/`User` deliberately excluded:
       neither has an observed concurrent-writer path. See
       [ADR-0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md).
+- [ ] **Opened 2026-07-12 (Architectural note).** JSON Schema contract
+      testing ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md))
+      was added for `OrderCreatedEvent` and `UserRegisteredEvent` after
+      they'd already shipped without it — the two events that had already
+      drawn the most scrutiny, not a project-wide default applied from
+      each event's first consumer. Wiring a schema the moment any new
+      event/consumer pair is introduced costs no more real complexity
+      than doing it later; it only avoids the rework of retrofitting one
+      onto code that already works another way. `product.*`/`stock.*`
+      events, and every event introduced since ADR-0002 landed, still
+      have no schema — a field/type drift there is caught by nothing
+      until it fails at runtime.
+- [ ] **Opened 2026-07-12 (Medium).** `orders-service`'s state machine
+      has no compensation path for a `Payment` already `APPROVED` when
+      its order's stock reservation fails afterward —
+      `OrderService.handleInventoryFailed` transitions the order straight
+      to the terminal `INVENTORY_FAILED` state and never touches
+      billing-service's `Payment` at all. A buyer's payment can currently
+      end up approved for stock that will never ship, with nothing that
+      cancels or refunds it. This should have been part of the state
+      machine's original design — modeling payment approval and stock
+      reservation as two outcomes that can each fail independently, with
+      a defined compensating transition either way — rather than a gap
+      discovered after the transition graph already had a fixed,
+      documented shape (see
+      [ADR-0029](docs/adr/0029-order-fulfillment-lifecycle.md) and
+      [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md)).
+      Retrofitting a new terminal-adjacent transition now costs more than
+      designing it in from the start would have.
+- [ ] **Opened 2026-07-12 (Low).** Event DTOs are hand-duplicated per
+      service/language with no shared library — a deliberate polyglot
+      trade-off that keeps every service's build independent, not an
+      oversight. The two schema-covered events
+      ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) still
+      require each consumer's DTO to be kept in sync with its schema by
+      hand, with nothing enforcing it. Generating each language's DTO
+      directly from its JSON Schema (one codegen step per language, run
+      at build time) would preserve the same per-service independence
+      manual duplication already provides, while removing the chance of
+      a schema and its real DTO silently drifting apart across an update
+      — the codegen step would fail the build instead of drifting
+      silently.
 
 </details>
 
