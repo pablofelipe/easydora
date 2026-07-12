@@ -200,8 +200,8 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 20 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 61 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention and 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix) |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 32 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 67 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), and 6 covering optimistic locking on `Order` |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 36 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, and 4 covering optimistic locking on `Payment` |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
@@ -265,6 +265,7 @@ The stack split is deliberate:
 | [0030](docs/adr/0030-deterministic-payment-provider.md) | Deterministic payment provider | Accepted | Closes a Medium Roadmap item: `billing-service`'s `PaymentProvider`/`PaymentMockService` abstraction was dead code — `PaymentService.processPayment` decided approval with `Math.random() < 0.9` directly instead. `PaymentService` now depends exclusively on `PaymentProvider`; the fake's existing amount-parity rule (kept, not replaced with a hash) makes the same order always resolve the same way. Also removed a second, unused `PaymentResult` class sharing `PaymentService`'s package — a real name-collision risk once the real one got imported. `docs/walkthrough.md`/`docs/sequence-diagram.md`/`postman/README.md` no longer hedge with "either outcome". |
 | [0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md) | Single source of truth for payment creation | Accepted | Closes a Low Roadmap item: `PaymentService.processPayment` had an "API fallback" branch that created a new `Payment` on the spot when none existed, and it never set `userId`. Investigation found no legitimate caller ever exercised it — the frontend, walkthrough, and Postman collection always process an order that already went through `order.created`. Removed the fallback (and the dead `amount` parameter it alone used) instead of patching the bug; a missing `Payment` is now a `404` domain error via a new `PaymentNotFoundException`. Also removed `POST /api/payments/pending`, an already-dead second alias for `/process`. |
 | [0032](docs/adr/0032-accept-order-state-machine-hybrid.md) | Accept the hybrid Spring State Machine pattern in orders-service | Accepted | Closes an Architectural-note Roadmap item without changing code: investigated making the state machine a live authority (low value — no guards/extended state, single replica) and dropping the framework for a plain transition table (low risk, but no functional gain) before deciding the migration cost of either outweighs a benefit that resolves no active bug. Also opens a new, unrelated Low Roadmap item found along the way: `Order` has no `@Version` column, so concurrent writes from multiple RabbitMQ consumers and HTTP endpoints have no conflict detection. |
+| [0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md) | Optimistic locking on Order and Payment | Accepted | Closes the `@Version` Low Roadmap item ADR-0032 opened: adds `@Version` to `Order` and `Payment` only (not `Product`/`User`, which have no real concurrent-writer path), backed by `saveAndFlush` at the point each transition is persisted so a conflict is never discovered after its event already published, and a `409 Conflict` mapping in both services. Documents evaluating and rejecting pessimistic locking for this domain's current low-contention, event-driven shape, with explicit criteria for revisiting that later. |
 
 ## Roadmap
 
@@ -599,15 +600,21 @@ The stack split is deliberate:
       the fallback (and the `amount` parameter it alone used) was removed
       entirely; a missing `Payment` is now a `404` domain error. See
       [ADR-0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md).
-- [ ] **Opened 2026-07-12 (Low).** `orders-service`'s `Order` entity has no
-      `@Version` column — no optimistic-locking protection against
-      concurrent writes to the same order. `InventoryEventsConsumer`,
-      `PaymentEventsConsumer`, and the HTTP endpoints
-      (`cancelOrder`/`shipOrder`/`deliverOrder`) can all race to update the
-      same `Order` row with no conflict detection. Found while investigating
-      the state machine item resolved by
-      [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md);
-      orthogonal to that decision and not fixed here.
+- [x] **Opened 2026-07-12, closed 2026-07-12 (Low).** `orders-service`'s
+      `Order` entity has no `@Version` column — no optimistic-locking
+      protection against concurrent writes to the same order.
+      `InventoryEventsConsumer`, `PaymentEventsConsumer`, and the HTTP
+      endpoints (`cancelOrder`/`shipOrder`/`deliverOrder`) could all race
+      to update the same `Order` row with no conflict detection. Found
+      while investigating the state machine item resolved by
+      [ADR-0032](docs/adr/0032-accept-order-state-machine-hybrid.md).
+      Fixed by adding `@Version` to `Order` (and, on the same
+      investigation, to `Payment` — a real gateway integration receives
+      duplicated callbacks/retries) backed by `saveAndFlush` so a conflict
+      is detected before its event ever publishes, mapped to `409
+      Conflict` in both services. `Product`/`User` deliberately excluded:
+      neither has an observed concurrent-writer path. See
+      [ADR-0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md).
 
 </details>
 
