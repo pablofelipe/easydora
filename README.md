@@ -197,12 +197,12 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Service | Stack | Port | Status | Test Coverage |
 |---|---|---|---|---|
 | API Gateway | Go + Gin | 8080 | Implemented | 9 test functions — circuit breaker ([ADR-0006](docs/adr/0006-gateway-circuit-breaker.md)/[ADR-0009](docs/adr/0009-billing-circuit-breaker.md)), correlation middleware ([ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)), and transparent routing across all 6 services ([ADR-0025](docs/adr/0025-gateway-transparent-routing.md)) |
-| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 20 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ) |
-| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 12 unit tests |
-| Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 14 tests — 8 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 90 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), 6 covering optimistic locking on `Order`, and 23 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)) |
-| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 43 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, 4 covering optimistic locking on `Payment`, and 7 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)) |
-| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 34 tests — 26 unit + 8 integration (real Postgres/RabbitMQ/auth-service) |
+| Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 22 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ), including 3 contract tests covering `user.registered`/`user.verified`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 17 unit tests, including 6 contract tests covering `product.created`/`product.updated`/`product.deleted`/`user.verified`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 22 tests — 16 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`), including 7 contract tests covering `product.*`/`stock.*` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 103 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), 6 covering optimistic locking on `Order`, 23 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)), and 13 contract tests ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 49 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, 4 covering optimistic locking on `Payment`, 7 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)), and 6 contract tests ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 40 tests — 32 unit + 8 integration (real Postgres/RabbitMQ/auth-service), including 6 contract tests covering `order.created`/`order.status-changed`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
@@ -234,7 +234,7 @@ The stack split is deliberate:
 | ADR | Title | Status | Summary |
 |---|---|---|---|
 | [0001](docs/adr/0001-messaging-wiring-audit.md) | Messaging wiring audit | Accepted, updated 2026-07-08 | Five routing/field-name/listener bugs fixed (RabbitMQ + Kafka), one JWT-queue message-loss incident dated back to the project's first commit, one dead payment-event code path removed; `OrderStatusChangedEvent`'s designated consumer (notification-service) is now implemented — see the Roadmap. |
-| [0002](docs/adr/0002-json-schema-contract-testing.md) | JSON Schema contract testing | Accepted | JSON Schema (draft 2020-12) adopted for event contracts, versioned in `/schemas/json/`; two catalogued DTO drifts fixed; `price` type drift (BigDecimal vs float64) documented as a known gap schema validation can't catch. |
+| [0002](docs/adr/0002-json-schema-contract-testing.md) | JSON Schema contract testing | Accepted | JSON Schema (draft 2020-12) adopted for event contracts, versioned in `/schemas/json/`; two catalogued DTO drifts fixed; `price` type drift (BigDecimal vs float64) documented as a known gap schema validation can't catch. Its 2026-07-13 Update extends coverage from 2 to all 17 currently-published messages (fact-events and commands alike) across all six services, fixes a real drift found along the way (`JwtCreatedEvent.userId`), and makes a schema-plus-contract-test mandatory for every new event from now on — see [CONTRIBUTING.md](CONTRIBUTING.md). |
 | [0003](docs/adr/0003-outbox-pattern-auth-service.md) | Outbox pattern for auth-service | Accepted | `verifyEmail`'s publish-before-save ordering fixed with a polled `outbox_events` table; `inventory-service`'s equivalent risk (Go) closed the same way as part of ADR-0007's RabbitMQ migration; a Flyway/Hibernate schema-duplication bug found along the way, resolved in ADR-0004. |
 | [0004](docs/adr/0004-auth-service-schema-authority-fix.md) | auth-service schema authority fix | Accepted, extended by ADR-0011 | Fixes the schema duplication found in ADR-0003: `V1`/`V2` created tables in `public` while Hibernate's `ddl-auto=update` silently created the real, actually-used copies in `auth_schema`. A `V3` migration recreates both tables in `auth_schema` matching Hibernate's live schema exactly, and `ddl-auto` is locked to `validate`. Left checking the other three services as explicit future work — see ADR-0011. |
 | [0005](docs/adr/0005-secret-rotation.md) | Secret rotation and removal of hardcoded credentials | Accepted | Three credentials hardcoded in `docker-compose.yml` since the project's first commit (public repo) rotated for real against the live Postgres/RabbitMQ, replaced with `${VAR}`/`.env`; orphaned JWT config removed from three services that never consumed it. History not rewritten — old values are treated as permanently compromised. |
@@ -616,18 +616,21 @@ The stack split is deliberate:
       Conflict` in both services. `Product`/`User` deliberately excluded:
       neither has an observed concurrent-writer path. See
       [ADR-0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md).
-- [ ] **Opened 2026-07-12 (Architectural note).** JSON Schema contract
-      testing ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md))
-      was added for `OrderCreatedEvent` and `UserRegisteredEvent` after
-      they'd already shipped without it — the two events that had already
-      drawn the most scrutiny, not a project-wide default applied from
-      each event's first consumer. Wiring a schema the moment any new
-      event/consumer pair is introduced costs no more real complexity
-      than doing it later; it only avoids the rework of retrofitting one
-      onto code that already works another way. `product.*`/`stock.*`
-      events, and every event introduced since ADR-0002 landed, still
-      have no schema — a field/type drift there is caught by nothing
-      until it fails at runtime.
+- [x] **Opened 2026-07-12, closed 2026-07-13 (Architectural note).** JSON
+      Schema contract testing ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md))
+      had only ever been added for `OrderCreatedEvent` and
+      `UserRegisteredEvent`, after they'd already shipped without it — the
+      two events that had already drawn the most scrutiny, not a
+      project-wide default applied from each event's first consumer.
+      `product.*`/`stock.*` and every event introduced since ADR-0002
+      landed had no schema — a field/type drift there was caught by
+      nothing until it failed at runtime. Resolved by extending coverage
+      to all 17 currently-published messages (fact-events and commands
+      alike) across all six services — a real drift found and fixed along
+      the way (`JwtCreatedEvent.userId` was a `String`, every consumer
+      already treated it as numeric) — and making a schema plus contract
+      test mandatory for every new event from now on, enforced by
+      `CONTRIBUTING.md` and code review. See ADR-0002's Update.
 - [x] **Opened 2026-07-12, closed 2026-07-12 (Medium).** `orders-service`'s
       state machine had no compensation path for a `Payment` already
       `APPROVED` when its order could no longer be fulfilled (stock failure

@@ -12,7 +12,7 @@ buyer processes payment and the order reaches `PAYMENT_APPROVED`. What was
 never modeled is what happens when a payment is approved for an order that
 can no longer be honored.
 
-The literal scenario this etapa's ticket described — `Inventory Reserve →
+The literal scenario originally described — `Inventory Reserve →
 Payment APPROVED → Inventory FAILED` — is not actually reproducible as
 written: once `orders-service`'s state machine reaches `INVENTORY_RESERVED`,
 there is no transition back to `INVENTORY_FAILED`, and `inventory-service`
@@ -145,8 +145,8 @@ past-tense fact-events like `order.created`/`payment.approved`. Orders is
 instructing Billing to do something specific, not broadcasting something
 that already happened — the same distinction `ReserveStockCommand`/
 `stock.reserve` already draws with `inventory-service`. The routing key
-keeps the past-tense phrasing already used when this etapa's requirements
-were drafted; the DTO's class name carries the real signal.
+keeps the past-tense phrasing already used when this event was first
+named; the DTO's class name carries the real signal.
 
 Its only field is `orderId`. `transactionId`/`amount` were deliberately left
 out: Billing already owns the authoritative copies of both for this order's
@@ -205,8 +205,8 @@ identically every time. `REFUND_FAILED` exists precisely so this doesn't
 stay indistinguishable from "still waiting normally" (`REFUNDING` forever)
 or get silently reverted as if nothing had happened — it surfaces the
 anomaly for manual/operational review. No remediation tooling for that
-review was built in this etapa; it is a plausible future Roadmap item, not
-a gap this ADR closes.
+review was built as part of this change; it is a plausible future Roadmap
+item, not a gap this ADR closes.
 
 ### No refund-specific transaction identifier
 

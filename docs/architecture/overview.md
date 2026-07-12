@@ -105,6 +105,14 @@ swap without coupling to a specific framework. See
   business operation is traceable across every service's logs without a
   tracing backend. See [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md)
   and [Observability](observability.md).
+- **Every message crossing a service boundary has a versioned JSON Schema
+  contract** (`/schemas/json/`, one file per routing key) and a
+  producer/consumer test per service that touches it — commands
+  (`stock.reserve`, `payment.refund.requested`) included, not just
+  fact-events. This is a standing rule for every new event from the
+  moment it's introduced, not something added after the fact — see
+  [ADR-0002](../adr/0002-json-schema-contract-testing.md) and
+  [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Persistence
 

@@ -83,9 +83,16 @@ or update the failing test before the implementation. At minimum:
 
 - New behavior should come with unit tests in the affected service.
 - Changes to messaging (producers/consumers, routing keys, event
-  shape) should be validated against the relevant contract test where
-  one exists (see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md)),
-  or a new one added if the event type has none yet.
+  shape) must be validated against the relevant contract test (see
+  [ADR-0002](docs/adr/0002-json-schema-contract-testing.md)).
+- **Every new event or command introduced into this project's messaging
+  must be accompanied by its own JSON Schema (`/schemas/json/`) and
+  contract test(s) for every producer and consumer, in the same pull
+  request that introduces it.** This is a standing rule, not a suggestion
+  — "add the schema later" is not an acceptable phase of shipping a new
+  message (see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md)'s
+  Update). A PR that adds a producer or consumer for an event with no
+  schema should not be merged.
 - If your change touches wiring that CI's integration or end-to-end
   phases exercise (see [ADR-0012](docs/adr/0012-ci-phase-2-real-infrastructure.md)
   and [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md)), verify
