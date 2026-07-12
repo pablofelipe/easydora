@@ -267,6 +267,7 @@ The stack split is deliberate:
 | [0032](docs/adr/0032-accept-order-state-machine-hybrid.md) | Accept the hybrid Spring State Machine pattern in orders-service | Accepted | Closes an Architectural-note Roadmap item without changing code: investigated making the state machine a live authority (low value — no guards/extended state, single replica) and dropping the framework for a plain transition table (low risk, but no functional gain) before deciding the migration cost of either outweighs a benefit that resolves no active bug. Also opens a new, unrelated Low Roadmap item found along the way: `Order` has no `@Version` column, so concurrent writes from multiple RabbitMQ consumers and HTTP endpoints have no conflict detection. |
 | [0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md) | Optimistic locking on Order and Payment | Accepted | Closes the `@Version` Low Roadmap item ADR-0032 opened: adds `@Version` to `Order` and `Payment` only (not `Product`/`User`, which have no real concurrent-writer path), backed by `saveAndFlush` at the point each transition is persisted so a conflict is never discovered after its event already published, and a `409 Conflict` mapping in both services. Documents evaluating and rejecting pessimistic locking for this domain's current low-contention, event-driven shape, with explicit criteria for revisiting that later. |
 | [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id, no Outbox for the new publish — each deliberately rejected and documented, not omitted by oversight. |
+| [0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md) | Reject DTO code generation from JSON Schema, at the project's current scale | Accepted | Closes a Low Roadmap item by decision, not implementation: measured every schema's real git history (one content-change each, ever) and the one real DTO drift ever found (already caught by its own contract test) before concluding that `jsonschema2pojo`/`go-jsonschema`/`datamodel-code-generator` would cost three new build toolchains and the intentional-partial-consumer DTO pattern already in deliberate use, for a drift rate of one occurrence. A cost/benefit conclusion, not a rejection of the technique — documents explicit, measurable criteria (event count, schema churn, a second missed drift, partial-consumer DTOs becoming the exception) that would reopen it. |
 
 ## Roadmap
 
@@ -649,19 +650,26 @@ The stack split is deliberate:
       (`payment.refund.requested`/`payment.refunded`/`payment.refund.failed`)
       — Orders publishes intent, Billing alone decides and owns `Payment`.
       See [ADR-0034](docs/adr/0034-payment-compensation-saga.md).
-- [ ] **Opened 2026-07-12 (Low).** Event DTOs are hand-duplicated per
-      service/language with no shared library — a deliberate polyglot
-      trade-off that keeps every service's build independent, not an
-      oversight. The two schema-covered events
-      ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) still
-      require each consumer's DTO to be kept in sync with its schema by
-      hand, with nothing enforcing it. Generating each language's DTO
-      directly from its JSON Schema (one codegen step per language, run
-      at build time) would preserve the same per-service independence
-      manual duplication already provides, while removing the chance of
-      a schema and its real DTO silently drifting apart across an update
-      — the codegen step would fail the build instead of drifting
-      silently.
+- [x] **Opened 2026-07-12, closed 2026-07-13 (Low).** Event DTOs are
+      hand-duplicated per service/language with no shared library — a
+      deliberate polyglot trade-off that keeps every service's build
+      independent, not an oversight. All 17 published messages now have a
+      schema ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)),
+      but nothing stops a hand-written DTO from silently drifting from its
+      schema until a test catches it. Investigated generating each
+      language's DTO directly from its JSON Schema (`jsonschema2pojo`/
+      `go-jsonschema`/`datamodel-code-generator`) as a way to remove that
+      risk by construction. Rejected at the project's current scale, by
+      decision rather than by implementation: every schema in this project
+      has exactly one real content-change in its history, the one drift
+      ever found was already caught by the contract test added in the same
+      change that introduced it, and generation would have cost the
+      intentional-partial-consumer DTO pattern already in deliberate use
+      (`orders-service`'s `ProductCreatedEvent` captures 2 of 6 fields on
+      purpose) for a problem occurring at a measured rate of once. See
+      [ADR-0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md)
+      for the full analysis and the objective criteria that would reopen
+      this decision.
 - [ ] **Opened 2026-07-12 (Low).** `orders-service` has no Outbox Pattern
       for any of its publishes (`order.created`, `order.status-changed`,
       the `stock.reserve` command, and now `payment.refund.requested`) —
