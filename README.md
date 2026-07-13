@@ -124,16 +124,9 @@ order → stock reservation → payment → notification), driven entirely by
 `curl` against each service's public API with real request/response
 examples, see [docs/walkthrough.md](docs/walkthrough.md). For the same flow
 as a Mermaid sequence diagram, see
-[docs/sequence-diagram.md](docs/sequence-diagram.md).
-
-### Troubleshooting (Windows)
-
-If `docker-compose` fails to connect:
-
-1. Open Docker Desktop and wait for "Docker Desktop is running".
-2. Verify with `docker version`.
-3. If `docker-compose` doesn't work, try `docker compose` (no hyphen).
-4. If issues persist, restart Docker Desktop via its system tray icon.
+[docs/sequence-diagram.md](docs/sequence-diagram.md). If Docker Compose
+fails to connect on Windows, see
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Architecture
 
