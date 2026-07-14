@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -92,7 +93,7 @@ class SelfPurchasePreventionTest {
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
                 buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository);
+                productOwnershipRepository, new SimpleMeterRegistry());
 
         assertThatThrownBy(() -> orderService.createOrder(requestFor("prod-1"), 42L))
                 .isInstanceOf(RuntimeException.class)
@@ -120,7 +121,7 @@ class SelfPurchasePreventionTest {
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
                 buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository);
+                productOwnershipRepository, new SimpleMeterRegistry());
 
         orderService.createOrder(requestFor("prod-1"), 42L);
 
@@ -143,7 +144,7 @@ class SelfPurchasePreventionTest {
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
                 buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository);
+                productOwnershipRepository, new SimpleMeterRegistry());
 
         orderService.createOrder(requestFor("prod-1"), 7L);
 
@@ -165,7 +166,7 @@ class SelfPurchasePreventionTest {
         RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
         OrderService orderService = new OrderService(
                 buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository);
+                productOwnershipRepository, new SimpleMeterRegistry());
 
         orderService.createOrder(requestFor("prod-unknown"), 7L);
 

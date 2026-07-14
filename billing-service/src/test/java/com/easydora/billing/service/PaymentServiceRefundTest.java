@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -66,7 +67,7 @@ class PaymentServiceRefundTest {
     private PaymentRepository paymentRepository;
 
     private PaymentService newPaymentService(RabbitTemplate rabbitTemplate, PaymentProvider provider) {
-        return new PaymentService(paymentRepository, rabbitTemplate, provider);
+        return new PaymentService(paymentRepository, rabbitTemplate, provider, new SimpleMeterRegistry());
     }
 
     @Test

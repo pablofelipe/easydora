@@ -12,6 +12,8 @@ import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import com.easydora.billing.messaging.events.PaymentEvent;
 import com.easydora.billing.service.provider.PaymentProvider;
 import com.easydora.billing.service.provider.PaymentResult;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -34,12 +36,19 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final RabbitTemplate rabbitTemplate;
     private final PaymentProvider paymentProvider;
+    private final Counter paymentsApprovedCounter;
+    private final Counter paymentsFailedCounter;
 
     public PaymentService(PaymentRepository paymentRepository, RabbitTemplate rabbitTemplate,
-            PaymentProvider paymentProvider) {
+            PaymentProvider paymentProvider, MeterRegistry meterRegistry) {
         this.paymentRepository = paymentRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.paymentProvider = paymentProvider;
+        // Business metrics (ADR-0036): infra-level metrics already answer
+        // "is the system healthy"; these answer a question infra can't --
+        // how much of the payment volume actually succeeds.
+        this.paymentsApprovedCounter = meterRegistry.counter("payments_approved_total");
+        this.paymentsFailedCounter = meterRegistry.counter("payments_failed_total");
     }
     
     // ========== METHODS FOR ORDER-CREATED EVENTS (RabbitMQ) ==========
@@ -191,6 +200,12 @@ public class PaymentService {
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event, CorrelationMessaging.withCorrelation());
         BusinessEventLog.info(logger, routingKey + ".published", payment.getOrderId(), "PaymentEvent published");
+
+        if (payment.getStatus() == PaymentStatus.APPROVED) {
+            paymentsApprovedCounter.increment();
+        } else {
+            paymentsFailedCounter.increment();
+        }
     }
     
     @Transactional

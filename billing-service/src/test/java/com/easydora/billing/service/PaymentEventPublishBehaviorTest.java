@@ -13,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.MessagePostProcessor;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
 
@@ -45,7 +46,7 @@ class PaymentEventPublishBehaviorTest {
 
     @Test
     void approvedPaymentPublishesPaymentApprovedEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
 
         Payment payment = new Payment("order-123", new BigDecimal("99.90"));
         payment.setTransactionId("txn-1");
@@ -62,7 +63,7 @@ class PaymentEventPublishBehaviorTest {
 
     @Test
     void failedPaymentPublishesPaymentFailedEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
 
         Payment payment = new Payment("order-456", new BigDecimal("49.90"));
         payment.setTransactionId("txn-2");
@@ -79,7 +80,7 @@ class PaymentEventPublishBehaviorTest {
 
     @Test
     void pendingPaymentPublishesNoEvent() {
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
 
         Payment payment = new Payment("order-789", new BigDecimal("10.00"));
 

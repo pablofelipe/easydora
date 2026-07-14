@@ -206,7 +206,8 @@ billing-service's `mvn verify` suite required fixing three real bugs the first t
 
 inventory-service's stock-reservation idempotency — redelivery-safe caching, per-`OrderID` locking for genuine concurrency, and the residual gap once a cache entry expires — is documented in [ADR-0007](docs/adr/0007-remove-kafka-broker.md) and the service's own source, not repeated here.
 
-Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432).
+Infrastructure: RabbitMQ Management (15672), PostgreSQL (5432), Prometheus
+(9090), Grafana (3001, see [ADR-0036](docs/adr/0036-metrics-via-prometheus-grafana.md)).
 
 ## Design notes
 
@@ -261,6 +262,7 @@ The stack split is deliberate:
 | [0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md) | Optimistic locking on Order and Payment | Accepted | Closes the `@Version` Low Roadmap item ADR-0032 opened: adds `@Version` to `Order` and `Payment` only (not `Product`/`User`, which have no real concurrent-writer path), backed by `saveAndFlush` at the point each transition is persisted so a conflict is never discovered after its event already published, and a `409 Conflict` mapping in both services. Documents evaluating and rejecting pessimistic locking for this domain's current low-contention, event-driven shape, with explicit criteria for revisiting that later. |
 | [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id, no Outbox for the new publish — each deliberately rejected and documented, not omitted by oversight. |
 | [0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md) | Reject DTO code generation from JSON Schema, at the project's current scale | Accepted | Closes a Low Roadmap item by decision, not implementation: measured every schema's real git history (one content-change each, ever) and the one real DTO drift ever found (already caught by its own contract test) before concluding that `jsonschema2pojo`/`go-jsonschema`/`datamodel-code-generator` would cost three new build toolchains and the intentional-partial-consumer DTO pattern already in deliberate use, for a drift rate of one occurrence. A cost/benefit conclusion, not a rejection of the technique — documents explicit, measurable criteria (event count, schema churn, a second missed drift, partial-consumer DTOs becoming the exception) that would reopen it. |
+| [0036](docs/adr/0036-metrics-via-prometheus-grafana.md) | Quantitative observability via Prometheus and Grafana | Accepted | Narrows ADR-0024's bundled rejection of Prometheus/Grafana (that cost analysis was aimed at a full tracing backend, which these two don't actually need) and adopts them for the aggregate questions CorrelationId logging was never meant to answer: error rate, latency, queue depth, business volume. RabbitMQ's own `rabbitmq_prometheus` plugin and each Spring service's HikariCP pool cover RabbitMQ and Postgres connection visibility with zero new exporter containers; the two Go services needed one small custom HTTP-metrics middleware, since `promhttp` alone (unlike Micrometer) doesn't auto-instrument request rate/latency. Five deliberately-scoped business counters, dashboards provisioned as code — no Alertmanager, no Loki, no per-event metric spam, and ADR-0024's rejection of a full tracing backend (OpenTelemetry/Jaeger/Zipkin) stays unchanged. |
 
 ## Roadmap
 
@@ -675,6 +677,37 @@ The stack split is deliberate:
       pre-existing, just not new — a crash between an `Order` write and its
       matching publish can still silently lose that event today, for any of
       this service's four publishes, not only the new one.
+- [x] **Opened 2026-07-14, closed 2026-07-14.** Quantitative observability
+      (metrics) was the one pillar ADR-0024 knowingly left open: logs
+      answer "what happened to operation X", but not "which service is
+      slowest" or "what fraction of payments are failing right now".
+      Resolved by narrowing ADR-0024's bundled Prometheus/Grafana
+      rejection (that cost analysis targeted a full tracing backend, which
+      neither actually needs) — see
+      [ADR-0036](docs/adr/0036-metrics-via-prometheus-grafana.md).
+      RabbitMQ's own Prometheus plugin and each Spring service's HikariCP
+      pool cover the broker and Postgres connection visibility with zero
+      new exporter containers; the two Go services needed one small
+      custom HTTP-metrics middleware, since `promhttp` doesn't
+      auto-instrument request rate/latency the way Micrometer does.
+      Dashboards are provisioned as code
+      (`observability/grafana/provisioning`), not configured by hand.
+- [ ] **Opened 2026-07-14 (Low).** `orders-service`'s `RabbitMQInitializer`
+      declares `order.exchange` at boot with no retry, unlike
+      `inventory-service`'s RabbitMQ connection setup (10 attempts with
+      backoff). Found live while validating ADR-0036's docker-compose
+      stack against a freshly reinstalled Docker: RabbitMQ's own
+      healthcheck (`rabbitmq-diagnostics ping`) only confirms the Erlang
+      node itself is up, not that the AMQP listener is already accepting
+      connections — a real, narrow race regardless of `depends_on`'s
+      `condition: service_healthy`. `inventory-service` hit the same
+      window on the same boot and simply retried into success; without an
+      equivalent retry, `orders-service` throws
+      `AmqpConnectException`/`Connection refused` from its exchange
+      declaration and Spring Boot exits the JVM (`exit code 1`) instead of
+      retrying. A manual restart resolved it once RabbitMQ was already up.
+      The gap is the missing retry-on-initial-connect pattern in this one
+      boot-time declaration, not a docker-compose ordering bug.
 
 </details>
 

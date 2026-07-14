@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.OptimisticLockingFailureException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -46,7 +47,7 @@ class PaymentServiceDeterministicApprovalTest {
     private final PaymentProvider paymentProvider = new PaymentMockService();
 
     private PaymentService newPaymentService() {
-        return new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        return new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
     }
 
     @Test

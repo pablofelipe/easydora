@@ -16,6 +16,7 @@ import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.OptimisticLockingFailureException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,7 +68,7 @@ class OrderServiceOptimisticLockingTest {
 
     private OrderService newOrderService(RabbitTemplate rabbitTemplate) {
         return new OrderService(buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository);
+                productOwnershipRepository, new SimpleMeterRegistry());
     }
 
     @Test

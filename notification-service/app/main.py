@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import make_asgi_app
 
 from app.auth import AuthenticatedUserDependency, JwtCache
 from app.auth_client import AuthServiceClient
@@ -81,6 +82,12 @@ async def correlation_middleware(request: Request, call_next):
 @app.get("/notification/health")
 def health():
     return {"status": "OK", "service": "notification-service"}
+
+
+# Prometheus scrape endpoint (see ADR-0036). make_asgi_app() serves the
+# default registry, which already includes process metrics (memory, CPU)
+# with zero custom collectors.
+app.mount("/metrics", make_asgi_app())
 
 
 @app.get("/notifications/{order_id}")

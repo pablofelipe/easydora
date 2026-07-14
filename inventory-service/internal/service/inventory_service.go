@@ -11,9 +11,22 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var logger = correlation.NewLogger(os.Stdout, "inventory-service")
+
+// Business metric (ADR-0036): infra-level metrics already answer "is the
+// system healthy"; this one answers a question infra can't -- how often a
+// reservation actually fails for lack of stock. Incremented exactly once
+// per real (non-cached) outcome in doReserveStock, never on a redelivery
+// served from processedOrders.
+var inventoryReservationsFailedCounter = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "inventory_reservations_failed_total",
+	Help: "Total stock reservations that failed due to insufficient stock.",
+})
 
 const (
     // reservationCacheTTL bounds how long a processed order's outcome is
@@ -257,6 +270,7 @@ func (s *inventoryService) doReserveStock(ctx context.Context, command *models.R
         correlation.Info(logger, ctx, "stock reserved", "event", "stock.reserved", "aggregateId", command.OrderID)
     } else {
         correlation.Info(logger, ctx, "stock reservation insufficient", "event", "stock.insufficient", "aggregateId", command.OrderID)
+        inventoryReservationsFailedCounter.Inc()
     }
 
     return command.OrderID, success, insufficientEvent, nil

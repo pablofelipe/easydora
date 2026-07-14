@@ -74,7 +74,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/ping",
                     "/health",
-                    "/error"
+                    "/error",
+                    "/actuator/prometheus"
                 ).permitAll()
                 // Endpoints that require authentication
                 .anyRequest().authenticated()

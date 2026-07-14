@@ -18,6 +18,8 @@ import com.easydora.orders.statemachine.OrderState;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationMessaging;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -38,6 +40,7 @@ public class OrderService {
     private final OrderStateMachineService stateMachineService;
     private final RabbitTemplate rabbitTemplate;
     private final ProductOwnershipRepository productOwnershipRepository;
+    private final Counter ordersCreatedCounter;
 
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
 
@@ -45,12 +48,18 @@ public class OrderService {
                         OrderRepository orderRepository,
                        OrderStateMachineService stateMachineService,
                        RabbitTemplate rabbitTemplate,
-                       ProductOwnershipRepository productOwnershipRepository) {
+                       ProductOwnershipRepository productOwnershipRepository,
+                       MeterRegistry meterRegistry) {
         this.buyerRepository = buyerRepository;
         this.orderRepository = orderRepository;
         this.stateMachineService = stateMachineService;
         this.rabbitTemplate = rabbitTemplate;
         this.productOwnershipRepository = productOwnershipRepository;
+        // Business metric (ADR-0036): infra-level metrics (request rate,
+        // JVM, RabbitMQ) already answer "is the system healthy"; this one
+        // answers a question infra can't -- "how much business is actually
+        // flowing through it".
+        this.ordersCreatedCounter = meterRegistry.counter("orders_created_total");
     }
 
     public OrderResponse createOrder(OrderRequest request, Long userId) {
@@ -528,6 +537,7 @@ public class OrderService {
             
             rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event, CorrelationMessaging.withCorrelation());
             BusinessEventLog.info(logger, "order.created.published", order.getId(), "OrderCreatedEvent published");
+            ordersCreatedCounter.increment();
 
         } catch (Exception e) {
             logger.error("Error publishing OrderCreatedEvent: {}", e.getMessage(), e);

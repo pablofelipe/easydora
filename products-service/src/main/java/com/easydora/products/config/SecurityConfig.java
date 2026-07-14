@@ -74,7 +74,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/ping",
                     "/health",
-                    "/error"
+                    "/error",
+                    "/actuator/prometheus"
                 ).permitAll()
                 // /my-products must be declared before the /{id} rule below:
                 // {id} is a path *pattern*, so it would otherwise also match

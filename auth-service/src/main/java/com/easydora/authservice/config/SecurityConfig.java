@@ -57,7 +57,7 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email", "/users/*/notification-profile").permitAll()
+                .requestMatchers("/ping", "/health", "/signup", "/login", "/verify-email", "/users/*/notification-profile", "/actuator/prometheus").permitAll()
                 // auth-service has no protected endpoint of its own today --
                 // it's the producer of the cross-service JWT broadcast, not
                 // a consumer of it, so there is no authentication mechanism

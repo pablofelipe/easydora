@@ -30,7 +30,7 @@
          directly here (not just dependencyManagement) so children inherit
          them without redeclaring anything. Each child's own pom.xml keeps
          only what's genuinely specific to it (jjwt/h2/spring-security-crypto
-         for auth-service; spring-statemachine-core/hibernate-core/actuator
+         for auth-service; spring-statemachine-core/hibernate-core
          for orders-service; spring-boot-starter/spring-tx/
          jakarta.persistence-api/spring-rabbit for billing-service; and each
          service's own postgresql dependency, since auth-service/
@@ -52,6 +52,20 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- actuator + micrometer's Prometheus registry: exposes
+             /<context-path>/actuator/prometheus on every service, scraped
+             by the Prometheus container (see ADR-0036). orders-service
+             already carried actuator alone (unused for health checks,
+             see ADR-0010); now shared so all four services expose the
+             same metrics surface. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

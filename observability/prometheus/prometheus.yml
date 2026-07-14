@@ -1,0 +1,46 @@
+# Scrape config for EasyDora's metrics stack (see docs/adr/0036-metrics-via-prometheus-grafana.md).
+# One job per service, each pointed at that service's own native metrics
+# endpoint -- no exporter processes, no OpenTelemetry collector.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: api-gateway
+    static_configs:
+      - targets: ["api-gateway:8080"]
+
+  - job_name: auth-service
+    metrics_path: /auth/actuator/prometheus
+    static_configs:
+      - targets: ["auth-service:8081"]
+
+  - job_name: products-service
+    metrics_path: /products/actuator/prometheus
+    static_configs:
+      - targets: ["products-service:8082"]
+
+  - job_name: inventory-service
+    static_configs:
+      - targets: ["inventory-service:8083"]
+
+  - job_name: orders-service
+    metrics_path: /orders/actuator/prometheus
+    static_configs:
+      - targets: ["orders-service:8084"]
+
+  - job_name: billing-service
+    metrics_path: /billing/actuator/prometheus
+    static_configs:
+      - targets: ["billing-service:8085"]
+
+  - job_name: notification-service
+    # /metrics (no trailing slash) 307-redirects to /metrics/ -- Starlette's
+    # default behavior for a mounted sub-application. Scraping the final
+    # path directly avoids the extra hop.
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["notification-service:8086"]
+
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq:15692"]

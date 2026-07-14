@@ -4,10 +4,16 @@ This document explains how one business operation — signup, order
 creation, stock reservation, payment, notification — can be followed
 end to end through the logs of every service it touches, without a
 tracing backend. For the architectural decision behind *why* this
-approach was chosen over OpenTelemetry/Jaeger/Zipkin/Prometheus/Grafana,
-see [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md).
+approach was chosen over a full OpenTelemetry/Jaeger/Zipkin tracing
+backend, see [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md).
 This document is the how: the three identifiers, their lifecycle, the
 propagation mechanism per hop, and worked examples from a real run.
+
+This covers the *logging/tracing* pillar only — the quantitative
+counterpart (request rate, latency, error rate, queue depth, business
+volume) is a separate, sibling capability documented in
+[ADR-0036](../adr/0036-metrics-via-prometheus-grafana.md), not repeated
+here.
 
 ## The three identifiers
 
@@ -223,6 +229,9 @@ Ten log lines, five services, three languages, one grep-able id.
 
 - [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md) —
   why this approach, and why not a tracing backend.
+- [ADR-0036](../adr/0036-metrics-via-prometheus-grafana.md) — the
+  quantitative metrics pillar (Prometheus/Grafana) that sits alongside
+  this document's logging/tracing design, not inside it.
 - [Architecture Overview](overview.md) — the system map this tracing
   strategy sits inside.
 - [Walkthrough](../walkthrough.md) — the same business flow this

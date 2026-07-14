@@ -13,8 +13,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -79,10 +84,15 @@ func main() {
     // forwards the incoming path unchanged, see ADR-0025 -- reaches the
     // same handler instead of being swallowed by the /inventory/ catch-all
     // below, which would otherwise treat "health" as a product ID).
-    http.Handle("/health", withCORS(correlation.Middleware(http.HandlerFunc(healthHandler))))
-    http.Handle("/inventory/health", withCORS(correlation.Middleware(http.HandlerFunc(healthHandler))))
+    http.Handle("/health", withCORS(correlation.Middleware(withMetrics("/health", http.HandlerFunc(healthHandler)))))
+    http.Handle("/inventory/health", withCORS(correlation.Middleware(withMetrics("/inventory/health", http.HandlerFunc(healthHandler)))))
 
-    http.Handle("/inventory/", withCORS(correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    // Prometheus scrape endpoint (see ADR-0036). promhttp.Handler() serves
+    // the default registry, which already includes Go runtime metrics
+    // (goroutines, heap) and process metrics with zero custom collectors.
+    http.Handle("/metrics", promhttp.Handler())
+
+    http.Handle("/inventory/", withCORS(correlation.Middleware(withMetrics("/inventory/{productId}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         productID := r.URL.Path[len("/inventory/"):]
         
         switch r.Method {
@@ -104,9 +114,9 @@ func main() {
         default:
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         }
-    }))))
+    })))))
 
-    http.Handle("/inventory", withCORS(correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    http.Handle("/inventory", withCORS(correlation.Middleware(withMetrics("/inventory", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         if r.Method != "POST" {
             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
@@ -130,7 +140,7 @@ func main() {
 
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{"message": "Inventory updated successfully"})
-    }))))
+    })))))
 
     log.Println("Inventory Service started on :8083")
     log.Fatal(http.ListenAndServe(":8083", nil))
@@ -139,6 +149,53 @@ func main() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+}
+
+// HTTP request rate/latency/errors: promhttp.Handler() alone only exposes Go
+// runtime metrics, not request-level ones (unlike Micrometer's automatic
+// http_server_requests_seconds in the four Spring services) -- this is the
+// small amount of custom instrumentation that gap actually requires. route
+// is passed explicitly per registration (net/http has no route-template
+// introspection like Gin's FullPath()), so it stays a fixed, bounded label
+// regardless of the raw path a client sends. See ADR-0036.
+var (
+    httpRequestsTotal = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total HTTP requests handled by this service, by route, method and status.",
+        },
+        []string{"method", "route", "status"},
+    )
+    httpRequestDuration = promauto.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "http_request_duration_seconds",
+            Help:    "HTTP request duration in seconds, by route and method.",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"method", "route"},
+    )
+)
+
+type statusRecordingWriter struct {
+    http.ResponseWriter
+    status int
+}
+
+func (w *statusRecordingWriter) WriteHeader(code int) {
+    w.status = code
+    w.ResponseWriter.WriteHeader(code)
+}
+
+func withMetrics(route string, next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        rec := &statusRecordingWriter{ResponseWriter: w, status: http.StatusOK}
+
+        next.ServeHTTP(rec, r)
+
+        httpRequestsTotal.WithLabelValues(r.Method, route, strconv.Itoa(rec.status)).Inc()
+        httpRequestDuration.WithLabelValues(r.Method, route).Observe(time.Since(start).Seconds())
+    })
 }
 
 // withCORS lets the frontend call this service through the Gateway from a

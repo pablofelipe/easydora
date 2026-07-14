@@ -155,6 +155,29 @@ which this ADR defers to rather than duplicating.
   - A real need emerges to measure latency *between* hops, not just
     trace an operation's identity across them.
 
+## Update — 2026-07-14: the Prometheus/Grafana half of this rejection was too broad
+
+This ADR's Decision bundled five technologies into one sentence — "Do not
+adopt OpenTelemetry, Jaeger, Zipkin, Prometheus, or Grafana" — and one
+cost analysis (new collector containers, a new SDK dependency per
+language, operational skills this project doesn't otherwise build
+toward) to justify all five. That analysis is accurate for a **tracing**
+backend; it does not actually hold for Prometheus and Grafana, which
+need no collector (each service exposes its own scrape endpoint
+directly) and no sampling strategy (a scrape interval reads current
+counters, nothing is dropped).
+
+[ADR-0036](0036-metrics-via-prometheus-grafana.md) revisits that half of
+this Decision on its own merits and adopts Prometheus and Grafana for
+quantitative metrics (request rate, latency, error rate, queue depth,
+business volume) — the aggregate, point-in-time questions this ADR's own
+CorrelationId design was never meant to answer. **This ADR's rejection of
+OpenTelemetry, Jaeger, and Zipkin — a full distributed tracing backend —
+is unchanged and remains in effect**, for the reasons in this ADR's
+Context and Decision above: this system's flows are linear chains,
+CorrelationId propagation already reconstructs their timeline, and no
+ADR here has ever been blocked on not knowing which hop was slow.
+
 ## References
 
 - [docs/architecture/observability.md](../architecture/observability.md) —
@@ -175,7 +198,11 @@ which this ADR defers to rather than duplicating.
 - [Architectural Principles](../architecture/architectural-principles.md) —
   principle #1 (deliberate simplicity over engineered precision) and
   principle #2 (a component must earn its place) both apply directly to
-  why a full tracing/metrics stack isn't justified here today; this ADR's
+  why a full tracing *backend* isn't justified here today; this ADR's
   shared-module decision is a deliberate, narrow exception to the
   document's "no shared library between services" convention, explained
   above and in observability.md.
+- [ADR-0036](0036-metrics-via-prometheus-grafana.md) — the 2026-07-14
+  Update above's narrower revisit: Prometheus/Grafana adopted for
+  quantitative metrics, while this ADR's rejection of a tracing backend
+  stands unchanged.

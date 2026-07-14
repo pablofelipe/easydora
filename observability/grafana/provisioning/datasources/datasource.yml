@@ -1,0 +1,12 @@
+# Auto-provisions the Prometheus datasource on Grafana startup -- no manual
+# UI setup step (see docs/adr/0036-metrics-via-prometheus-grafana.md).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

@@ -59,7 +59,7 @@ public class SecurityConfig {
                 // it must be let through before the authenticated() rule
                 // below or the browser never gets to send the real request.
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/ping", "/health", "/error").permitAll()
+                .requestMatchers("/ping", "/health", "/error", "/actuator/prometheus").permitAll()
                 .anyRequest().authenticated()
             )
             .csrf(csrf -> csrf.disable())

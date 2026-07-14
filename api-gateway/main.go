@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sony/gobreaker"
 	"log"
 	"net"
@@ -12,10 +15,52 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 )
 
 var gatewayLogger = correlation.NewLogger(os.Stdout, "api-gateway")
+
+// HTTP request rate/latency/errors: promhttp.Handler() alone only exposes Go
+// runtime metrics, not request-level ones (unlike Micrometer's automatic
+// http_server_requests_seconds in the four Spring services) -- this is the
+// small amount of custom instrumentation that gap actually requires. Route
+// label uses c.FullPath() (the matched route template, e.g. "/auth/*proxyPath"),
+// never the raw request path, to keep cardinality bounded regardless of
+// what a client sends. See ADR-0036.
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total HTTP requests handled by the gateway, by route, method and status.",
+		},
+		[]string{"method", "route", "status"},
+	)
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "HTTP request duration in seconds, by route and method.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "route"},
+	)
+)
+
+func metricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+		status := strconv.Itoa(c.Writer.Status())
+
+		httpRequestsTotal.WithLabelValues(c.Request.Method, route, status).Inc()
+		httpRequestDuration.WithLabelValues(c.Request.Method, route).Observe(time.Since(start).Seconds())
+	}
+}
 
 // correlationMiddleware is the birthplace of a business operation's
 // CorrelationId at the edge: reused from the X-Correlation-Id request
@@ -108,10 +153,16 @@ var (
 func main() {
 	router := gin.Default()
 	router.Use(correlationMiddleware())
+	router.Use(metricsMiddleware())
 
 	// Health check endpoints
 	router.GET("/health", healthCheck)
 	router.GET("/ping", ping)
+
+	// Prometheus scrape endpoint (see ADR-0036). promhttp.Handler() serves
+	// the default registry, which already includes Go runtime metrics
+	// (goroutines, heap) and process metrics with zero custom collectors.
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	setupServiceRoutes(router)
 

@@ -12,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -46,7 +47,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventCreatesAPendingPayment() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.empty());
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
@@ -68,7 +69,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventIsIgnoredWhenAPaymentAlreadyExistsForTheOrder() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.of(new Payment()));
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider);
+        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");

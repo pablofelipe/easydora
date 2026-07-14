@@ -1,5 +1,15 @@
+from prometheus_client import Counter
+
 from app.models import Notification
 from app.repository import NotificationRepository
+
+# Business metric (ADR-0036): infra-level metrics already answer "is the
+# system healthy"; this one answers a question infra can't -- how much
+# notification volume is actually flowing through the system.
+notifications_sent_total = Counter(
+    "notifications_sent_total",
+    "Total notifications persisted (this service's stand-in for an actual send, see FakeNotificationSender).",
+)
 
 
 class FakeNotificationSender:
@@ -16,3 +26,4 @@ class FakeNotificationSender:
 
     def send(self, notification: Notification) -> None:
         self._repository.save(notification)
+        notifications_sent_total.inc()
