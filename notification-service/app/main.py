@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
 from app.auth import AuthenticatedUserDependency, JwtCache
-from app.auth_client import AuthServiceClient
+from app.auth_client import AuthServiceClient, CachingAuthClient
 from app.config import load_settings
 from app.correlation import CORRELATION_ID_HEADER, REQUEST_ID_HEADER, correlation_scope, new_id
 from app.logging_config import configure_logging
@@ -27,7 +27,12 @@ get_authenticated_user = AuthenticatedUserDependency(jwt_cache)
 async def lifespan(_app: FastAPI):
     ensure_schema(settings.db_dsn)
 
-    auth_client = AuthServiceClient(settings.auth_service_url)
+    # jwt_cache is shared with the same instance GET /notifications/{orderId}
+    # authenticates against, so a jwt.created this service already consumed
+    # for auth also serves order.created enrichment here, without a second
+    # HTTP call to auth-service for data that already arrived on the
+    # broadcast -- see CachingAuthClient.
+    auth_client = CachingAuthClient(jwt_cache, AuthServiceClient(settings.auth_service_url))
     sender = FakeNotificationSender(repository)
 
     thread = threading.Thread(

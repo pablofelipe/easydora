@@ -27,6 +27,9 @@ ORDER_STATUS_CHANGED_QUEUE = "notification.order.status-changed.queue"
 # jwt.created broadcast, consumed the same way every Spring service's own
 # JwtConsumer does: cache the raw token against the user info it carries,
 # for GET /notifications/{orderId}'s own authentication (see app/auth.py).
+# The same cached data also backs CachingAuthClient's order.created
+# enrichment fast path (see app/auth_client.py), via JwtCache's
+# userId-keyed view -- one broadcast, two consumers of the same cache.
 AUTH_EXCHANGE = "auth.exchange"
 JWT_CREATED_ROUTING_KEY = "jwt.created"
 JWT_CREATED_QUEUE = "notification.jwt.created.queue"
@@ -164,7 +167,14 @@ def _cache_jwt_created(event: dict, jwt_cache) -> None:
     if not token:
         logger.error("jwt.created event has no token, ignoring")
         return
-    jwt_cache.add(token, user_id=int(event["userId"]), email=event["email"], role=event["role"])
+    jwt_cache.add(
+        token,
+        user_id=int(event["userId"]),
+        email=event["email"],
+        role=event["role"],
+        first_name=event["firstName"],
+        last_name=event["lastName"],
+    )
 
 
 def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None:

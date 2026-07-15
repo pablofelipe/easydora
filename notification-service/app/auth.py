@@ -16,19 +16,43 @@ class JwtCache:
     the RabbitMQ jwt.created consumer. A service restart wipes it, exactly
     like the Spring services' own in-memory caches -- an accepted, already
     documented limitation of the broadcast-JWT-cache pattern project-wide.
+
+    Also keeps a second, userId-keyed view of the same data (see
+    get_by_user_id) -- added so CachingAuthClient (app/auth_client.py) can
+    serve order-notification enrichment (email/firstName/lastName) from
+    this already-consumed broadcast, instead of always making a
+    synchronous HTTP call to auth-service for data that already arrived on
+    jwt.created. A caller with only a userId (never the token itself, e.g.
+    process_order_created) has no other way to reach the token-keyed view.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._tokens: dict[str, dict] = {}
+        self._by_user_id: dict[int, dict] = {}
 
-    def add(self, token: str, user_id: int, email: str, role: str) -> None:
+    def add(
+        self, token: str, user_id: int, email: str, role: str,
+        first_name: str = "", last_name: str = "",
+    ) -> None:
         with self._lock:
-            self._tokens[token] = {"userId": user_id, "email": email, "role": role}
+            entry = {
+                "userId": user_id,
+                "email": email,
+                "firstName": first_name,
+                "lastName": last_name,
+                "role": role,
+            }
+            self._tokens[token] = entry
+            self._by_user_id[user_id] = entry
 
     def get(self, token: str) -> dict | None:
         with self._lock:
             return self._tokens.get(token)
+
+    def get_by_user_id(self, user_id: int) -> dict | None:
+        with self._lock:
+            return self._by_user_id.get(user_id)
 
 
 class AuthenticatedUserDependency:

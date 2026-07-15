@@ -1,5 +1,6 @@
 import httpx
 
+from app.auth import JwtCache
 from app.correlation import CORRELATION_ID_HEADER
 from app.models import UserNotificationProfile
 
@@ -46,3 +47,36 @@ class AuthServiceClient:
             first_name=body["firstName"],
             last_name=body["lastName"],
         )
+
+
+class CachingAuthClient:
+    """Wraps a real auth client (AuthServiceClient in production) with a
+    JwtCache-backed fast path.
+
+    auth-service already broadcasts firstName/lastName/email on
+    jwt.created -- the same event notification-service consumes to
+    authenticate GET /notifications/{orderId} -- so a synchronous HTTP
+    call for the exact same fields on every order.created is redundant
+    whenever that broadcast has already been consumed for this user. Tries
+    the cache first; falls back to the real client only on a cache miss,
+    the narrow case of a cache-cold restart between a user's login and
+    their order (see README Roadmap, opened 2026-07-15). Implements the
+    same AuthClient protocol consumer.py already depends on, so
+    process_order_created needs no changes at all -- only main.py's
+    wiring swaps which client it's given.
+    """
+
+    def __init__(self, jwt_cache: JwtCache, fallback) -> None:
+        self._jwt_cache = jwt_cache
+        self._fallback = fallback
+
+    def get_notification_profile(self, user_id: int, correlation_id: str = "") -> UserNotificationProfile:
+        cached = self._jwt_cache.get_by_user_id(int(user_id))
+        if cached is not None:
+            return UserNotificationProfile(
+                user_id=cached["userId"],
+                email=cached["email"],
+                first_name=cached["firstName"],
+                last_name=cached["lastName"],
+            )
+        return self._fallback.get_notification_profile(user_id, correlation_id)
