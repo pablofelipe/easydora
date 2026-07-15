@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml/badge.svg)](https://github.com/pablofelipe/easydora/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/pablofelipe/easydora)](https://github.com/pablofelipe/easydora/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/pablofelipe/easydora)](https://github.com/pablofelipe/easydora/commits/main)
 
 ## Overview
 
