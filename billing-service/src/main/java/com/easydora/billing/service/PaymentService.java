@@ -17,7 +17,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -134,7 +133,12 @@ public class PaymentService {
         BigDecimal amount = payment.getAmount();
 
         // Every approval decision lives inside PaymentProvider -- this
-        // method only reacts to the result, never decides on its own.
+        // method only reacts to the result, never decides on its own. Only
+        // a failure from the provider call itself is translated into a
+        // FAILED payment here; anything that goes wrong afterwards
+        // (persisting the decision, publishing it) must propagate as-is,
+        // never be reinterpreted as the provider having declined the
+        // charge -- see the "Internal error" catch below.
         try {
             PaymentResult result = paymentProvider.processPayment(orderId, amount);
 
@@ -149,29 +153,22 @@ public class PaymentService {
                 payment.setProcessedAt(LocalDateTime.now());
                 logger.warn("Payment FAILED for order {}", orderId);
             }
-
-            // saveAndFlush (ADR-0033): forces the version check here, before
-            // publishPaymentEvent -- a conflict must never be discovered
-            // after the outcome has already been published.
-            Payment savedPayment = paymentRepository.saveAndFlush(payment);
-            publishPaymentEvent(savedPayment);
-            return convertToDTO(savedPayment);
-
-        } catch (OptimisticLockingFailureException e) {
-            // A concurrent write already changed this Payment's version --
-            // a conflict for the caller to see (409), never a business
-            // payment failure. Must never overwrite the row or publish an
-            // event for a write that didn't actually happen.
-            throw e;
         } catch (Exception e) {
             logger.error("Error processing payment for order {}: {}", orderId, e.getMessage());
             payment.setStatus(PaymentStatus.FAILED);
             payment.setFailureReason("Internal error: " + e.getMessage());
             payment.setProcessedAt(LocalDateTime.now());
-            Payment savedPayment = paymentRepository.save(payment);
-            publishPaymentEvent(savedPayment);
-            return convertToDTO(savedPayment);
         }
+
+        // saveAndFlush (ADR-0033): forces the version check here, before
+        // publishPaymentEvent -- a conflict must never be discovered after
+        // the outcome has already been published. A failure at or after
+        // this point (including publishPaymentEvent) propagates as-is and
+        // rolls back this transaction -- it must never silently overwrite
+        // an already-decided outcome with a wrong one.
+        Payment savedPayment = paymentRepository.saveAndFlush(payment);
+        publishPaymentEvent(savedPayment);
+        return convertToDTO(savedPayment);
     }
 
     /**

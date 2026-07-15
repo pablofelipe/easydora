@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.OptimisticLockingFailureException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -25,6 +27,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 /**
@@ -120,6 +124,24 @@ class PaymentServiceDeterministicApprovalTest {
         // instead of ever throwing -- the caller must see a real conflict.
         assertThatThrownBy(() -> newPaymentService().processPayment("order-conflict"))
                 .isInstanceOf(OptimisticLockingFailureException.class);
+    }
+
+    @Test
+    void aPublishFailureAfterApprovalIsNeverSwallowedIntoAFailedPayment() {
+        Payment existing = new Payment("order-even-publish-fails", new BigDecimal("100.00"));
+        when(paymentRepository.findByOrderId("order-even-publish-fails")).thenReturn(Optional.of(existing));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new AmqpException("broker unavailable"))
+                .when(rabbitTemplate)
+                .convertAndSend(anyString(), anyString(), any(), any(MessagePostProcessor.class));
+
+        // Without separating the publish step from the provider-decision
+        // catch block, PaymentService's generic catch(Exception) would
+        // reinterpret this broker failure as the payment itself having
+        // failed, silently flipping an already-approved payment to FAILED
+        // and reporting a wrong outcome to the caller instead of erroring.
+        assertThatThrownBy(() -> newPaymentService().processPayment("order-even-publish-fails"))
+                .isInstanceOf(AmqpException.class);
     }
 
     @Test

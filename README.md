@@ -711,6 +711,21 @@ The stack split is deliberate:
       retrying. A manual restart resolved it once RabbitMQ was already up.
       The gap is the missing retry-on-initial-connect pattern in this one
       boot-time declaration, not a docker-compose ordering bug.
+- [x] **Opened 2026-07-14, closed 2026-07-14.** `billing-service`'s
+      `PaymentService.processPayment` wrapped both the payment-provider
+      decision and the event publish that follows it in a single generic
+      `catch (Exception e)`. A failure to publish `payment.approved` (for
+      example, a momentarily unavailable RabbitMQ) was silently
+      reinterpreted as the payment itself having failed, flipping an
+      already-approved payment to `FAILED` and reporting a wrong outcome to
+      the caller instead of erroring. Found while investigating whether
+      `orders-service`/`billing-service` need the Outbox Pattern (see the
+      open item above about `orders-service` having none) — a distinct,
+      independently-fixable correctness bug, not itself an Outbox
+      question. Fixed by narrowing the catch to the provider call only: a
+      failure at or after persisting the decision (including the publish)
+      now propagates and rolls back the transaction instead of silently
+      overwriting an already-decided outcome.
 
 </details>
 
