@@ -823,21 +823,34 @@ The stack split is deliberate:
       `go test ./...`) green, no regressions. No metric yet distinguishes
       a cache hit from a duplicate delivery on either path — still open,
       not addressed by this fix.
-- [ ] **Opened 2026-07-15 (Architectural note).** `notification-service`
-      makes the system's one synchronous cross-service call (`process_order_created`
-      calls `auth-service` over HTTP via `AuthServiceClient.get_notification_profile`)
-      to fetch `email`/`firstName`/`lastName` for the first notification
-      of an order — data that already arrives, in full, on the same
+- [x] **Opened 2026-07-15, closed 2026-07-15 (Architectural note).**
+      `notification-service` made the system's one synchronous
+      cross-service call (`process_order_created` calling `auth-service`
+      over HTTP via `AuthServiceClient.get_notification_profile`) to fetch
+      `email`/`firstName`/`lastName` for the first notification of an
+      order — data that already arrives, in full, on the same
       `jwt.created` broadcast this service already consumes for
       authentication (`JwtCreatedEvent` carries all three fields). The
-      service's own `JwtCache` discards `firstName`/`lastName` on write
-      and is indexed by token, not by `userId`, so it can't currently
-      serve this lookup. Not yet fixed; the identified path is indexing a
-      second, `userId`-keyed view of the same already-consumed event and
-      trying it before falling back to the existing HTTP call (kept as a
-      fallback for the narrow case of a cache-cold restart between a
-      user's login and their order), rather than removing the HTTP call
-      outright.
+      service's own `JwtCache` discarded `firstName`/`lastName` on write
+      and was indexed by token, not by `userId`, so it couldn't serve this
+      lookup. Fixed: `JwtCache` now keeps a second, `userId`-keyed view of
+      the same broadcast data (`get_by_user_id`), and a new
+      `CachingAuthClient` (`app/auth_client.py`) tries that view first,
+      falling back to the real HTTP call only on a cache miss — the
+      narrow case of a cache-cold restart between a user's login and
+      their order. `process_order_created`/`consumer.py` needed no
+      changes at all; only `main.py`'s wiring swaps which client it hands
+      the consumer. `_cache_jwt_created` (`app/rabbitmq.py`) now also
+      reads `firstName`/`lastName` from the broadcast, previously
+      deliberately ignored (see the updated contract test,
+      `tests/test_contract_jwt_created.py`). TDD: 8 new/updated tests
+      (`tests/test_auth.py`, `tests/test_auth_client.py`, the contract
+      test) red before the change (missing method/class, or asserting the
+      old, narrower field set), green after; full non-integration suite
+      (`pytest -m "not integration"`, 40 tests) green, no regressions. The
+      8 real-infra integration tests (`test_order_created_flow.py`,
+      `test_consumer_resilience_flow.py`) exercise the raw
+      `AuthServiceClient` directly, unaffected by this change.
 - [x] **Opened 2026-07-15, closed 2026-07-15 (Architectural note).** No
       metric distinguished a cache hit from a duplicate delivery for
       either of `inventory-service`'s two idempotency caches — a known,
