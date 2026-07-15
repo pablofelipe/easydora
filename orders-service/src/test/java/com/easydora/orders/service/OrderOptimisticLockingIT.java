@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.test.annotation.DirtiesContext;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -24,8 +25,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * consumer updating the same order would hit -- no real threads needed,
  * since the version check is keyed on the value each copy carries, not
  * on timing.
+ *
+ * {@code @DirtiesContext} is load-bearing, not decorative -- same
+ * precedent as StockOutcomeWiringIT/PaymentOutcomeWiringIT/
+ * PaymentCompensationWiringIT/MessageConsumptionResilienceWiringIT:
+ * Failsafe reuses one JVM across every *IT class by default, and without
+ * it Spring's context cache would keep this class's real JwtConsumer/
+ * UserEventsConsumer listener containers running for the rest of that
+ * JVM -- a live competing consumer on the exact queues JwtCreatedFanoutIT
+ * drains directly. This was the actual, previously-undiscovered cause of
+ * a real CI failure (JwtCreatedFanoutIT losing the race for its own
+ * message to this class's lingering JwtConsumer), not a hypothetical risk.
  */
 @SpringBootTest
+@DirtiesContext
 class OrderOptimisticLockingIT {
 
     @Autowired
