@@ -218,9 +218,29 @@ delta via `testutil.ToFloat64`, since the counter is a package-level,
 process-global metric shared by every test in the binary).
 
 The JWT broadcast cache's equivalent gap (no hit/miss/duplicate visibility
-on any of the four services' token caches) remains open — tracked as
-follow-up work alongside the `expiresIn` TTL [ADR-0039](0039-jwt-broadcast-cache-restart-and-ttl.md)
-decided but did not implement, not by this Update.
+on any of the four services' token caches) remained open at the time this
+Update was written — tracked as follow-up work alongside the `expiresIn`
+TTL [ADR-0039](0039-jwt-broadcast-cache-restart-and-ttl.md) had decided
+but not yet implemented. See that ADR's own 2026-07-15 Update: both landed
+together, the same day, once the TTL work made this cache's own hit/miss/
+expired outcomes concrete enough to instrument.
+
+## Update — 2026-07-15: a seventh counter, closing the JWT cache's own gap
+
+`jwt_cache_lookup_total{outcome}` (`hit`/`miss`/`expired`) in all four
+services — `orders-service`, `products-service`, `billing-service`
+(Micrometer, constructor-injected `ObjectProvider<MeterRegistry>` rather
+than a direct `MeterRegistry` dependency, so `JwtAuthenticationFilter`
+still constructs cleanly inside a `@WebMvcTest` slice that doesn't
+autoconfigure a real registry bean) and `notification-service`
+(`prometheus_client.Counter`, the same mechanism `notifications_sent_total`
+already uses). Incremented at the exact point [ADR-0039](0039-jwt-broadcast-cache-restart-and-ttl.md)'s
+TTL check already runs, so this landed as part of that same change rather
+than a separate pass over the same four files. Same justification as the
+sixth counter above: this answers whether the two known, accepted
+residual risks of this cache (restart wiping it; an entry outliving its
+own JWT until read) are actually happening at runtime, not a
+business-volume question.
 
 ## References
 

@@ -112,6 +112,65 @@ path defined, even though not yet implemented.
 - The `expiresIn` TTL and the cache-miss test described above remain
   open work, tracked on the README Roadmap, not implemented by this ADR.
 
+## Update — 2026-07-15: TTL implemented in all four caches, plus observability
+
+Both items left open above are now implemented, in all four services:
+
+**The `expiresIn`-based TTL.** Each `JwtUserInfo` (Java) gained an
+`expiresAt` field via a new constructor overload — the pre-existing
+constructor now delegates to it with `LocalDateTime.MAX` ("never
+expires"), so every call site that predates this work, including the six
+test classes across three services that construct a `JwtUserInfo`
+directly as a Spring Security principal (unrelated to the cache's TTL),
+needed no changes. `JwtAuthenticationFilter.doFilterInternal` (all three
+Java services) now evicts an expired entry lazily on the next read that
+finds it, rather than via a background sweep — cheap and correct given
+how frequently this map is actually read (every authenticated request).
+`notification-service`'s `JwtCache` got the equivalent: an optional
+`expires_at` on `add()`, checked and evicted lazily by both `get()` and
+`get_by_user_id()`.
+
+`orders-service` needed its own `JwtEvent` (the session/auth-cache
+consumer's DTO, distinct from `UserEvent`, the profile consumer's own
+DTO — see ADR-0001's fanout) to gain `createdAt`/`expiresIn` fields for
+the first time; `billing-service`'s `JwtEvent` gained the same two
+fields. `products-service`'s and orders-service's `UserEvent` already had
+both, so only the consumer's construction call needed updating there.
+`notification-service`'s `_cache_jwt_created` now reads `createdAt`/
+`expiresIn` too, finally consuming every field the shared jwt-created
+schema declares (previously missing, and explicitly called out as such
+in this project's contract tests).
+
+**The cache-miss-by-restart test.** Every one of the four services now
+has this, not just "at least one" — `JwtAuthenticationFilterExpiryTest`
+(Java, three services) and the equivalent cases in
+`notification-service`'s `tests/test_auth.py` each prove hit, expired,
+and never-cached (a fresh cache is exactly what every service has right
+after a restart) as three distinct, separately asserted outcomes.
+
+**Observability, closing ADR-0036's Update's own open item.** A new
+business counter, `jwt_cache_lookup_total{outcome}` (`hit`/`miss`/
+`expired`), is incremented at the same point the TTL check happens, in
+all four services — the two known, accepted residual risks this ADR
+already reasoned about (restart wiping the cache; an entry outliving its
+own JWT until read) are now observable at runtime, not just provable by
+unit test. The three Java services use Micrometer via a
+constructor-injected `ObjectProvider<MeterRegistry>` (not a direct
+`MeterRegistry` dependency) specifically so `JwtAuthenticationFilter`
+still constructs cleanly inside a `@WebMvcTest` slice, which doesn't
+autoconfigure a real `MeterRegistry` bean — it falls back to a private,
+unscraped `SimpleMeterRegistry` in that case, with zero changes needed to
+any existing controller test. `notification-service` uses
+`prometheus_client.Counter` directly, the same as its existing
+`notifications_sent_total`.
+
+TDD throughout: every test above failed for the expected reason (missing
+method/constructor overload, or an assertion against a not-yet-existing
+metric) before the corresponding production change, green after. Full
+suite per service, no regressions: 48/48 (`billing-service`), 22/22
+(`products-service`), 99/99 (`orders-service`), 48/48 non-integration
+(`notification-service`).
+
 ## References
 
 - [ADR-0027](0027-jwt-principal-as-sole-identity-source.md) — first
