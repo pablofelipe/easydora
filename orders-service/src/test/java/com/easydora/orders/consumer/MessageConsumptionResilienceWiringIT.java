@@ -4,11 +4,13 @@ import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.orders.support.ResilienceProbeSupport;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,10 +78,9 @@ class MessageConsumptionResilienceWiringIT {
         Thread.sleep(3000);
         assertThat(probe.attemptsFor(id)).isEqualTo(3);
 
-        String dead = (String) rabbitTemplate.receiveAndConvert(RabbitMQConfig.DLQ, 5000);
-        assertThat(dead)
+        assertThat(pollForDeadLetter(id, 5000))
                 .withFailMessage("message %s should have been republished to the dead letter queue after exhausting retries", id)
-                .isEqualTo(id);
+                .isTrue();
     }
 
     private int awaitAtLeast(String id, int expected) throws InterruptedException {
@@ -90,5 +91,35 @@ class MessageConsumptionResilienceWiringIT {
             Thread.sleep(250);
         }
         return probe.attemptsFor(id);
+    }
+
+    /**
+     * RabbitMQConfig.DLQ is shared across every listener queue in this
+     * service (bound on "#", per its own comment), so it can also hold
+     * dead-letters produced as a side effect of other *IT classes, or
+     * leftover debris from a previous run's own message never being
+     * matched -- scans for the message matching this test's own id
+     * instead of assuming the next message off the queue is it, the same
+     * precedent PaymentOutcomeWiringIT/PaymentCompensationWiringIT already
+     * follow for their own probe queues. Reads the raw Message/body
+     * instead of receiveAndConvert, since a foreign message sharing this
+     * queue is not guaranteed to even be a String -- receiveAndConvert
+     * blindly casting it caused exactly this test to fail with a
+     * ClassCastException once a non-String dead-letter happened to be
+     * queued ahead of this test's own.
+     */
+    private boolean pollForDeadLetter(String id, long timeoutMillis) {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            Message message = rabbitTemplate.receive(RabbitMQConfig.DLQ, 500);
+            if (message == null) {
+                continue;
+            }
+            String body = new String(message.getBody(), StandardCharsets.UTF_8);
+            if (body.contains(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
