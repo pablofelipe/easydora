@@ -9,6 +9,7 @@ import (
 
 	"inventory-service/internal/models"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -496,4 +497,80 @@ func TestReserveStock_ConcurrentRedeliveriesOfSameOrderReserveOnce(t *testing.T)
 		"N concurrent redeliveries of the same OrderID should collapse into a single repository call, got %d", repo.callCount())
 	assert.Equal(t, 5, repo.reservedFor("prod-1"),
 		"reserved quantity should reflect a single reservation of 5 units even under concurrent redelivery")
+}
+
+// TestReserveStock_DuplicateDetectionIncrementsMetric proves the
+// idempotency cache's cache-hit path is actually observable at runtime,
+// not just provable by unit test: idempotentDuplicateDetectedCounter must
+// increment exactly once for a caught duplicate, and not at all for a
+// first (non-duplicate) delivery. The counter is a package-level
+// promauto metric shared by every test in this binary, so the assertion
+// is a before/after delta on this test's own label value, not an
+// absolute count.
+func TestReserveStock_DuplicateDetectionIncrementsMetric(t *testing.T) {
+	before := testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("reserve"))
+
+	repo := newMockInventoryRepository()
+	repo.inventory["prod-1"] = &models.Inventory{
+		ProductID: "prod-1",
+		Quantity:  10,
+		Available: true,
+	}
+
+	svc := NewInventoryService(repo)
+	defer svc.Close()
+
+	cmd := &models.ReserveStockCommand{
+		OrderID: "order-metric-reserve",
+		Items:   []models.ReserveStockItem{{ProductID: "prod-1", Quantity: 5}},
+	}
+
+	_, success1, _, err1 := svc.ReserveStock(context.Background(), cmd)
+	require.NoError(t, err1)
+	require.True(t, success1)
+
+	assert.Equal(t, before, testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("reserve")),
+		"a first delivery is not a duplicate and must not increment the counter")
+
+	_, success2, _, err2 := svc.ReserveStock(context.Background(), cmd)
+	require.NoError(t, err2)
+	require.True(t, success2)
+
+	assert.Equal(t, before+1, testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("reserve")),
+		"a redelivery caught by the cache must increment the duplicate-detected counter exactly once")
+}
+
+// TestReleaseStock_DuplicateDetectionIncrementsMetric is
+// TestReserveStock_DuplicateDetectionIncrementsMetric's counterpart for
+// the release path, asserting the "release" label specifically so the
+// two operations are provably distinguishable from one another, not just
+// both wired to the same counter.
+func TestReleaseStock_DuplicateDetectionIncrementsMetric(t *testing.T) {
+	before := testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("release"))
+
+	repo := newMockInventoryRepository()
+	repo.inventory["prod-1"] = &models.Inventory{
+		ProductID: "prod-1",
+		Quantity:  10,
+		Reserved:  5,
+		Available: true,
+	}
+
+	svc := NewInventoryService(repo)
+	defer svc.Close()
+
+	cmd := &models.ReleaseStockCommand{
+		OrderID: "order-metric-release",
+		Items:   []models.ReleaseStockItem{{ProductID: "prod-1", Quantity: 5}},
+	}
+
+	require.NoError(t, svc.ReleaseStock(context.Background(), cmd))
+
+	assert.Equal(t, before, testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("release")),
+		"a first delivery is not a duplicate and must not increment the counter")
+
+	require.NoError(t, svc.ReleaseStock(context.Background(), cmd))
+
+	assert.Equal(t, before+1, testutil.ToFloat64(idempotentDuplicateDetectedCounter.WithLabelValues("release")),
+		"a redelivery caught by the cache must increment the duplicate-detected counter exactly once")
 }

@@ -28,6 +28,20 @@ var inventoryReservationsFailedCounter = promauto.NewCounter(prometheus.CounterO
 	Help: "Total stock reservations that failed due to insufficient stock.",
 })
 
+// idempotentDuplicateDetectedCounter answers a question no existing metric
+// can: how often the idempotency cache actually catches a duplicate
+// command delivery, for ReserveStock or ReleaseStock. Before this metric,
+// the redelivery/duplication behavior these caches guard against (and the
+// known, accepted residual gap once a cache entry's TTL expires — see
+// TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation) was only
+// provable by unit test, never observable in a running instance.
+// Incremented exactly once per cache hit, never on a first (non-duplicate)
+// delivery.
+var idempotentDuplicateDetectedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "inventory_idempotent_duplicate_detected_total",
+	Help: "Total duplicate command deliveries caught by the idempotency cache, by operation.",
+}, []string{"operation"})
+
 const (
     // reservationCacheTTL bounds how long a processed order's outcome is
     // kept for idempotent retry detection. The RabbitMQ reserve-stock
@@ -210,6 +224,7 @@ func (s *inventoryService) ReleaseStock(ctx context.Context, command *models.Rel
     s.mu.Unlock()
 
     if cacheHit {
+        idempotentDuplicateDetectedCounter.WithLabelValues("release").Inc()
         log.Printf("[IDEMPOTENT] Release for order %s already processed, skipping duplicate release", command.OrderID)
         correlation.Info(logger, ctx, "release already processed, skipping duplicate", "event", "stock.release.duplicate", "aggregateId", command.OrderID)
         return nil
@@ -267,6 +282,7 @@ func (s *inventoryService) ReserveStock(ctx context.Context, command *models.Res
     s.mu.Unlock()
 
     if cacheHit {
+        idempotentDuplicateDetectedCounter.WithLabelValues("reserve").Inc()
         log.Printf("[IDEMPOTENT] Order %s already processed, returning cached result instead of reserving again", command.OrderID)
         return outcome.orderId, outcome.success, outcome.insufficientEvent, nil
     }
