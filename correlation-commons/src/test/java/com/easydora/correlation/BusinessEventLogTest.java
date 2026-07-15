@@ -38,4 +38,18 @@ class BusinessEventLogTest {
         assertThat(event.getFormattedMessage())
                 .isEqualTo("event=order.created.published aggregateId=order-42 msg=Order created event published");
     }
+
+    @Test
+    void logsErrorsInTheSameKeyValueShapeAtErrorLevel() {
+        RuntimeException cause = new RuntimeException("broker unavailable");
+
+        BusinessEventLog.error(logger, "order.created.publish_failed", "order-42", "Publish failed", cause);
+
+        assertThat(appender.list).hasSize(1);
+        ILoggingEvent event = appender.list.get(0);
+        assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(event.getFormattedMessage())
+                .isEqualTo("event=order.created.publish_failed aggregateId=order-42 msg=Publish failed");
+        assertThat(event.getThrowableProxy().getMessage()).isEqualTo("broker unavailable");
+    }
 }

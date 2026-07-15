@@ -266,6 +266,7 @@ The stack split is deliberate:
 | [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id, no Outbox for the new publish — each deliberately rejected and documented, not omitted by oversight. |
 | [0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md) | Reject DTO code generation from JSON Schema, at the project's current scale | Accepted | Closes a Low Roadmap item by decision, not implementation: measured every schema's real git history (one content-change each, ever) and the one real DTO drift ever found (already caught by its own contract test) before concluding that `jsonschema2pojo`/`go-jsonschema`/`datamodel-code-generator` would cost three new build toolchains and the intentional-partial-consumer DTO pattern already in deliberate use, for a drift rate of one occurrence. A cost/benefit conclusion, not a rejection of the technique — documents explicit, measurable criteria (event count, schema churn, a second missed drift, partial-consumer DTOs becoming the exception) that would reopen it. |
 | [0036](docs/adr/0036-metrics-via-prometheus-grafana.md) | Quantitative observability via Prometheus and Grafana | Accepted | Narrows ADR-0024's bundled rejection of Prometheus/Grafana (that cost analysis was aimed at a full tracing backend, which these two don't actually need) and adopts them for the aggregate questions CorrelationId logging was never meant to answer: error rate, latency, queue depth, business volume. RabbitMQ's own `rabbitmq_prometheus` plugin and each Spring service's HikariCP pool cover RabbitMQ and Postgres connection visibility with zero new exporter containers; the two Go services needed one small custom HTTP-metrics middleware, since `promhttp` alone (unlike Micrometer) doesn't auto-instrument request rate/latency. Five deliberately-scoped business counters, dashboards provisioned as code — no Alertmanager, no Loki, no per-event metric spam, and ADR-0024's rejection of a full tracing backend (OpenTelemetry/Jaeger/Zipkin) stays unchanged. |
+| [0037](docs/adr/0037-consolidated-outbox-pattern-specification.md) | Consolidated Outbox Pattern specification | Accepted | auth-service's (ADR-0003) and inventory-service's (an aside inside ADR-0007, never its own ADR) Outbox implementations agreed on everything structural but had never been specified as one concern, and drifted where nothing pinned them down: neither had a metric on the publisher itself, and logging was inconsistent in opposite directions between the two languages. Harmonizes both (structured, correlated logging on every path; two new metrics, `outbox_events_published_total`/`outbox_publish_lag_seconds`, following ADR-0036's convention) and adopts an explicit adoption criterion — impact of loss on a cross-service business process, not caller observability or an unrelated retry mechanism — for future decisions about extending Outbox elsewhere. Does not itself extend Outbox to any new service; the `orders-service` Roadmap item ADR-0034 opened stays open. |
 
 ## Roadmap
 
@@ -726,6 +727,17 @@ The stack split is deliberate:
       failure at or after persisting the decision (including the publish)
       now propagates and rolls back the transaction instead of silently
       overwriting an already-decided outcome.
+- [x] **Opened 2026-07-14, closed 2026-07-14.** auth-service's and
+      inventory-service's independently-built Outbox implementations
+      (ADR-0003, and an aside inside ADR-0007 that never got its own ADR)
+      agreed on everything structural but were never specified as one
+      concern, and had drifted where nothing pinned them down: neither
+      had a metric on the publisher itself, and logging was inconsistent
+      in opposite directions between the two languages. Harmonized both
+      and formalized the shared design — see
+      [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md).
+      Does not extend Outbox to any new service; the item above about
+      `orders-service` having none stays open.
 
 </details>
 

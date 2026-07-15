@@ -7,6 +7,7 @@ import com.easydora.authservice.repository.OutboxEventRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.List;
 
@@ -44,7 +45,7 @@ class OutboxPublisherRetryTest {
         doThrow(new RuntimeException("broker unreachable"))
                 .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
-        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate);
+        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, new SimpleMeterRegistry());
 
         publisher.publishPendingEvents();
 
@@ -61,5 +62,32 @@ class OutboxPublisherRetryTest {
                 .withFailMessage("event should be marked published once the broker accepts it")
                 .isNotNull();
         verify(outboxEventRepository, times(1)).save(event);
+    }
+
+    @Test
+    void outboxEventsPublishedCounterOnlyCountsRealPublishesNotRetriedFailures() {
+        OutboxEvent event = new OutboxEvent("auth.exchange", "user.verified",
+                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", "555"));
+        OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
+        when(outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc())
+                .thenReturn(List.of(event));
+
+        RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
+        doThrow(new RuntimeException("broker unreachable"))
+                .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
+
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, meterRegistry);
+
+        publisher.publishPendingEvents();
+
+        assertThat(meterRegistry.get("outbox_events_published_total").counter().count()).isZero();
+
+        doNothing().when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
+
+        publisher.publishPendingEvents();
+
+        assertThat(meterRegistry.get("outbox_events_published_total").counter().count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("outbox_publish_lag").timer().count()).isEqualTo(1);
     }
 }

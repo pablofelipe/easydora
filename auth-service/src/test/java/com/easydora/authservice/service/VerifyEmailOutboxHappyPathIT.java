@@ -20,6 +20,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.List;
 import java.util.Optional;
@@ -104,7 +105,7 @@ class VerifyEmailOutboxHappyPathIT {
 
         OutboxEventRepository pollerOutboxRepository = mock(OutboxEventRepository.class);
         when(pollerOutboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc()).thenReturn(List.of(savedEvent));
-        OutboxPublisher publisher = new OutboxPublisher(pollerOutboxRepository, rabbitTemplate);
+        OutboxPublisher publisher = new OutboxPublisher(pollerOutboxRepository, rabbitTemplate, new SimpleMeterRegistry());
 
         publisher.publishPendingEvents();
 

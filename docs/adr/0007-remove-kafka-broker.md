@@ -183,6 +183,20 @@ and products-service, once zero `*IT` classes remained in any of the
 three — an adjacent cleanup, not part of this decision; see
 [ADR-0008](0008-surefire-failsafe-test-split.md)'s own update.
 
+## Update — 2026-07-14: inventory-service's Outbox now has its own specification
+
+The Go-side Outbox described in the 2026-07-06 Update above was never
+covered by a dedicated ADR — it existed only as this aside.
+[ADR-0037](0037-consolidated-outbox-pattern-specification.md) now treats
+it and auth-service's Outbox (ADR-0003) as one specification, and
+harmonized the drift found between the two independent implementations:
+`outbox_publisher.go`'s four failure paths moved from unstructured
+`log.Printf` to the same correlated structured logging its own success
+path already had, and it gained the same two new metrics
+(`outbox_events_published_total`, `outbox_publish_lag_seconds`) added to
+auth-service's implementation. No change to the atomicity guarantee or
+table shape described above.
+
 ## References
 
 - [Architectural Principles](../architecture/architectural-principles.md)
@@ -197,3 +211,5 @@ three — an adjacent cleanup, not part of this decision; see
   (`auth.exchange`/`order.exchange`) already had to handle correctly.
 - ADR-0003 (Outbox pattern for auth-service) — the atomicity guarantee
   this migration's Go-side Outbox mirrors.
+- [ADR-0037](0037-consolidated-outbox-pattern-specification.md) — the
+  consolidated specification this implementation is now formalized into.

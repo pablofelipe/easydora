@@ -47,7 +47,25 @@ Investigating Passo 1 (confirming `verifyEmail`'s exact operation order) surface
 - The public/auth_schema table duplication described above is a newly surfaced, unrelated architectural problem that this ADR's own migration inherited — resolved the same day in ADR-0004.
 - The poller is a single `@Scheduled` method with no distributed locking; this is fine for auth-service's current single-instance deployment, but would need a leader-election or `SELECT ... FOR UPDATE SKIP LOCKED` style guard before this service could run more than one replica.
 
+## Update — 2026-07-14: formalized into a shared specification
+
+This ADR's design (table shape, envelope, 5-second poll, at-least-once
+semantics) is now the canonical Outbox Pattern specification for this
+project, not just this one call site's implementation — see
+[ADR-0037](0037-consolidated-outbox-pattern-specification.md), which also
+documents inventory-service's independently-built Go implementation
+(previously only recorded as an aside inside ADR-0007) as the same
+pattern. `OutboxPublisher.java` itself was updated as part of that work:
+it now logs a structured success line (previously silent) and populates
+MDC with the row's correlationId/messageId before logging, and gained two
+new metrics (`outbox_events_published_total`,
+`outbox_publish_lag_seconds`). No change to this ADR's actual Decision —
+the table shape, envelope, and poll cadence described above are unchanged
+and are exactly what ADR-0037 formalizes.
+
 ## References
 
 - Baseline audit (2026-07-03 entry in this repo's history) — original catalogue of the outbox-pattern debt, including this exact `verifyEmail` ordering and the separate `inventory-service` risk.
 - ADR-0001 (messaging wiring audit), ADR-0002 (JSON Schema contract testing) — prior stages in this same debt-remediation sequence.
+- [ADR-0037](0037-consolidated-outbox-pattern-specification.md) — the
+  consolidated specification this implementation is now formalized into.

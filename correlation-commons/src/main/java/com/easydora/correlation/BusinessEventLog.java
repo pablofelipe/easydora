@@ -18,4 +18,8 @@ public final class BusinessEventLog {
     public static void info(Logger logger, String event, Object aggregateId, String message) {
         logger.info("event={} aggregateId={} msg={}", event, aggregateId, message);
     }
+
+    public static void error(Logger logger, String event, Object aggregateId, String message, Throwable cause) {
+        logger.error("event={} aggregateId={} msg={}", event, aggregateId, message, cause);
+    }
 }

@@ -2,17 +2,33 @@ package messaging
 
 import (
 	"context"
-	"fmt"
 	"easydora/correlation-commons"
+	"fmt"
 	"inventory-service/internal/repository"
-	"log"
 	"os"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 var outboxLogger = correlation.NewLogger(os.Stdout, "inventory-service")
+
+// Business metrics (ADR-0036/ADR-0037): infra-level metrics already answer
+// "is the system healthy"; these answer a question infra can't -- how much
+// of the outbox backlog is actually draining, and how long an event waits
+// between being written and being published.
+var outboxEventsPublishedCounter = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "outbox_events_published_total",
+	Help: "Total outbox events successfully published to RabbitMQ.",
+})
+
+var outboxPublishLagSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "outbox_publish_lag_seconds",
+	Help:    "Time between an outbox row being created and successfully published.",
+	Buckets: prometheus.DefBuckets,
+})
 
 // outboxPollInterval mirrors auth-service's OutboxPublisher
 // (@Scheduled(fixedDelay = 5000)) — same polling cadence, same decisions.
@@ -70,16 +86,20 @@ func (p *OutboxPublisher) run() {
 func (p *OutboxPublisher) publishPending() {
 	events, err := p.repo.FindUnpublishedOutboxEvents()
 	if err != nil {
-		log.Printf("[OUTBOX] Failed to query unpublished events: %v", err)
+		correlation.Error(outboxLogger, context.Background(), "failed to query unpublished outbox events",
+			"error", err.Error())
 		return
 	}
 
 	for _, event := range events {
 		correlationID, messageID, body, err := correlation.UnwrapOutboxPayload(event.Payload)
 		if err != nil {
-			log.Printf("[OUTBOX] Failed to decode envelope for event id=%d — will retry next poll: %v", event.ID, err)
+			correlation.Error(outboxLogger, context.Background(), "failed to decode outbox envelope -- will retry next poll",
+				"aggregateId", event.ID, "error", err.Error())
 			continue
 		}
+
+		ctx := correlation.WithMessageID(correlation.WithCorrelationID(context.Background(), correlationID), messageID)
 
 		err = p.channel.Publish(
 			event.Exchange,
@@ -94,17 +114,19 @@ func (p *OutboxPublisher) publishPending() {
 			},
 		)
 		if err != nil {
-			log.Printf("[OUTBOX] Failed to publish event id=%d to %s/%s — will retry next poll: %v",
-				event.ID, event.Exchange, event.RoutingKey, err)
+			correlation.Error(outboxLogger, ctx, "failed to publish outbox event -- will retry next poll",
+				"event", event.RoutingKey, "aggregateId", event.ID, "error", err.Error())
 			continue
 		}
 
 		if err := p.repo.MarkOutboxEventPublished(event.ID); err != nil {
-			log.Printf("[OUTBOX] Failed to mark event id=%d as published: %v", event.ID, err)
+			correlation.Error(outboxLogger, ctx, "failed to mark outbox event as published",
+				"event", event.RoutingKey, "aggregateId", event.ID, "error", err.Error())
 			continue
 		}
 
-		ctx := correlation.WithMessageID(correlation.WithCorrelationID(context.Background(), correlationID), messageID)
+		outboxEventsPublishedCounter.Inc()
+		outboxPublishLagSeconds.Observe(time.Since(event.CreatedAt).Seconds())
 		correlation.Info(outboxLogger, ctx, "outbox event published",
 			"event", event.RoutingKey, "aggregateId", event.ID)
 	}

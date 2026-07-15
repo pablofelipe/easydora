@@ -38,3 +38,17 @@ func Info(logger *Logger, ctx context.Context, msg string, kv ...any) {
 	args = append(args, kv...)
 	logger.slog.Info(msg, args...)
 }
+
+// Error is Info's error-level counterpart -- same fields, same shape, so a
+// failure at a domain-event boundary is never harder to correlate than its
+// success would have been.
+func Error(logger *Logger, ctx context.Context, msg string, kv ...any) {
+	args := []any{
+		"service", logger.service,
+		"correlationId", CorrelationID(ctx),
+		"requestId", RequestID(ctx),
+		"messageId", MessageID(ctx),
+	}
+	args = append(args, kv...)
+	logger.slog.Error(msg, args...)
+}

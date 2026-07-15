@@ -48,3 +48,22 @@ func TestLog_UsesTheServiceNameGivenToNewLogger(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "service=another-service")
 }
+
+func TestError_IncludesCorrelationRequestAndMessageIdFromContext(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, "test-service")
+
+	ctx := WithCorrelationID(context.Background(), "corr-1")
+	ctx = WithMessageID(ctx, "msg-1")
+
+	Error(logger, ctx, "outbox publish failed", "event", "stock.reserved", "aggregateId", "order-42", "error", "broker unreachable")
+
+	out := buf.String()
+	assert.Contains(t, out, "level=ERROR")
+	assert.Contains(t, out, "service=test-service")
+	assert.Contains(t, out, "correlationId=corr-1")
+	assert.Contains(t, out, "messageId=msg-1")
+	assert.Contains(t, out, "event=stock.reserved")
+	assert.Contains(t, out, "aggregateId=order-42")
+	assert.Contains(t, out, "error=\"broker unreachable\"")
+}
