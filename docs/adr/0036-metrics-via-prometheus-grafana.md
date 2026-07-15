@@ -186,6 +186,42 @@ and [ADR-0035](0035-reject-dto-code-generation-from-json-schema.md):
   consistent with this project's principle of a component earning its
   place rather than being added speculatively.
 
+## Update — 2026-07-15: a sixth business counter, for a different reason than the original five
+
+The five original counters each answer a business-volume question ("how
+many of X happened"). A follow-up architecture review of
+`inventory-service`'s idempotency cache (extended from `ReserveStock` to
+`ReleaseStock` the same day — see
+[ADR-0039](0039-jwt-broadcast-cache-restart-and-ttl.md)'s sibling finding
+for the JWT cache side of the same gap) found a different kind of
+question this ADR's five counters don't answer either: **is a known,
+accepted residual risk actually happening**, not just theoretically
+possible. Both `ReserveStock` and `ReleaseStock` cache a command's outcome
+per `OrderID` to survive RabbitMQ redelivery; whether a redelivery is
+actually arriving and being caught was, until now, provable only by unit
+test (`TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation`),
+never observable in a running instance.
+
+This doesn't fit the "one-off log grep repeated" reopening criterion
+below — it's the first time this specific question needed answering —
+but it fits this ADR's underlying principle the same way: a metric earns
+its place by answering a question infra-level metrics and existing
+counters can't, not by existing for every event a system happens to
+produce. `inventory_idempotent_duplicate_detected_total{operation}`
+(`operation` is `"reserve"` or `"release"`) is incremented exactly once
+per cache hit, in `inventoryService.ReserveStock`/`ReleaseStock`,
+following the same `promauto`/`CounterVec` shape `httpRequestsTotal` and
+`infraStartupRetryAttempts` already use in this same service. Proven by
+`TestReserveStock_DuplicateDetectionIncrementsMetric`/
+`TestReleaseStock_DuplicateDetectionIncrementsMetric` (a before/after
+delta via `testutil.ToFloat64`, since the counter is a package-level,
+process-global metric shared by every test in the binary).
+
+The JWT broadcast cache's equivalent gap (no hit/miss/duplicate visibility
+on any of the four services' token caches) remains open — tracked as
+follow-up work alongside the `expiresIn` TTL [ADR-0039](0039-jwt-broadcast-cache-restart-and-ttl.md)
+decided but did not implement, not by this Update.
+
 ## References
 
 - [ADR-0024](0024-distributed-tracing-via-propagated-identifiers.md) —
