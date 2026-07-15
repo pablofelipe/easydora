@@ -798,22 +798,31 @@ The stack split is deliberate:
       JWKS verification and a persisted/shared cache), decides to add an
       `expiresIn`-based TTL to close the asymmetry. The TTL itself and a
       cache-miss test remain open — not implemented by that ADR.
-- [ ] **Opened 2026-07-15 (High).** `inventory-service`'s `ReleaseStock`
-      (`PostgresRepository.ReleaseStock`,
+- [x] **Opened 2026-07-15, closed 2026-07-15 (High).** `inventory-service`'s
+      `ReleaseStock` (`PostgresRepository.ReleaseStock`,
       `UPDATE inventory_schema.inventory SET reserved = reserved - $1 ...
-      WHERE reserved >= $1`) has no idempotency protection at all, unlike
+      WHERE reserved >= $1`) had no idempotency protection at all, unlike
       `ReserveStock` (which has a TTL-based dedup cache). A duplicate
       delivery of a stock-release message — already possible under this
-      project's own RabbitMQ redelivery/retry configuration — decrements
-      `reserved` a second time, and often fails silently rather than
+      project's own RabbitMQ redelivery/retry configuration — decremented
+      `reserved` a second time, and often failed silently rather than
       erroring, because the guard only trips once `reserved` itself runs
-      out. No metric distinguishes a cache hit from a duplicate delivery
-      on either the reserve or the release path today. Not yet fixed;
-      candidates are extending `ReserveStock`'s existing cache to
-      `ReleaseStock`, or moving both to a database-level idempotency
-      check (e.g. an `orderId` uniqueness guard in the same transaction)
-      instead of an in-memory TTL cache, which would also close
-      `ReserveStock`'s own known post-TTL duplication window.
+      out. Fixed by extending `ReserveStock`'s existing per-OrderID
+      TTL/cache/lock-stripe mechanism to `ReleaseStock` (a second,
+      independent `processedReleases` map, same TTL and cleanup sweep,
+      same `lockForOrder` stripe locking) — the lower-cost of the two
+      candidates the review identified; the database-level idempotency
+      check (which would also close `ReserveStock`'s own known post-TTL
+      duplication window) remains a further, not-yet-adopted option.
+      TDD: `TestReleaseStock_RetryDoesNotDuplicateRelease`,
+      `TestReleaseStock_ConcurrentRedeliveriesOfSameOrderReleaseOnce`,
+      `TestReleaseStock_CacheDoesNotGrowUnboundedWithVolume` all red
+      before the fix (the first two by assertion failure, the third by a
+      compile error against the not-yet-existing cache field), green
+      after; full `inventory-service` suite (`go build`, `go vet`,
+      `go test ./...`) green, no regressions. No metric yet distinguishes
+      a cache hit from a duplicate delivery on either path — still open,
+      not addressed by this fix.
 - [ ] **Opened 2026-07-15 (Architectural note).** `notification-service`
       makes the system's one synchronous cross-service call (`process_order_created`
       calls `auth-service` over HTTP via `AuthServiceClient.get_notification_profile`)
