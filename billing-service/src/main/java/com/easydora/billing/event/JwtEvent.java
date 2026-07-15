@@ -1,5 +1,7 @@
 package com.easydora.billing.event;
 
+import java.time.LocalDateTime;
+
 public class JwtEvent {
     private String token;
     private Long userId;
@@ -7,6 +9,8 @@ public class JwtEvent {
     private String firstName;
     private String lastName;
     private String role;
+    private LocalDateTime createdAt;
+    private Long expiresIn;
 
     public JwtEvent() {}
 
@@ -36,6 +40,12 @@ public class JwtEvent {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public Long getExpiresIn() { return expiresIn; }
+    public void setExpiresIn(Long expiresIn) { this.expiresIn = expiresIn; }
 
     @Override
     public String toString() {

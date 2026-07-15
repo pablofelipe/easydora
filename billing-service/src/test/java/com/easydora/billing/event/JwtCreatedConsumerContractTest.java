@@ -12,13 +12,13 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Contract test for an intentionally partial consumer: JwtEvent (this
- * package) declares only token/userId/email/firstName/lastName/role --
- * missing createdAt/expiresIn, which the full jwt-created schema requires.
- * Same asymmetric strategy as orders-service's ProductCreatedConsumerContractTest:
- * start from a schema-conformant example payload, deserialize into this
- * service's own DTO, and assert the fields it does declare came through
- * correctly.
+ * Contract test for JwtEvent (this package), which now declares every
+ * field the shared jwt-created schema requires: createdAt/expiresIn were
+ * added so this service's JwtAuthenticationFilter can give each cache
+ * entry a lifetime equal to the JWT's own expiresIn instead of none at all
+ * (ADR-0039) -- previously deliberately ignored, the same
+ * intentional-partial-consumer pattern notification-service's
+ * firstName/lastName addition already went through.
  */
 class JwtCreatedConsumerContractTest {
 
@@ -50,5 +50,7 @@ class JwtCreatedConsumerContractTest {
         assertThat(event.getFirstName()).isEqualTo("Ana");
         assertThat(event.getLastName()).isEqualTo("Silva");
         assertThat(event.getRole()).isEqualTo("BUYER");
+        assertThat(event.getCreatedAt()).isEqualTo(java.time.LocalDateTime.parse("2026-07-13T10:00:00"));
+        assertThat(event.getExpiresIn()).isEqualTo(3600L);
     }
 }

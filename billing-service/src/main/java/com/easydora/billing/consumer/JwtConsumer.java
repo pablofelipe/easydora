@@ -47,8 +47,15 @@ public class JwtConsumer {
                 return;
             }
 
-            JwtAuthenticationFilter.JwtUserInfo userInfo = new JwtAuthenticationFilter.JwtUserInfo(
-                    event.getUserId(), event.getEmail(), event.getFirstName(), event.getLastName(), event.getRole());
+            JwtAuthenticationFilter.JwtUserInfo userInfo;
+            if (event.getCreatedAt() != null && event.getExpiresIn() != null) {
+                userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                        event.getUserId(), event.getEmail(), event.getFirstName(), event.getLastName(), event.getRole(),
+                        event.getCreatedAt().plusSeconds(event.getExpiresIn()));
+            } else {
+                userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                        event.getUserId(), event.getEmail(), event.getFirstName(), event.getLastName(), event.getRole());
+            }
             jwtAuthenticationFilter.addValidToken(token, userInfo);
             BusinessEventLog.info(logger, "jwt.created.received", event.getUserId(), "Cached broadcast token for " + event.getEmail());
         } finally {
