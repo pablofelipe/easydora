@@ -798,6 +798,22 @@ The stack split is deliberate:
       JWKS verification and a persisted/shared cache), decides to add an
       `expiresIn`-based TTL to close the asymmetry. The TTL itself and a
       cache-miss test remain open — not implemented by that ADR.
+- [ ] **Opened 2026-07-15 (High).** `inventory-service`'s `ReleaseStock`
+      (`PostgresRepository.ReleaseStock`,
+      `UPDATE inventory_schema.inventory SET reserved = reserved - $1 ...
+      WHERE reserved >= $1`) has no idempotency protection at all, unlike
+      `ReserveStock` (which has a TTL-based dedup cache). A duplicate
+      delivery of a stock-release message — already possible under this
+      project's own RabbitMQ redelivery/retry configuration — decrements
+      `reserved` a second time, and often fails silently rather than
+      erroring, because the guard only trips once `reserved` itself runs
+      out. No metric distinguishes a cache hit from a duplicate delivery
+      on either the reserve or the release path today. Not yet fixed;
+      candidates are extending `ReserveStock`'s existing cache to
+      `ReleaseStock`, or moving both to a database-level idempotency
+      check (e.g. an `orderId` uniqueness guard in the same transaction)
+      instead of an in-memory TTL cache, which would also close
+      `ReserveStock`'s own known post-TTL duplication window.
 
 </details>
 
