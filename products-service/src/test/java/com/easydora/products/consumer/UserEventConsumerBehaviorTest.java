@@ -2,16 +2,22 @@ package com.easydora.products.consumer;
 
 import com.easydora.products.config.JwtAuthenticationFilter;
 import com.easydora.products.entity.Seller;
+import com.easydora.products.event.UserEvent;
 import com.easydora.products.repository.SellerRepository;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,6 +50,52 @@ class UserEventConsumerBehaviorTest {
 
         verify(sellerRepository).save(seller);
         org.assertj.core.api.Assertions.assertThat(seller.getActive()).isTrue();
+    }
+
+    @Test
+    void handleJwtCreatedComputesExpiresAtFromCreatedAtPlusExpiresIn() {
+        when(sellerRepository.findById("1")).thenReturn(Optional.empty());
+        UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
+
+        UserEvent event = new UserEvent();
+        event.setToken("tok-1");
+        event.setUserId(1L);
+        event.setEmail("seller@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("SELLER");
+        event.setCreatedAt(LocalDateTime.now().minusSeconds(10));
+        event.setExpiresIn(3600L);
+
+        consumer.handleJwtCreated(event, "corr-1", "msg-1");
+
+        ArgumentCaptor<JwtAuthenticationFilter.JwtUserInfo> captor =
+                ArgumentCaptor.forClass(JwtAuthenticationFilter.JwtUserInfo.class);
+        verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), captor.capture());
+        assertThat(captor.getValue().isExpired()).isFalse();
+    }
+
+    @Test
+    void handleJwtCreatedCachesAnAlreadyExpiredJwtAsExpired() {
+        when(sellerRepository.findById("1")).thenReturn(Optional.empty());
+        UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
+
+        UserEvent event = new UserEvent();
+        event.setToken("tok-1");
+        event.setUserId(1L);
+        event.setEmail("seller@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("SELLER");
+        event.setCreatedAt(LocalDateTime.now().minusHours(2));
+        event.setExpiresIn(3600L); // the JWT itself expired an hour ago
+
+        consumer.handleJwtCreated(event, "corr-1", "msg-1");
+
+        ArgumentCaptor<JwtAuthenticationFilter.JwtUserInfo> captor =
+                ArgumentCaptor.forClass(JwtAuthenticationFilter.JwtUserInfo.class);
+        verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), captor.capture());
+        assertThat(captor.getValue().isExpired()).isTrue();
     }
 
     @Test

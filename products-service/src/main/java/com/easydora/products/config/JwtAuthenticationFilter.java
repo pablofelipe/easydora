@@ -1,9 +1,12 @@
 package com.easydora.products.config;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -12,6 +15,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,6 +27,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final ConcurrentHashMap<String, JwtUserInfo> validTokens = new ConcurrentHashMap<>();
     private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+    private final MeterRegistry meterRegistry;
+
+    /** ObjectProvider (not a direct MeterRegistry dependency) so this bean
+     * still constructs cleanly in a @WebMvcTest slice, which doesn't
+     * autoconfigure a MeterRegistry bean -- falls back to a private,
+     * unscraped SimpleMeterRegistry in that case; the real app always has
+     * a MeterRegistry bean (Actuator + micrometer-registry-prometheus). */
+    public JwtAuthenticationFilter(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, 
@@ -39,6 +53,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             logger.info("Stored tokens: {}", validTokens.size());
 
             JwtUserInfo userInfo = validTokens.get(token);
+            String outcome;
+            if (userInfo != null && userInfo.isExpired()) {
+                // ADR-0039: a cache entry outlives its own JWT's expiresIn
+                // otherwise, until this service happens to restart.
+                validTokens.remove(token);
+                userInfo = null;
+                outcome = "expired";
+            } else {
+                outcome = userInfo != null ? "hit" : "miss";
+            }
+            meterRegistry.counter("jwt_cache_lookup_total", "outcome", outcome).increment();
 
             if (userInfo != null) {
                 logger.info("Valid token found for user: {}", userInfo.getEmail());
@@ -88,27 +113,44 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public int getValidTokensSize() {
         return validTokens.size();
     }
-    
+
+    public boolean hasValidToken(String token) {
+        return validTokens.containsKey(token);
+    }
+
     public static class JwtUserInfo {
         private Long userId;
         private String email;
         private String firstName;
         private String lastName;
         private String role;
-        
+        private LocalDateTime expiresAt;
+
+        /** Never expires -- used by every call site that predates ADR-0039
+         * and by tests that construct a principal directly rather than
+         * exercising the cache's TTL. */
         public JwtUserInfo(Long userId, String email, String firstName, String lastName, String role) {
+            this(userId, email, firstName, lastName, role, LocalDateTime.MAX);
+        }
+
+        public JwtUserInfo(Long userId, String email, String firstName, String lastName, String role, LocalDateTime expiresAt) {
             this.userId = userId;
             this.email = email;
             this.firstName = firstName;
             this.lastName = lastName;
             this.role = role;
+            this.expiresAt = expiresAt;
         }
-        
+
         // getters
         public Long getUserId() { return userId; }
         public String getEmail() { return email; }
         public String getFirstName() { return firstName; }
         public String getLastName() { return lastName; }
         public String getRole() { return role; }
+
+        public boolean isExpired() {
+            return LocalDateTime.now().isAfter(expiresAt);
+        }
     }
 }
