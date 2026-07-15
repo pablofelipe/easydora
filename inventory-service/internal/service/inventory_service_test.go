@@ -22,6 +22,7 @@ type mockInventoryRepository struct {
 	mu                sync.Mutex
 	inventory         map[string]*models.Inventory
 	reserveStockCalls int
+	releaseStockCalls int
 }
 
 func newMockInventoryRepository() *mockInventoryRepository {
@@ -99,6 +100,7 @@ func (m *mockInventoryRepository) MarkOutboxEventPublished(id int64) error {
 func (m *mockInventoryRepository) ReleaseStock(productID string, quantity int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.releaseStockCalls++
 	inv, ok := m.inventory[productID]
 	if !ok {
 		return fmt.Errorf("product not found: %s", productID)
@@ -154,6 +156,12 @@ func (m *mockInventoryRepository) callCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.reserveStockCalls
+}
+
+func (m *mockInventoryRepository) releaseCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.releaseStockCalls
 }
 
 func (m *mockInventoryRepository) reservedFor(productID string) int {
@@ -302,6 +310,134 @@ func TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation(t *testing.T
 		"a redelivery arriving after the TTL window is expected to duplicate the reservation today — documented residual gap, not a regression")
 	assert.Equal(t, 10, repo.inventory["prod-1"].Reserved,
 		"reserved quantity doubles once the idempotency cache entry has expired")
+}
+
+// TestReleaseStock_RetryDoesNotDuplicateRelease reproduces the catalogued
+// idempotency gap: ReleaseStock had no protection against a duplicate
+// delivery of the same command at all, unlike ReserveStock's TTL-based
+// cache. A duplicate delivery (the same RabbitMQ redelivery scenario
+// ReserveStock already guards against) used to decrement `reserved` a
+// second time.
+func TestReleaseStock_RetryDoesNotDuplicateRelease(t *testing.T) {
+	repo := newMockInventoryRepository()
+	repo.inventory["prod-1"] = &models.Inventory{
+		ProductID: "prod-1",
+		Quantity:  10,
+		Reserved:  5,
+		Available: true,
+	}
+
+	svc := NewInventoryService(repo)
+	defer svc.Close()
+
+	cmd := &models.ReleaseStockCommand{
+		OrderID: "order-1",
+		Items:   []models.ReleaseStockItem{{ProductID: "prod-1", Quantity: 5}},
+	}
+
+	// First delivery: succeeds, releases the 5 reserved units.
+	err1 := svc.ReleaseStock(context.Background(), cmd)
+	require.NoError(t, err1)
+
+	// Simulated redelivery of the exact same release command for the same
+	// order (what happens today when the consumer crashes or the
+	// connection drops after the repository call but before the Ack, and
+	// RabbitMQ requeues the message).
+	err2 := svc.ReleaseStock(context.Background(), cmd)
+	require.NoError(t, err2)
+
+	assert.Equal(t, 1, repo.releaseCallCount(),
+		"ReleaseStock on the repository should only be invoked once per order; a second invocation means the retry double-released stock")
+	assert.Equal(t, 0, repo.inventory["prod-1"].Reserved,
+		"reserved quantity should reflect a single release of 5 units, not a duplicate release driving it below zero")
+}
+
+// TestReleaseStock_CacheDoesNotGrowUnboundedWithVolume proves the
+// release-idempotency cache reuses the same TTL/cleanup mechanism already
+// proven for ReserveStock's cache, applied to a second, independent map —
+// not just that the mechanism exists once for reservations.
+func TestReleaseStock_CacheDoesNotGrowUnboundedWithVolume(t *testing.T) {
+	repo := newMockInventoryRepository()
+	repo.inventory["prod-1"] = &models.Inventory{
+		ProductID: "prod-1",
+		Quantity:  1_000_000,
+		Reserved:  1_000_000,
+		Available: true,
+	}
+
+	svc := newInventoryServiceWithTTL(repo, 20*time.Millisecond, 10*time.Millisecond)
+	defer svc.Close()
+
+	const orderCount = 20_000
+	for i := 0; i < orderCount; i++ {
+		cmd := &models.ReleaseStockCommand{
+			OrderID: fmt.Sprintf("order-%d", i),
+			Items:   []models.ReleaseStockItem{{ProductID: "prod-1", Quantity: 1}},
+		}
+		require.NoError(t, svc.ReleaseStock(context.Background(), cmd))
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	svc.mu.Lock()
+	cacheSize := len(svc.processedReleases)
+	svc.mu.Unlock()
+
+	assert.Lessf(t, cacheSize, orderCount/100,
+		"processed-release cache should be reclaimed by TTL expiry, not retain every order forever (got %d entries for %d orders processed)",
+		cacheSize, orderCount)
+}
+
+// TestReleaseStock_ConcurrentRedeliveriesOfSameOrderReleaseOnce reproduces
+// the same race ReserveStock's own concurrent test guards against: the
+// cache-check and cache-write are two separate critical sections, with the
+// actual repository call happening in between while the per-order lock
+// serializes them. Without that lock, N concurrent redeliveries of the
+// same OrderID could all observe a cache miss and all reach the
+// repository before any of them writes its result back.
+func TestReleaseStock_ConcurrentRedeliveriesOfSameOrderReleaseOnce(t *testing.T) {
+	const concurrentDeliveries = 50
+
+	repo := newMockInventoryRepository()
+	repo.inventory["prod-1"] = &models.Inventory{
+		ProductID: "prod-1",
+		Quantity:  1000,
+		Reserved:  5,
+		Available: true,
+	}
+
+	svc := NewInventoryService(repo)
+	defer svc.Close()
+
+	cmd := &models.ReleaseStockCommand{
+		OrderID: "order-1",
+		Items:   []models.ReleaseStockItem{{ProductID: "prod-1", Quantity: 5}},
+	}
+
+	start := make(chan struct{})
+	var ready, wg sync.WaitGroup
+	ready.Add(concurrentDeliveries)
+	wg.Add(concurrentDeliveries)
+
+	for i := 0; i < concurrentDeliveries; i++ {
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-start
+
+			err := svc.ReleaseStock(context.Background(), cmd)
+			assert.NoError(t, err)
+		}()
+	}
+
+	ready.Wait()
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, 1, repo.releaseCallCount(),
+		"N concurrent redeliveries of the same OrderID should collapse into a single repository call, got %d", repo.releaseCallCount())
+	assert.Equal(t, 0, repo.inventory["prod-1"].Reserved,
+		"reserved quantity should reflect a single release of 5 units even under concurrent redelivery")
 }
 
 // TestReserveStock_ConcurrentRedeliveriesOfSameOrderReserveOnce reproduces

@@ -40,21 +40,26 @@ const (
     // off for up to 3s * 10 attempts = 30s. 10 minutes gives roughly a 20x
     // margin over that reconnect window, comfortably covering a full
     // container restart during a docker-compose redeploy too, without
-    // caching every order forever.
+    // caching every order forever. ReleaseStock's idempotency cache
+    // (processedReleases) shares this same constant: the redelivery
+    // timing it protects against is identical, since both commands travel
+    // through the same consumer/reconnect path.
     reservationCacheTTL = 10 * time.Minute
 
     // reservationCacheCleanupInterval controls how often the background
-    // sweep reclaims expired entries.
+    // sweep reclaims expired entries from both processedOrders and
+    // processedReleases.
     reservationCacheCleanupInterval = 1 * time.Minute
 
-    // orderLockStripes is the number of stripes used to serialize
-    // ReserveStock's check-cache -> reserve -> write-cache section per
-    // OrderID. A fixed-size array of mutexes (rather than a
-    // map[string]*sync.Mutex keyed by OrderID) is used deliberately: a
-    // per-OrderID map would reintroduce the same unbounded-growth problem
-    // the TTL cache was built to fix. Two different OrderIDs that hash to
-    // the same stripe just serialize against each other unnecessarily;
-    // that's a throughput cost, not a correctness issue.
+    // orderLockStripes is the number of stripes used to serialize each of
+    // ReserveStock's and ReleaseStock's own check-cache -> act ->
+    // write-cache section per OrderID. A fixed-size array of mutexes
+    // (rather than a map[string]*sync.Mutex keyed by OrderID) is used
+    // deliberately: a per-OrderID map would reintroduce the same
+    // unbounded-growth problem the TTL caches were built to fix. Two
+    // different OrderIDs that hash to the same stripe just serialize
+    // against each other unnecessarily; that's a throughput cost, not a
+    // correctness issue.
     orderLockStripes = 256
 )
 
@@ -83,10 +88,11 @@ type InventoryService interface {
 type inventoryService struct {
     repo repository.InventoryRepository
 
-    mu              sync.Mutex
-    processedOrders map[string]reservationOutcome
-    ttl             time.Duration
-    stopCleanup     chan struct{}
+    mu                sync.Mutex
+    processedOrders   map[string]reservationOutcome
+    processedReleases map[string]time.Time
+    ttl               time.Duration
+    stopCleanup       chan struct{}
 
     orderLocks [orderLockStripes]sync.Mutex
 }
@@ -118,10 +124,11 @@ func NewInventoryService(repo repository.InventoryRepository) *inventoryService 
 // without waiting on the real production TTL.
 func newInventoryServiceWithTTL(repo repository.InventoryRepository, ttl, cleanupInterval time.Duration) *inventoryService {
     s := &inventoryService{
-        repo:            repo,
-        processedOrders: make(map[string]reservationOutcome),
-        ttl:             ttl,
-        stopCleanup:     make(chan struct{}),
+        repo:              repo,
+        processedOrders:   make(map[string]reservationOutcome),
+        processedReleases: make(map[string]time.Time),
+        ttl:               ttl,
+        stopCleanup:       make(chan struct{}),
     }
     go s.cleanupExpiredLoop(cleanupInterval)
     return s
@@ -154,6 +161,11 @@ func (s *inventoryService) evictExpired(now time.Time) {
             delete(s.processedOrders, orderID)
         }
     }
+    for orderID, expiresAt := range s.processedReleases {
+        if now.After(expiresAt) {
+            delete(s.processedReleases, orderID)
+        }
+    }
 }
 
 // Close stops the background cleanup goroutine. Safe to call multiple
@@ -184,6 +196,29 @@ func (s *inventoryService) DeleteProduct(productID string) error {
 
 
 func (s *inventoryService) ReleaseStock(ctx context.Context, command *models.ReleaseStockCommand) error {
+    // Serialize the whole check-cache -> release -> write-cache section per
+    // OrderID, the same way ReserveStock does — see lockForOrder.
+    orderLock := s.lockForOrder(command.OrderID)
+    orderLock.Lock()
+    defer orderLock.Unlock()
+
+    now := time.Now()
+
+    s.mu.Lock()
+    expiresAt, seen := s.processedReleases[command.OrderID]
+    cacheHit := seen && now.Before(expiresAt)
+    s.mu.Unlock()
+
+    if cacheHit {
+        log.Printf("[IDEMPOTENT] Release for order %s already processed, skipping duplicate release", command.OrderID)
+        correlation.Info(logger, ctx, "release already processed, skipping duplicate", "event", "stock.release.duplicate", "aggregateId", command.OrderID)
+        return nil
+    }
+    // seen && !cacheHit means the entry expired: treated as a fresh
+    // delivery below — the same known, accepted residual gap
+    // ReserveStock's own cache has (see
+    // TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation).
+
     correlation.Info(logger, ctx, "releasing stock", "event", "stock.release.received", "aggregateId", command.OrderID)
 
     var errors []string
@@ -202,8 +237,14 @@ func (s *inventoryService) ReleaseStock(ctx context.Context, command *models.Rel
     }
 
     if len(errors) > 0 {
+        // Partial/full failure: no cache write, so a genuine retry reaches
+        // the repository again instead of being swallowed by the cache.
         return fmt.Errorf("partial failure releasing stock: %v", errors)
     }
+
+    s.mu.Lock()
+    s.processedReleases[command.OrderID] = now.Add(s.ttl)
+    s.mu.Unlock()
 
     return nil
 }
