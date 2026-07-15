@@ -814,6 +814,21 @@ The stack split is deliberate:
       check (e.g. an `orderId` uniqueness guard in the same transaction)
       instead of an in-memory TTL cache, which would also close
       `ReserveStock`'s own known post-TTL duplication window.
+- [ ] **Opened 2026-07-15 (Architectural note).** `notification-service`
+      makes the system's one synchronous cross-service call (`process_order_created`
+      calls `auth-service` over HTTP via `AuthServiceClient.get_notification_profile`)
+      to fetch `email`/`firstName`/`lastName` for the first notification
+      of an order — data that already arrives, in full, on the same
+      `jwt.created` broadcast this service already consumes for
+      authentication (`JwtCreatedEvent` carries all three fields). The
+      service's own `JwtCache` discards `firstName`/`lastName` on write
+      and is indexed by token, not by `userId`, so it can't currently
+      serve this lookup. Not yet fixed; the identified path is indexing a
+      second, `userId`-keyed view of the same already-consumed event and
+      trying it before falling back to the existing HTTP call (kept as a
+      fallback for the narrow case of a cache-cold restart between a
+      user's login and their order), rather than removing the HTTP call
+      outright.
 
 </details>
 
