@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from datetime import datetime, timedelta
 
 import pika
 
@@ -167,6 +168,11 @@ def _cache_jwt_created(event: dict, jwt_cache) -> None:
     if not token:
         logger.error("jwt.created event has no token, ignoring")
         return
+    # ADR-0039: give the cache entry a lifetime equal to the JWT's own
+    # expiresIn, instead of none at all (previously only a restart ever
+    # removed an entry).
+    created_at = datetime.fromisoformat(event["createdAt"])
+    expires_at = created_at + timedelta(seconds=event["expiresIn"])
     jwt_cache.add(
         token,
         user_id=int(event["userId"]),
@@ -174,6 +180,7 @@ def _cache_jwt_created(event: dict, jwt_cache) -> None:
         role=event["role"],
         first_name=event["firstName"],
         last_name=event["lastName"],
+        expires_at=expires_at,
     )
 
 
