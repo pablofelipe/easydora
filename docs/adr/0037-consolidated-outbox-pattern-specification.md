@@ -113,8 +113,9 @@ publishes it applies to, is not decided by this ADR at the time it was
 written — extending the pattern to either service was separate,
 forthcoming work, tracked by the existing Roadmap item this ADR did not
 close. This ADR's own scope, as originally written, was the specification
-and the harmonization above. See the 2026-07-15 Update below for
-`orders-service`'s extension.
+and the harmonization above. See the two 2026-07-15 Updates below for
+`orders-service`'s and `billing-service`'s extensions, both landed the
+same day.
 
 ### What was deliberately not done here
 
@@ -171,11 +172,6 @@ In the same spirit as [ADR-0018](0018-persistence-strategy.md),
 - The poison-pill and unbounded-batch gaps identified above remain open,
   by deliberate choice — see the objective criteria for when they'd earn
   fixing.
-- `billing-service` still has no Outbox for any of its publishes
-  (`payment.approved`/`payment.failed`/`payment.refunded`/
-  `payment.refund.failed`) — this ADR's adoption criterion applies to all
-  four, per the architectural analysis that produced this ADR, but
-  extending the pattern there is separate, still-forthcoming work.
 - The poller still has no distributed-locking story; unchanged limitation
   from ADR-0003, still acceptable at single-instance scale.
 
@@ -198,7 +194,26 @@ serializes the event with the same `ObjectMapper` the RabbitMQ message
 converter uses, so the stored payload text is byte-for-byte what a direct
 `convertAndSend` would have put on the wire. This closes the README
 Roadmap item this ADR previously left open for `orders-service`;
-`billing-service` remains open, per the residual bullet above.
+`billing-service` remained open at the time, closed the same day by the
+Update below.
+
+## Update — 2026-07-15: extended to all four of billing-service's publishes
+
+The same adoption criterion was applied to every publish `billing-service`
+makes — `payment.approved`, `payment.failed`, `payment.refunded`, and
+`payment.refund.failed` — and all four qualified, for the same reason
+`orders-service`'s did: `PaymentService.processPayment`/`refundPayment`
+are the sole authority for these outcomes, and losing or failing to
+persist any of them would leave `orders-service`'s side of the payment or
+refund handshake permanently unresolved. `billing-service` now has its own
+`outbox_events` table, `OutboxEvent`/`OutboxEventRepository`, and an
+`OutboxPublisher` identical in shape to the other three services'.
+`PaymentService` no longer holds a `RabbitTemplate`: `publishPaymentEvent`,
+`publishRefunded`, and `publishRefundFailed` all go through the same
+`writeOutboxEvent` helper `orders-service`'s `OrderService` already uses.
+The Outbox Pattern now covers every publish in the system that qualifies
+under this ADR's own criterion — `products-service` was out of scope for
+the analysis that produced this ADR and remains untouched.
 
 ## References
 

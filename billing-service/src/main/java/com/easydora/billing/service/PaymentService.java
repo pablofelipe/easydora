@@ -2,21 +2,25 @@ package com.easydora.billing.service;
 
 import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
-import com.easydora.correlation.CorrelationMessaging;
+import com.easydora.correlation.CorrelationContext;
+import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.billing.dto.PaymentDTO;
+import com.easydora.billing.entity.OutboxEvent;
 import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
+import com.easydora.billing.repository.OutboxEventRepository;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import com.easydora.billing.messaging.events.PaymentEvent;
 import com.easydora.billing.service.provider.PaymentProvider;
 import com.easydora.billing.service.provider.PaymentResult;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,20 +33,23 @@ import java.util.stream.Collectors;
 
 @Service
 public class PaymentService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
-    
+
     private final PaymentRepository paymentRepository;
-    private final RabbitTemplate rabbitTemplate;
     private final PaymentProvider paymentProvider;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper outboxObjectMapper;
     private final Counter paymentsApprovedCounter;
     private final Counter paymentsFailedCounter;
 
-    public PaymentService(PaymentRepository paymentRepository, RabbitTemplate rabbitTemplate,
-            PaymentProvider paymentProvider, MeterRegistry meterRegistry) {
+    public PaymentService(PaymentRepository paymentRepository, PaymentProvider paymentProvider,
+            OutboxEventRepository outboxEventRepository, ObjectMapper outboxObjectMapper,
+            MeterRegistry meterRegistry) {
         this.paymentRepository = paymentRepository;
-        this.rabbitTemplate = rabbitTemplate;
         this.paymentProvider = paymentProvider;
+        this.outboxEventRepository = outboxEventRepository;
+        this.outboxObjectMapper = outboxObjectMapper;
         // Business metrics (ADR-0036): infra-level metrics already answer
         // "is the system healthy"; these answer a question infra can't --
         // how much of the payment volume actually succeeds.
@@ -195,13 +202,36 @@ public class PaymentService {
                 ? RabbitMQConfig.PAYMENT_APPROVED_KEY
                 : RabbitMQConfig.PAYMENT_FAILED_KEY;
 
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event, CorrelationMessaging.withCorrelation());
-        BusinessEventLog.info(logger, routingKey + ".published", payment.getOrderId(), "PaymentEvent published");
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, routingKey, event);
+        BusinessEventLog.info(logger, routingKey + ".outboxed", payment.getOrderId(), "PaymentEvent recorded in outbox");
 
         if (payment.getStatus() == PaymentStatus.APPROVED) {
             paymentsApprovedCounter.increment();
         } else {
             paymentsFailedCounter.increment();
+        }
+    }
+
+    // Single write path for every outbox-backed publish in this service
+    // (ADR-0037): serializes the event with the same ObjectMapper the
+    // RabbitMQ message converter uses, so the stored text is byte-for-byte
+    // what a direct convertAndSend would have put on the wire, then wraps
+    // it with the correlationId/messageId envelope OutboxPublisher later
+    // unwraps and promotes to native AMQP properties. Runs as a plain
+    // repository save inside this method's own @Transactional scope --
+    // deliberately no try/catch: a failure here is a DB failure, and must
+    // roll back the same domain change that produced this event, exactly
+    // like paymentRepository.save/saveAndFlush already does.
+    private void writeOutboxEvent(String exchange, String routingKey, Object payload) {
+        try {
+            String body = outboxObjectMapper.writeValueAsString(payload);
+            String envelopedPayload = OutboxEnvelopeCodec.wrap(
+                    CorrelationContext.currentOrNewCorrelationId(),
+                    CorrelationContext.newMessageId(),
+                    body);
+            outboxEventRepository.save(new OutboxEvent(exchange, routingKey, envelopedPayload));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize outbox payload for routing key " + routingKey, e);
         }
     }
     
@@ -282,8 +312,8 @@ public class PaymentService {
         event.setOrderId(payment.getOrderId());
         event.setTransactionId(payment.getTransactionId());
 
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUNDED_KEY, event, CorrelationMessaging.withCorrelation());
-        BusinessEventLog.info(logger, "payment.refunded.published", payment.getOrderId(), "PaymentEvent (refunded) published");
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUNDED_KEY, event);
+        BusinessEventLog.info(logger, "payment.refunded.outboxed", payment.getOrderId(), "PaymentEvent (refunded) recorded in outbox");
     }
 
     private void publishRefundFailed(String orderId, String reason) {
@@ -291,8 +321,8 @@ public class PaymentService {
         event.setOrderId(orderId);
         event.setFailureReason(reason);
 
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUND_FAILED_KEY, event, CorrelationMessaging.withCorrelation());
-        BusinessEventLog.info(logger, "payment.refund.failed.published", orderId, "PaymentEvent (refund failed) published: " + reason);
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.PAYMENT_REFUND_FAILED_KEY, event);
+        BusinessEventLog.info(logger, "payment.refund.failed.outboxed", orderId, "PaymentEvent (refund failed) recorded in outbox: " + reason);
     }
 
     @Transactional

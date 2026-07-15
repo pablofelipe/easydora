@@ -1,20 +1,20 @@
 package com.easydora.billing.service;
 
 import com.easydora.billing.dto.PaymentDTO;
+import com.easydora.billing.entity.OutboxEvent;
 import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.model.Payment;
+import com.easydora.billing.repository.OutboxEventRepository;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.service.provider.PaymentMockService;
 import com.easydora.billing.service.provider.PaymentProvider;
 import com.easydora.billing.service.provider.PaymentResult;
+import com.easydora.billing.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.OptimisticLockingFailureException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -22,12 +22,12 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
@@ -46,12 +46,13 @@ class PaymentServiceDeterministicApprovalTest {
     @Mock
     private PaymentRepository paymentRepository;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxEventRepository outboxEventRepository;
 
     private final PaymentProvider paymentProvider = new PaymentMockService();
 
     private PaymentService newPaymentService() {
-        return new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
+        return new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
     }
 
     @Test
@@ -127,21 +128,36 @@ class PaymentServiceDeterministicApprovalTest {
     }
 
     @Test
-    void aPublishFailureAfterApprovalIsNeverSwallowedIntoAFailedPayment() {
-        Payment existing = new Payment("order-even-publish-fails", new BigDecimal("100.00"));
-        when(paymentRepository.findByOrderId("order-even-publish-fails")).thenReturn(Optional.of(existing));
+    void anOutboxWriteFailureAfterApprovalIsNeverSwallowedIntoAFailedPayment() {
+        Payment existing = new Payment("order-even-outbox-fails", new BigDecimal("100.00"));
+        when(paymentRepository.findByOrderId("order-even-outbox-fails")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        doThrow(new AmqpException("broker unavailable"))
-                .when(rabbitTemplate)
-                .convertAndSend(anyString(), anyString(), any(), any(MessagePostProcessor.class));
+        doThrow(new RuntimeException("db unavailable"))
+                .when(outboxEventRepository)
+                .save(any(OutboxEvent.class));
 
-        // Without separating the publish step from the provider-decision
-        // catch block, PaymentService's generic catch(Exception) would
-        // reinterpret this broker failure as the payment itself having
-        // failed, silently flipping an already-approved payment to FAILED
-        // and reporting a wrong outcome to the caller instead of erroring.
-        assertThatThrownBy(() -> newPaymentService().processPayment("order-even-publish-fails"))
-                .isInstanceOf(AmqpException.class);
+        // Without separating the outbox-write step from the
+        // provider-decision catch block, PaymentService's generic
+        // catch(Exception) would reinterpret this write failure as the
+        // payment itself having failed, silently flipping an
+        // already-approved payment to FAILED and reporting a wrong outcome
+        // to the caller instead of erroring.
+        assertThatThrownBy(() -> newPaymentService().processPayment("order-even-outbox-fails"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("db unavailable");
+    }
+
+    @Test
+    void approvedPaymentRecordsExactlyOnePaymentApprovedEventInTheOutbox() {
+        Payment existing = new Payment("order-even-outbox", new BigDecimal("100.00"));
+        when(paymentRepository.findByOrderId("order-even-outbox")).thenReturn(Optional.of(existing));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+
+        newPaymentService().processPayment("order-even-outbox");
+
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).containsExactly("payment.approved");
     }
 
     @Test

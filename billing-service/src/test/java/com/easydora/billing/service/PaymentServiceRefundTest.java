@@ -1,29 +1,27 @@
 package com.easydora.billing.service;
 
+import com.easydora.billing.entity.OutboxEvent;
 import com.easydora.billing.messaging.events.PaymentEvent;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
+import com.easydora.billing.repository.OutboxEventRepository;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.service.provider.PaymentMockService;
 import com.easydora.billing.service.provider.PaymentProvider;
+import com.easydora.billing.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,36 +36,20 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceRefundTest {
 
-    private static class RecordingRabbitTemplate extends RabbitTemplate {
-        final List<Object> payloads = new ArrayList<>();
-
-        RecordingRabbitTemplate() {
-            super(mock(ConnectionFactory.class));
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object) {
-            payloads.add(object);
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object, MessagePostProcessor messagePostProcessor) {
-            payloads.add(object);
-        }
-
-        List<PaymentEvent> events() {
-            return payloads.stream()
-                    .filter(PaymentEvent.class::isInstance)
-                    .map(PaymentEvent.class::cast)
-                    .toList();
-        }
-    }
-
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
-    private PaymentService newPaymentService(RabbitTemplate rabbitTemplate, PaymentProvider provider) {
-        return new PaymentService(paymentRepository, rabbitTemplate, provider, new SimpleMeterRegistry());
+    private PaymentService newPaymentService(PaymentProvider provider) {
+        return new PaymentService(paymentRepository, provider, outboxEventRepository,
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+    }
+
+    private List<PaymentEvent> events(List<OutboxEvent> savedEvents) {
+        return savedEvents.stream()
+                .map(event -> OutboxEventCaptureSupport.bodyAs(event, PaymentEvent.class))
+                .toList();
     }
 
     @Test
@@ -78,8 +60,8 @@ class PaymentServiceRefundTest {
         when(paymentRepository.findByOrderId("order-1")).thenReturn(Optional.of(approved));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        PaymentService paymentService = newPaymentService(rabbitTemplate, new PaymentMockService());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        PaymentService paymentService = newPaymentService(new PaymentMockService());
 
         paymentService.refundPayment("order-1");
 
@@ -88,7 +70,7 @@ class PaymentServiceRefundTest {
         // refund -- no new refund-specific identifier is invented (ADR-0034).
         assertThat(approved.getTransactionId()).isEqualTo("TXN_original");
 
-        List<PaymentEvent> events = rabbitTemplate.events();
+        List<PaymentEvent> events = events(savedEvents);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).getOrderId()).isEqualTo("order-1");
         assertThat(events.get(0).getFailureReason()).isNull();
@@ -100,25 +82,25 @@ class PaymentServiceRefundTest {
         refunded.setStatus(PaymentStatus.REFUNDED);
         when(paymentRepository.findByOrderId("order-2")).thenReturn(Optional.of(refunded));
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        PaymentService paymentService = newPaymentService(rabbitTemplate, new PaymentMockService());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        PaymentService paymentService = newPaymentService(new PaymentMockService());
 
         paymentService.refundPayment("order-2");
 
         verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
-        assertThat(rabbitTemplate.events()).isEmpty();
+        assertThat(savedEvents).isEmpty();
     }
 
     @Test
     void refundingAnOrderWithNoPaymentPublishesPaymentRefundFailed() {
         when(paymentRepository.findByOrderId("order-missing")).thenReturn(Optional.empty());
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        PaymentService paymentService = newPaymentService(rabbitTemplate, new PaymentMockService());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        PaymentService paymentService = newPaymentService(new PaymentMockService());
 
         paymentService.refundPayment("order-missing");
 
-        List<PaymentEvent> events = rabbitTemplate.events();
+        List<PaymentEvent> events = events(savedEvents);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).getFailureReason()).contains("order-missing");
     }
@@ -128,12 +110,12 @@ class PaymentServiceRefundTest {
         Payment pending = new Payment("order-3", new BigDecimal("30.00"));
         when(paymentRepository.findByOrderId("order-3")).thenReturn(Optional.of(pending));
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        PaymentService paymentService = newPaymentService(rabbitTemplate, new PaymentMockService());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        PaymentService paymentService = newPaymentService(new PaymentMockService());
 
         paymentService.refundPayment("order-3");
 
-        List<PaymentEvent> events = rabbitTemplate.events();
+        List<PaymentEvent> events = events(savedEvents);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).getFailureReason()).contains("PENDING");
     }

@@ -83,7 +83,11 @@ class RefundPaymentRequestedWiringIT {
 
         Payment stillRefunded = paymentRepository.findByOrderId(orderId).orElseThrow();
         assertThat(stillRefunded.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
-        assertThat(pollProbe(RefundOutcomeProbeSupport.PAYMENT_REFUNDED_PROBE_QUEUE, orderId, 1500))
+        // 6s, not 1.5s: a real (buggy) duplicate write would only reach
+        // this probe queue on the outbox poller's next tick, up to ~5s
+        // later (ADR-0037) -- a short window here would pass even if the
+        // bug this asserts against were reintroduced.
+        assertThat(pollProbe(RefundOutcomeProbeSupport.PAYMENT_REFUNDED_PROBE_QUEUE, orderId, 6000))
                 .withFailMessage("a duplicate RefundPaymentCommand must not publish a second payment.refunded")
                 .isFalse();
     }
@@ -109,15 +113,19 @@ class RefundPaymentRequestedWiringIT {
         return payment;
     }
 
+    // 8s, not 5s: payment.refunded/payment.refund.failed now go through
+    // OutboxPublisher's poller (ADR-0037) instead of a direct publish, so a
+    // row written just after a poll tick can wait nearly a full 5s
+    // fixedDelay before the next tick sends it.
     private void assertProbeReceived(String queue, String orderId) {
-        if (!pollProbe(queue, orderId, 5000)) {
+        if (!pollProbe(queue, orderId, 8000)) {
             throw new AssertionError("expected a real publish on " + queue + " for order " + orderId
                     + " but none arrived within the timeout");
         }
     }
 
     private void drainProbe(String queue, String orderId) {
-        pollProbe(queue, orderId, 5000);
+        pollProbe(queue, orderId, 8000);
     }
 
     private boolean pollProbe(String queue, String orderId, long timeoutMillis) {

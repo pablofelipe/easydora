@@ -3,15 +3,16 @@ package com.easydora.billing.service;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
+import com.easydora.billing.repository.OutboxEventRepository;
 import com.easydora.billing.repository.PaymentRepository;
 import com.easydora.billing.service.provider.PaymentProvider;
+import com.easydora.billing.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
@@ -39,7 +40,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
     @Mock
     private PaymentRepository paymentRepository;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxEventRepository outboxEventRepository;
     @Mock
     private PaymentProvider paymentProvider;
 
@@ -47,7 +48,8 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventCreatesAPendingPayment() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.empty());
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
+        PaymentService paymentService = new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
@@ -69,7 +71,8 @@ class PaymentServiceOrderCreatedBehaviorTest {
     void orderCreatedEventIsIgnoredWhenAPaymentAlreadyExistsForTheOrder() {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.of(new Payment()));
 
-        PaymentService paymentService = new PaymentService(paymentRepository, rabbitTemplate, paymentProvider, new SimpleMeterRegistry());
+        PaymentService paymentService = new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
