@@ -126,6 +126,34 @@ records that the gaps this ADR named are resolved elsewhere — it doesn't
 change anything this ADR itself decided about startup/reconnection
 resilience.
 
+## Update — 2026-07-15: the claim about the four Spring services was half right
+
+This ADR's Decision section stated: "The four Spring services don't need
+an equivalent fix: `spring-boot-starter-amqp`'s `CachingConnectionFactory`
+already retries broker connections and reconnects on disconnects by
+default, so this class of bug simply doesn't reach them." Six days later,
+`orders-service` hit exactly this class of bug — a crash on boot
+(`AmqpConnectException`/`Connection refused`, exit code 1) when
+RabbitMQ's Erlang node was already answering its own healthcheck but its
+AMQP listener wasn't yet accepting connections (see the README Roadmap
+entry opened 2026-07-14, and [ADR-0038](0038-infrastructure-startup-resilience.md)).
+
+A dedicated architectural analysis ([ADR-0038](0038-infrastructure-startup-resilience.md))
+found the claim above was correct about the mechanism it named, but
+incomplete: empirically confirmed (live, with RabbitMQ stopped) that both
+`auth-service` (no `@RabbitListener` at all) and `billing-service` (real
+`@RabbitListener`s) boot successfully and keep serving HTTP traffic
+indefinitely while RabbitMQ is completely unreachable — Spring Boot's
+autoconfigured `SimpleMessageListenerContainer` retries every ~5 seconds
+on its own, logging but never propagating the failure. `orders-service`
+was the one service with an *additional*, imperative `RabbitMQInitializer`
+(`ApplicationRunner` calling `AmqpAdmin.declareExchange/declareQueue`
+directly) that bypassed this protection entirely by rethrowing on
+failure. The declarative `@Bean`/`RabbitAdmin`/listener-container path
+this ADR described was never actually broken; the bug was in
+`orders-service`'s own redundant, imperative code, since removed. See
+ADR-0038 for the full investigation and fix.
+
 ## References
 
 - [ADR-0014](0014-notification-service.md) — the original implementation
@@ -134,3 +162,7 @@ resilience.
 - `inventory-service/internal/messaging/rabbitmq_consumer.go` — the
   existing in-repo precedent for bounded startup-connection retry this
   ADR's shape (not its unbounded nature) is based on.
+- [ADR-0038](0038-infrastructure-startup-resilience.md) — the 2026-07-15
+  investigation that found this ADR's claim about the four Spring
+  services was correct about the mechanism, incomplete about
+  `orders-service`'s own imperative code bypassing it.

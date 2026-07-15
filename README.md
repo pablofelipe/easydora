@@ -267,6 +267,7 @@ The stack split is deliberate:
 | [0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md) | Reject DTO code generation from JSON Schema, at the project's current scale | Accepted | Closes a Low Roadmap item by decision, not implementation: measured every schema's real git history (one content-change each, ever) and the one real DTO drift ever found (already caught by its own contract test) before concluding that `jsonschema2pojo`/`go-jsonschema`/`datamodel-code-generator` would cost three new build toolchains and the intentional-partial-consumer DTO pattern already in deliberate use, for a drift rate of one occurrence. A cost/benefit conclusion, not a rejection of the technique — documents explicit, measurable criteria (event count, schema churn, a second missed drift, partial-consumer DTOs becoming the exception) that would reopen it. |
 | [0036](docs/adr/0036-metrics-via-prometheus-grafana.md) | Quantitative observability via Prometheus and Grafana | Accepted | Narrows ADR-0024's bundled rejection of Prometheus/Grafana (that cost analysis was aimed at a full tracing backend, which these two don't actually need) and adopts them for the aggregate questions CorrelationId logging was never meant to answer: error rate, latency, queue depth, business volume. RabbitMQ's own `rabbitmq_prometheus` plugin and each Spring service's HikariCP pool cover RabbitMQ and Postgres connection visibility with zero new exporter containers; the two Go services needed one small custom HTTP-metrics middleware, since `promhttp` alone (unlike Micrometer) doesn't auto-instrument request rate/latency. Five deliberately-scoped business counters, dashboards provisioned as code — no Alertmanager, no Loki, no per-event metric spam, and ADR-0024's rejection of a full tracing backend (OpenTelemetry/Jaeger/Zipkin) stays unchanged. |
 | [0037](docs/adr/0037-consolidated-outbox-pattern-specification.md) | Consolidated Outbox Pattern specification | Accepted | auth-service's (ADR-0003) and inventory-service's (an aside inside ADR-0007, never its own ADR) Outbox implementations agreed on everything structural but had never been specified as one concern, and drifted where nothing pinned them down: neither had a metric on the publisher itself, and logging was inconsistent in opposite directions between the two languages. Harmonizes both (structured, correlated logging on every path; two new metrics, `outbox_events_published_total`/`outbox_publish_lag_seconds`, following ADR-0036's convention) and adopts an explicit adoption criterion — impact of loss on a cross-service business process, not caller observability or an unrelated retry mechanism — for future decisions about extending Outbox elsewhere. Did not itself extend Outbox to any new service at the time; two 2026-07-15 Updates close the `orders-service` Roadmap item ADR-0034 opened and the `billing-service` gap, extending Outbox to all four publishes of each service — every publish in the system that qualifies under this ADR's own criterion now has it. |
+| [0038](docs/adr/0038-infrastructure-startup-resilience.md) | Infrastructure startup resilience | Accepted | `orders-service` crashed on boot when RabbitMQ's Erlang node answered its own healthcheck before its AMQP listener accepted connections — the same class of bug ADR-0017 claimed the four Spring services were already immune to. Verified live instead of trusting that claim: confirmed both a listener-less and a listener-bearing Spring service already tolerate this race via Spring Boot's own autoconfigured `SimpleMessageListenerContainer`; the actual cause was `orders-service`'s own redundant, imperative `RabbitMQInitializer`, since deleted. The same investigation found and closed a second, unrelated, more severe gap live-tested the same way: all four Spring services crashed immediately with zero retry if Postgres was slow instead of RabbitMQ, fixed with `spring.datasource.hikari.initialization-fail-timeout=30000` per service; `inventory-service`'s own Postgres connection gained the same bounded retry its RabbitMQ connection already had, closing an internal asymmetry within that one service. |
 
 ## Roadmap
 
@@ -703,22 +704,36 @@ The stack split is deliberate:
       auto-instrument request rate/latency the way Micrometer does.
       Dashboards are provisioned as code
       (`observability/grafana/provisioning`), not configured by hand.
-- [ ] **Opened 2026-07-14 (Low).** `orders-service`'s `RabbitMQInitializer`
-      declares `order.exchange` at boot with no retry, unlike
-      `inventory-service`'s RabbitMQ connection setup (10 attempts with
-      backoff). Found live while validating ADR-0036's docker-compose
-      stack against a freshly reinstalled Docker: RabbitMQ's own
-      healthcheck (`rabbitmq-diagnostics ping`) only confirms the Erlang
-      node itself is up, not that the AMQP listener is already accepting
-      connections — a real, narrow race regardless of `depends_on`'s
-      `condition: service_healthy`. `inventory-service` hit the same
-      window on the same boot and simply retried into success; without an
-      equivalent retry, `orders-service` throws
+- [x] **Opened 2026-07-14, closed 2026-07-15.** `orders-service`'s
+      `RabbitMQInitializer` declared `order.exchange` at boot with no
+      retry, unlike `inventory-service`'s RabbitMQ connection setup (10
+      attempts with backoff). Found live while validating ADR-0036's
+      docker-compose stack against a freshly reinstalled Docker: RabbitMQ's
+      own healthcheck (`rabbitmq-diagnostics ping`) only confirms the
+      Erlang node itself is up, not that the AMQP listener is already
+      accepting connections — a real, narrow race regardless of
+      `depends_on`'s `condition: service_healthy`. `inventory-service` hit
+      the same window on the same boot and simply retried into success;
+      without an equivalent retry, `orders-service` threw
       `AmqpConnectException`/`Connection refused` from its exchange
-      declaration and Spring Boot exits the JVM (`exit code 1`) instead of
-      retrying. A manual restart resolved it once RabbitMQ was already up.
-      The gap is the missing retry-on-initial-connect pattern in this one
-      boot-time declaration, not a docker-compose ordering bug.
+      declaration and Spring Boot exited the JVM (`exit code 1`) instead of
+      retrying. A dedicated investigation
+      ([ADR-0038](docs/adr/0038-infrastructure-startup-resilience.md))
+      found the real cause was narrower than "Spring needs retry too":
+      confirmed empirically (live, RabbitMQ stopped) that both a listener-less
+      service and one with real `@RabbitListener`s already survive this
+      exact race via Spring Boot's own autoconfigured
+      `SimpleMessageListenerContainer`, which retries every ~5s on its own.
+      `RabbitMQInitializer` was the one piece of imperative code bypassing
+      that built-in tolerance; it's been deleted, with its one
+      non-redundant declaration folded into the existing `@Bean` pattern.
+      The same investigation also found and closed an unrelated, more
+      severe gap: all four Spring services crashed immediately (no retry
+      at all) if Postgres — not just RabbitMQ — was slow to become ready,
+      fixed with one property
+      (`spring.datasource.hikari.initialization-fail-timeout=30000`) per
+      service. `inventory-service`'s own internal asymmetry (RabbitMQ
+      retries, Postgres didn't) was closed too.
 - [x] **Opened 2026-07-14, closed 2026-07-14.** `billing-service`'s
       `PaymentService.processPayment` wrapped both the payment-provider
       decision and the event publish that follows it in a single generic

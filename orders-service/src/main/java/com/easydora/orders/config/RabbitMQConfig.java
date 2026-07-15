@@ -48,6 +48,19 @@ public class RabbitMQConfig {
     public static final String INVENTORY_RESERVE_QUEUE = "inventory.reserve.queue";
     public static final String RESERVE_STOCK_ROUTING_KEY = "stock.reserve";
 
+    // Formerly declared imperatively, with no retry, by the now-removed
+    // RabbitMQInitializer (an ApplicationRunner) -- that class crashed the
+    // whole boot (exit code 1) the one time RabbitMQ's AMQP listener wasn't
+    // yet accepting connections despite its Erlang node already answering
+    // its own healthcheck. These two @Bean declarations below are declared
+    // and auto-registered the same way every other queue/binding in this
+    // file already is -- via Spring Boot's autoconfigured RabbitAdmin/
+    // listener-container machinery, which already retries indefinitely on
+    // exactly this race (confirmed empirically -- see ADR-0038) instead of
+    // crashing.
+    public static final String INVENTORY_RELEASE_QUEUE = "inventory.release.queue";
+    public static final String RELEASE_STOCK_ROUTING_KEY = "stock.release";
+
     // order.* domain events (ADR-0007) - published by OrderService
     public static final String ORDER_CREATED_KEY = "order.created";
     public static final String ORDER_STATUS_CHANGED_KEY = "order.status-changed";
@@ -135,6 +148,11 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue inventoryReleaseQueue() {
+        return new Queue(INVENTORY_RELEASE_QUEUE, true);
+    }
+
+    @Bean
     public Queue stockReservedQueue() {
         return new Queue(STOCK_RESERVED_QUEUE, true);
     }
@@ -202,6 +220,13 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(inventoryReserveQueue)
                 .to(orderExchange)
                 .with(RESERVE_STOCK_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding inventoryReleaseBinding(Queue inventoryReleaseQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(inventoryReleaseQueue)
+                .to(orderExchange)
+                .with(RELEASE_STOCK_ROUTING_KEY);
     }
 
     @Bean

@@ -29,9 +29,6 @@ RUN cd billing-service && mvn clean package -DskipTests
 # Stage final
 FROM eclipse-temurin:17-jre-alpine
 
-# Instala wait-for-it para aguardar dependências
-RUN apk add --no-cache bash postgresql-client
-
 WORKDIR /app
 
 # Copia o JAR built
