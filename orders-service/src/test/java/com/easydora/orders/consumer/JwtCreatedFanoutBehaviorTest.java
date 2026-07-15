@@ -9,11 +9,14 @@ import com.easydora.orders.service.BuyerService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -73,5 +76,51 @@ class JwtCreatedFanoutBehaviorTest {
         userEventsConsumer.handleJwtCreated(event, "corr-2", "msg-2");
 
         verify(buyerRepository).save(any(Buyer.class));
+    }
+
+    @Test
+    void sessionConsumerComputesExpiresAtFromCreatedAtPlusExpiresIn() {
+        JwtConsumer jwtConsumer = new JwtConsumer(jwtAuthenticationFilter, buyerService);
+
+        JwtEvent event = new JwtEvent();
+        event.setToken("tok-1");
+        event.setUserId(1L);
+        event.setEmail("buyer@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("BUYER");
+        event.setCreatedAt(LocalDateTime.now().minusHours(2));
+        event.setExpiresIn(3600L); // the JWT itself expired an hour ago
+
+        jwtConsumer.receiveJwtCreated(event, "corr-1", "msg-1");
+
+        ArgumentCaptor<JwtAuthenticationFilter.JwtUserInfo> captor =
+                ArgumentCaptor.forClass(JwtAuthenticationFilter.JwtUserInfo.class);
+        verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), captor.capture());
+        assertThat(captor.getValue().isExpired()).isTrue();
+    }
+
+    @Test
+    void profileConsumerComputesExpiresAtFromCreatedAtPlusExpiresIn() {
+        when(buyerRepository.findById(1L)).thenReturn(Optional.empty());
+
+        UserEventsConsumer userEventsConsumer = new UserEventsConsumer(buyerRepository, jwtAuthenticationFilter);
+
+        UserEvent event = new UserEvent();
+        event.setToken("tok-1");
+        event.setUserId(1L);
+        event.setEmail("buyer@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("BUYER");
+        event.setCreatedAt(LocalDateTime.now().minusSeconds(10));
+        event.setExpiresIn(3600L);
+
+        userEventsConsumer.handleJwtCreated(event, "corr-2", "msg-2");
+
+        ArgumentCaptor<JwtAuthenticationFilter.JwtUserInfo> captor =
+                ArgumentCaptor.forClass(JwtAuthenticationFilter.JwtUserInfo.class);
+        verify(jwtAuthenticationFilter).addValidToken(eq("tok-1"), captor.capture());
+        assertThat(captor.getValue().isExpired()).isFalse();
     }
 }

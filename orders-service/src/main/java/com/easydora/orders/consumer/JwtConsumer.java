@@ -52,9 +52,18 @@ public class JwtConsumer {
                     return;
                 }
 
-                // Create the userInfo object
-                JwtAuthenticationFilter.JwtUserInfo userInfo =
-                    new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role, false);
+                // Create the userInfo object. ADR-0039: give the cache
+                // entry a lifetime equal to the JWT's own expiresIn when
+                // the broadcast carries it, instead of caching it forever
+                // until a restart.
+                JwtAuthenticationFilter.JwtUserInfo userInfo;
+                if (event.getCreatedAt() != null && event.getExpiresIn() != null) {
+                    userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                        userId, email, firstName, lastName, role, false,
+                        event.getCreatedAt().plusSeconds(event.getExpiresIn()));
+                } else {
+                    userInfo = new JwtAuthenticationFilter.JwtUserInfo(userId, email, firstName, lastName, role, false);
+                }
 
                 // Add the token
                 jwtAuthenticationFilter.addValidToken(token, userInfo);

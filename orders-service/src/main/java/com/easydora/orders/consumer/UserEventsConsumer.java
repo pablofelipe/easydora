@@ -124,16 +124,32 @@ public class UserEventsConsumer {
                 }
             );
             
-            // Store the JWT token for authentication
+            // Store the JWT token for authentication. ADR-0039: give the
+            // cache entry a lifetime equal to the JWT's own expiresIn when
+            // the broadcast carries it, instead of caching it forever
+            // until a restart.
             if (userEvent.getToken() != null) {
-                JwtAuthenticationFilter.JwtUserInfo userInfo = new JwtAuthenticationFilter.JwtUserInfo(
-                    userEvent.getUserId(),
-                    userEvent.getEmail(),
-                    userEvent.getFirstName(),
-                    userEvent.getLastName(),
-                    userEvent.getRole(),
-                    isUserActive
-                );
+                JwtAuthenticationFilter.JwtUserInfo userInfo;
+                if (userEvent.getCreatedAt() != null && userEvent.getExpiresIn() != null) {
+                    userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                        userEvent.getUserId(),
+                        userEvent.getEmail(),
+                        userEvent.getFirstName(),
+                        userEvent.getLastName(),
+                        userEvent.getRole(),
+                        isUserActive,
+                        userEvent.getCreatedAt().plusSeconds(userEvent.getExpiresIn())
+                    );
+                } else {
+                    userInfo = new JwtAuthenticationFilter.JwtUserInfo(
+                        userEvent.getUserId(),
+                        userEvent.getEmail(),
+                        userEvent.getFirstName(),
+                        userEvent.getLastName(),
+                        userEvent.getRole(),
+                        isUserActive
+                    );
+                }
                 jwtAuthenticationFilter.addValidToken(userEvent.getToken(), userInfo);
                 logger.info("JWT token stored for user: {}", userEvent.getUserId());
             }
