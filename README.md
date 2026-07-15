@@ -196,7 +196,7 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 | Auth | Spring Boot + PostgreSQL + JWT + Outbox | 8081 | Implemented | 22 tests — unit + `*IT` (Outbox, real Postgres/RabbitMQ), including 3 contract tests covering `user.registered`/`user.verified`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Products | Spring Boot + PostgreSQL + RabbitMQ | 8082 | Implemented | 17 unit tests, including 6 contract tests covering `product.created`/`product.updated`/`product.deleted`/`user.verified`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Inventory | Go + PostgreSQL + RabbitMQ + Outbox | 8083 | Implemented | 22 tests — 16 unit + 6 integration (real Postgres/RabbitMQ, includes concurrency via `go test -race`), including 7 contract tests covering `product.*`/`stock.*` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
-| Orders | Spring Boot + PostgreSQL + RabbitMQ | 8084 | Implemented | 103 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), 6 covering optimistic locking on `Order`, 23 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)), and 13 contract tests ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
+| Orders | Spring Boot + PostgreSQL + RabbitMQ + Outbox | 8084 | Implemented | 116 tests — unit + `*IT` (real Postgres/RabbitMQ), including 4 covering self-purchase prevention, 31 covering the order fulfillment lifecycle (ship/deliver, single-source-of-truth transitions, the `previousState` fix), 6 covering optimistic locking on `Order`, 23 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)), Outbox coverage for all four publishes ([ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)), and 13 contract tests ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Billing | Spring Boot + PostgreSQL + RabbitMQ + JWT | 8085 | Implemented | 49 tests — unit + `*IT` (real Postgres/RabbitMQ), including 6 covering the deterministic payment provider and its single-creation-path guarantee, 4 covering optimistic locking on `Payment`, 7 covering the payment compensation saga ([ADR-0034](docs/adr/0034-payment-compensation-saga.md)), and 6 contract tests ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Notification | FastAPI + PostgreSQL + RabbitMQ | 8086 | Implemented | 40 tests — 32 unit + 8 integration (real Postgres/RabbitMQ/auth-service), including 6 contract tests covering `order.created`/`order.status-changed`/`jwt.created` ([ADR-0002](docs/adr/0002-json-schema-contract-testing.md)) |
 | Frontend | SvelteKit + TypeScript | 3000 | Implemented | 0 automated tests — validated manually end to end (see [ADR-0026](docs/adr/0026-frontend-thin-client.md)) |
@@ -263,10 +263,10 @@ The stack split is deliberate:
 | [0031](docs/adr/0031-single-source-of-truth-for-payment-creation.md) | Single source of truth for payment creation | Accepted | Closes a Low Roadmap item: `PaymentService.processPayment` had an "API fallback" branch that created a new `Payment` on the spot when none existed, and it never set `userId`. Investigation found no legitimate caller ever exercised it — the frontend, walkthrough, and Postman collection always process an order that already went through `order.created`. Removed the fallback (and the dead `amount` parameter it alone used) instead of patching the bug; a missing `Payment` is now a `404` domain error via a new `PaymentNotFoundException`. Also removed `POST /api/payments/pending`, an already-dead second alias for `/process`. |
 | [0032](docs/adr/0032-accept-order-state-machine-hybrid.md) | Accept the hybrid Spring State Machine pattern in orders-service | Accepted | Closes an Architectural-note Roadmap item without changing code: investigated making the state machine a live authority (low value — no guards/extended state, single replica) and dropping the framework for a plain transition table (low risk, but no functional gain) before deciding the migration cost of either outweighs a benefit that resolves no active bug. Also opens a new, unrelated Low Roadmap item found along the way: `Order` has no `@Version` column, so concurrent writes from multiple RabbitMQ consumers and HTTP endpoints have no conflict detection. |
 | [0033](docs/adr/0033-optimistic-locking-on-order-and-payment.md) | Optimistic locking on Order and Payment | Accepted | Closes the `@Version` Low Roadmap item ADR-0032 opened: adds `@Version` to `Order` and `Payment` only (not `Product`/`User`, which have no real concurrent-writer path), backed by `saveAndFlush` at the point each transition is persisted so a conflict is never discovered after its event already published, and a `409 Conflict` mapping in both services. Documents evaluating and rejecting pessimistic locking for this domain's current low-contention, event-driven shape, with explicit criteria for revisiting that later. |
-| [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id, no Outbox for the new publish — each deliberately rejected and documented, not omitted by oversight. |
+| [0034](docs/adr/0034-payment-compensation-saga.md) | Payment compensation saga for approved-but-unfulfillable orders | Accepted | Closes a Medium Roadmap item: a `payment.approved` arriving for an order already `INVENTORY_FAILED`/`CANCELLED` was silently swallowed, leaving `Payment` wrongly `APPROVED` with nothing to refund it. Evaluated and rejected synchronous compensation, immediate reversion, and Saga Orchestrated before adopting a choreographed saga consistent with the rest of the domain: Orders publishes a `RefundPaymentCommand` (a command, not a fact-event) after reactivating the pre-existing, never-wired `REFUNDING`/`INITIATE_REFUND`/`REFUND_COMPLETED`; Billing alone decides and owns `Payment`, publishing `payment.refunded`/`payment.refund.failed` back. No `REFUND_PENDING`, no refund-specific transaction id — each deliberately rejected and documented, not omitted by oversight. Outbox was also deliberately not adopted for the new publish alone, to avoid an asymmetry with this service's other best-effort publishes; a 2026-07-15 Update closes that gap once a broader analysis extended Outbox to all four of `orders-service`'s publishes together (see [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)). |
 | [0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md) | Reject DTO code generation from JSON Schema, at the project's current scale | Accepted | Closes a Low Roadmap item by decision, not implementation: measured every schema's real git history (one content-change each, ever) and the one real DTO drift ever found (already caught by its own contract test) before concluding that `jsonschema2pojo`/`go-jsonschema`/`datamodel-code-generator` would cost three new build toolchains and the intentional-partial-consumer DTO pattern already in deliberate use, for a drift rate of one occurrence. A cost/benefit conclusion, not a rejection of the technique — documents explicit, measurable criteria (event count, schema churn, a second missed drift, partial-consumer DTOs becoming the exception) that would reopen it. |
 | [0036](docs/adr/0036-metrics-via-prometheus-grafana.md) | Quantitative observability via Prometheus and Grafana | Accepted | Narrows ADR-0024's bundled rejection of Prometheus/Grafana (that cost analysis was aimed at a full tracing backend, which these two don't actually need) and adopts them for the aggregate questions CorrelationId logging was never meant to answer: error rate, latency, queue depth, business volume. RabbitMQ's own `rabbitmq_prometheus` plugin and each Spring service's HikariCP pool cover RabbitMQ and Postgres connection visibility with zero new exporter containers; the two Go services needed one small custom HTTP-metrics middleware, since `promhttp` alone (unlike Micrometer) doesn't auto-instrument request rate/latency. Five deliberately-scoped business counters, dashboards provisioned as code — no Alertmanager, no Loki, no per-event metric spam, and ADR-0024's rejection of a full tracing backend (OpenTelemetry/Jaeger/Zipkin) stays unchanged. |
-| [0037](docs/adr/0037-consolidated-outbox-pattern-specification.md) | Consolidated Outbox Pattern specification | Accepted | auth-service's (ADR-0003) and inventory-service's (an aside inside ADR-0007, never its own ADR) Outbox implementations agreed on everything structural but had never been specified as one concern, and drifted where nothing pinned them down: neither had a metric on the publisher itself, and logging was inconsistent in opposite directions between the two languages. Harmonizes both (structured, correlated logging on every path; two new metrics, `outbox_events_published_total`/`outbox_publish_lag_seconds`, following ADR-0036's convention) and adopts an explicit adoption criterion — impact of loss on a cross-service business process, not caller observability or an unrelated retry mechanism — for future decisions about extending Outbox elsewhere. Does not itself extend Outbox to any new service; the `orders-service` Roadmap item ADR-0034 opened stays open. |
+| [0037](docs/adr/0037-consolidated-outbox-pattern-specification.md) | Consolidated Outbox Pattern specification | Accepted | auth-service's (ADR-0003) and inventory-service's (an aside inside ADR-0007, never its own ADR) Outbox implementations agreed on everything structural but had never been specified as one concern, and drifted where nothing pinned them down: neither had a metric on the publisher itself, and logging was inconsistent in opposite directions between the two languages. Harmonizes both (structured, correlated logging on every path; two new metrics, `outbox_events_published_total`/`outbox_publish_lag_seconds`, following ADR-0036's convention) and adopts an explicit adoption criterion — impact of loss on a cross-service business process, not caller observability or an unrelated retry mechanism — for future decisions about extending Outbox elsewhere. Did not itself extend Outbox to any new service at the time; a 2026-07-15 Update closes the `orders-service` Roadmap item ADR-0034 opened, extending Outbox to all four of that service's publishes. |
 
 ## Roadmap
 
@@ -669,18 +669,25 @@ The stack split is deliberate:
       [ADR-0035](docs/adr/0035-reject-dto-code-generation-from-json-schema.md)
       for the full analysis and the objective criteria that would reopen
       this decision.
-- [ ] **Opened 2026-07-12 (Low).** `orders-service` has no Outbox Pattern
-      for any of its publishes (`order.created`, `order.status-changed`,
-      the `stock.reserve` command, and now `payment.refund.requested`) —
-      unlike `auth-service`/`inventory-service`, which do. Found while
-      deciding, for [ADR-0034](docs/adr/0034-payment-compensation-saga.md),
-      not to give the new `payment.refund.requested` publish alone the
-      same crash-between-commit-and-publish protection Outbox provides:
-      doing so would have created an asymmetry with every other publish
-      this same service already makes the same way. The gap is real and
-      pre-existing, just not new — a crash between an `Order` write and its
-      matching publish can still silently lose that event today, for any of
-      this service's four publishes, not only the new one.
+- [x] **Opened 2026-07-12, closed 2026-07-15.** `orders-service` had no
+      Outbox Pattern for any of its publishes (`order.created`,
+      `order.status-changed`, the `stock.reserve` command, and
+      `payment.refund.requested`) — unlike `auth-service`/
+      `inventory-service`, which do. Found while deciding, for
+      [ADR-0034](docs/adr/0034-payment-compensation-saga.md), not to give
+      the new `payment.refund.requested` publish alone the same
+      crash-between-commit-and-publish protection Outbox provides: doing
+      so would have created an asymmetry with every other publish this
+      same service already makes the same way. Resolved by a broader
+      architectural analysis that re-evaluated publish reliability across
+      the whole system by impact of loss (not by whether a caller notices
+      the failure, or whether ADR-0019's unrelated consumer-side retry
+      happens to cover a related symptom) — all four of this service's
+      publishes qualified and now go through an `OutboxPublisher`
+      identical in shape to `auth-service`/`inventory-service`'s own; see
+      [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)'s
+      2026-07-15 Update and [ADR-0034](docs/adr/0034-payment-compensation-saga.md)'s
+      own Update.
 - [x] **Opened 2026-07-14, closed 2026-07-14.** Quantitative observability
       (metrics) was the one pillar ADR-0024 knowingly left open: logs
       answer "what happened to operation X", but not "which service is
@@ -721,7 +728,7 @@ The stack split is deliberate:
       already-approved payment to `FAILED` and reporting a wrong outcome to
       the caller instead of erroring. Found while investigating whether
       `orders-service`/`billing-service` need the Outbox Pattern (see the
-      open item above about `orders-service` having none) — a distinct,
+      item above about `orders-service` having none at the time) — a distinct,
       independently-fixable correctness bug, not itself an Outbox
       question. Fixed by narrowing the catch to the provider call only: a
       failure at or after persisting the decision (including the publish)
@@ -736,8 +743,9 @@ The stack split is deliberate:
       in opposite directions between the two languages. Harmonized both
       and formalized the shared design — see
       [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md).
-      Does not extend Outbox to any new service; the item above about
-      `orders-service` having none stays open.
+      Did not, at the time, extend Outbox to any new service; the item
+      above about `orders-service` having none was closed separately three
+      days later, per ADR-0037's own 2026-07-15 Update.
 
 </details>
 

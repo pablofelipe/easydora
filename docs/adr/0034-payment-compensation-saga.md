@@ -343,13 +343,35 @@ here touches them.
 - `REFUND_FAILED` is a dead end from the domain's perspective — no
   automatic retry, no remediation tooling. Recovering from it today is a
   manual/operational action outside this system.
-- `orders-service` still has no Outbox Pattern for any of its publishes,
-  including this new one — a pre-existing, now explicitly tracked gap, not
-  a regression introduced here.
 - The compensation trigger only fires from `handlePaymentReceived`'s own
   rejection branch. If a future change adds a legitimate path back to
   `INVENTORY_FAILED` from a later state (none exists today), this ADR's
   transition graph would need revisiting.
+
+## Update — 2026-07-15: the Outbox gap this ADR opened is now closed
+
+The "Outbox: evaluated, consciously not adopted here" passage above
+reasoned from a real constraint at the time: adding Outbox for
+`payment.refund.requested` alone, while `order.created`,
+`stock.reserve` and `order.status-changed` stayed best-effort, would have
+created exactly the asymmetry this ADR was trying to avoid. That
+constraint no longer holds — a separate architectural analysis re-examined
+`orders-service`'s publish reliability as a whole (not just this one
+event), using the impact of losing each publish as the adoption criterion
+rather than whether a caller happens to notice the failure or whether
+ADR-0019's transport-level retry mitigates a related but distinct failure
+mode. All four of `orders-service`'s publishes — `order.created`,
+`stock.reserve`, `order.status-changed`, and `payment.refund.requested`
+itself — qualified under that criterion and are now written as
+`OutboxEvent` rows in the same transaction as the domain change that
+produces them, exactly the pattern `auth-service`/`inventory-service`
+already used and [ADR-0037](0037-consolidated-outbox-pattern-specification.md)
+now formalizes. `OrderService` no longer holds a `RabbitTemplate` at all —
+every publish this class makes goes through a single `writeOutboxEvent`
+helper, and a dedicated `OutboxPublisher` (mirroring
+`auth-service`/`inventory-service`'s own) polls and sends on the same 5s
+cadence. The asymmetry this ADR's original passage worried about is gone
+because every publish moved together, not because the concern was wrong.
 
 ## References
 
@@ -370,6 +392,10 @@ here touches them.
   `PaymentResult`, reused here for `refund(...)` instead of introducing a
   parallel abstraction.
 - [ADR-0007](0007-remove-kafka-broker.md) — the Outbox precedent evaluated
-  and consciously not extended to this event.
-- README Roadmap — the item this ADR closes, and the new item it opens
-  about `orders-service` having no Outbox Pattern at all.
+  and consciously not extended to this event at the time.
+- [ADR-0037](0037-consolidated-outbox-pattern-specification.md) — the
+  consolidated specification `orders-service`'s Outbox now follows, per
+  the 2026-07-15 Update above.
+- README Roadmap — the item this ADR originally closed, and the item about
+  `orders-service` having no Outbox Pattern at all, now closed by the
+  Update above.

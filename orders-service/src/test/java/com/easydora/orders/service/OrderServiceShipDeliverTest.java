@@ -2,29 +2,27 @@ package com.easydora.orders.service;
 
 import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
+import com.easydora.orders.entity.OutboxEvent;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.OutboxEventRepository;
 import com.easydora.orders.repository.ProductOwnershipRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
+import com.easydora.orders.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -38,24 +36,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceShipDeliverTest {
 
-    private static class RecordingRabbitTemplate extends RabbitTemplate {
-        final List<String> routingKeys = new ArrayList<>();
-
-        RecordingRabbitTemplate() {
-            super(mock(ConnectionFactory.class));
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object) {
-            routingKeys.add(routingKey);
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object, MessagePostProcessor messagePostProcessor) {
-            routingKeys.add(routingKey);
-        }
-    }
-
     @Mock
     private BuyerRepository buyerRepository;
     @Mock
@@ -64,10 +44,12 @@ class OrderServiceShipDeliverTest {
     private OrderStateMachineService stateMachineService;
     @Mock
     private ProductOwnershipRepository productOwnershipRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
-    private OrderService newOrderService(RabbitTemplate rabbitTemplate) {
-        return new OrderService(buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+    private OrderService newOrderService() {
+        return new OrderService(buyerRepository, orderRepository, stateMachineService, productOwnershipRepository,
+                outboxEventRepository, OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
     }
 
     @Test
@@ -82,12 +64,12 @@ class OrderServiceShipDeliverTest {
         when(stateMachineService.sendEvent("order-1", OrderEvent.SHIP_ORDER)).thenReturn(true);
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.SHIPPED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.shipOrder("order-1");
 
-        assertThat(rabbitTemplate.routingKeys).contains("order.status-changed");
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).contains("order.status-changed");
     }
 
     @Test
@@ -99,7 +81,7 @@ class OrderServiceShipDeliverTest {
         when(stateMachineService.isTransitionAllowed(OrderState.PENDING, OrderEvent.SHIP_ORDER))
                 .thenReturn(false);
 
-        OrderService orderService = newOrderService(mock(RabbitTemplate.class));
+        OrderService orderService = newOrderService();
 
         assertThatThrownBy(() -> orderService.shipOrder("order-1"))
                 .isInstanceOf(RuntimeException.class);
@@ -109,7 +91,7 @@ class OrderServiceShipDeliverTest {
     void shipOrder_whenOrderDoesNotExist_throws() {
         when(orderRepository.findById("missing")).thenReturn(Optional.empty());
 
-        OrderService orderService = newOrderService(mock(RabbitTemplate.class));
+        OrderService orderService = newOrderService();
 
         assertThatThrownBy(() -> orderService.shipOrder("missing"))
                 .isInstanceOf(RuntimeException.class);
@@ -133,12 +115,12 @@ class OrderServiceShipDeliverTest {
         when(stateMachineService.sendEvent("order-1", OrderEvent.DELIVER_ORDER)).thenReturn(true);
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.DELIVERED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.deliverOrder("order-1", 42L);
 
-        assertThat(rabbitTemplate.routingKeys).contains("order.status-changed");
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).contains("order.status-changed");
     }
 
     @Test
@@ -156,7 +138,7 @@ class OrderServiceShipDeliverTest {
         when(stateMachineService.isTransitionAllowed(OrderState.PAYMENT_APPROVED, OrderEvent.DELIVER_ORDER))
                 .thenReturn(false);
 
-        OrderService orderService = newOrderService(mock(RabbitTemplate.class));
+        OrderService orderService = newOrderService();
 
         assertThatThrownBy(() -> orderService.deliverOrder("order-1", 42L))
                 .isInstanceOf(RuntimeException.class);
@@ -170,7 +152,7 @@ class OrderServiceShipDeliverTest {
         when(buyerRepository.findById(42L)).thenReturn(Optional.of(buyer));
         when(orderRepository.findByIdAndUserId("order-1", 42L)).thenReturn(Optional.empty());
 
-        OrderService orderService = newOrderService(mock(RabbitTemplate.class));
+        OrderService orderService = newOrderService();
 
         assertThatThrownBy(() -> orderService.deliverOrder("order-1", 42L))
                 .isInstanceOf(RuntimeException.class);

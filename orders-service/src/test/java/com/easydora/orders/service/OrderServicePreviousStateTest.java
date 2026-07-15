@@ -2,29 +2,27 @@ package com.easydora.orders.service;
 
 import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
+import com.easydora.orders.entity.OutboxEvent;
 import com.easydora.orders.event.OrderStatusChangedEvent;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.OutboxEventRepository;
 import com.easydora.orders.repository.ProductOwnershipRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
+import com.easydora.orders.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -41,32 +39,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class OrderServicePreviousStateTest {
 
-    private static class RecordingRabbitTemplate extends RabbitTemplate {
-        final List<Object> payloads = new ArrayList<>();
-
-        RecordingRabbitTemplate() {
-            super(mock(ConnectionFactory.class));
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object) {
-            payloads.add(object);
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object, MessagePostProcessor messagePostProcessor) {
-            payloads.add(object);
-        }
-
-        OrderStatusChangedEvent lastStatusChangedEvent() {
-            return payloads.stream()
-                    .filter(p -> p instanceof OrderStatusChangedEvent)
-                    .map(p -> (OrderStatusChangedEvent) p)
-                    .reduce((first, second) -> second)
-                    .orElseThrow();
-        }
-    }
-
     @Mock
     private BuyerRepository buyerRepository;
     @Mock
@@ -75,10 +47,20 @@ class OrderServicePreviousStateTest {
     private OrderStateMachineService stateMachineService;
     @Mock
     private ProductOwnershipRepository productOwnershipRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
-    private OrderService newOrderService(RabbitTemplate rabbitTemplate) {
-        return new OrderService(buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+    private OrderService newOrderService() {
+        return new OrderService(buyerRepository, orderRepository, stateMachineService, productOwnershipRepository,
+                outboxEventRepository, OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+    }
+
+    private OrderStatusChangedEvent lastStatusChangedEvent(List<OutboxEvent> savedEvents) {
+        return savedEvents.stream()
+                .filter(event -> event.getRoutingKey().equals("order.status-changed"))
+                .map(event -> OutboxEventCaptureSupport.bodyAs(event, OrderStatusChangedEvent.class))
+                .reduce((first, second) -> second)
+                .orElseThrow();
     }
 
     @Test
@@ -104,12 +86,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.CANCELLED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.cancelOrder("order-1", 1L);
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.PENDING);
         assertThat(published.getNewState()).isEqualTo(OrderState.CANCELLED);
     }
@@ -127,12 +109,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.PAYMENT_APPROVED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.handlePaymentReceived("order-1");
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.INVENTORY_RESERVED);
         assertThat(published.getNewState()).isEqualTo(OrderState.PAYMENT_APPROVED);
     }
@@ -150,12 +132,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.PAYMENT_FAILED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.handlePaymentFailed("order-1");
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.INVENTORY_RESERVED);
         assertThat(published.getNewState()).isEqualTo(OrderState.PAYMENT_FAILED);
     }
@@ -173,12 +155,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.INVENTORY_RESERVED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.handleInventoryReserved("order-1");
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.PROCESSING);
         assertThat(published.getNewState()).isEqualTo(OrderState.INVENTORY_RESERVED);
     }
@@ -196,12 +178,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.INVENTORY_FAILED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.handleInventoryFailed("order-1");
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.PROCESSING);
         assertThat(published.getNewState()).isEqualTo(OrderState.INVENTORY_FAILED);
     }
@@ -221,12 +203,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.SHIPPED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.shipOrder("order-1");
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.PAYMENT_APPROVED);
         assertThat(published.getNewState()).isEqualTo(OrderState.SHIPPED);
     }
@@ -252,12 +234,12 @@ class OrderServicePreviousStateTest {
         });
         when(stateMachineService.getCurrentState("order-1")).thenReturn(OrderState.DELIVERED);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = newOrderService(rabbitTemplate);
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.deliverOrder("order-1", 42L);
 
-        OrderStatusChangedEvent published = rabbitTemplate.lastStatusChangedEvent();
+        OrderStatusChangedEvent published = lastStatusChangedEvent(savedEvents);
         assertThat(published.getPreviousState()).isEqualTo(OrderState.SHIPPED);
         assertThat(published.getNewState()).isEqualTo(OrderState.DELIVERED);
     }

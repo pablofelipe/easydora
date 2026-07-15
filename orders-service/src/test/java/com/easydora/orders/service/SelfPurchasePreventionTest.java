@@ -4,22 +4,21 @@ import com.easydora.orders.dto.OrderItemRequest;
 import com.easydora.orders.dto.OrderRequest;
 import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
+import com.easydora.orders.entity.OutboxEvent;
 import com.easydora.orders.entity.ProductOwnership;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.OutboxEventRepository;
 import com.easydora.orders.repository.ProductOwnershipRepository;
+import com.easydora.orders.support.OutboxEventCaptureSupport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,7 +26,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,24 +41,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SelfPurchasePreventionTest {
 
-    private static class RecordingRabbitTemplate extends RabbitTemplate {
-        final List<String> routingKeys = new ArrayList<>();
-
-        RecordingRabbitTemplate() {
-            super(mock(ConnectionFactory.class));
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object) {
-            routingKeys.add(routingKey);
-        }
-
-        @Override
-        public void convertAndSend(String exchange, String routingKey, Object object, MessagePostProcessor messagePostProcessor) {
-            routingKeys.add(routingKey);
-        }
-    }
-
     @Mock
     private BuyerRepository buyerRepository;
     @Mock
@@ -69,6 +49,13 @@ class SelfPurchasePreventionTest {
     private OrderStateMachineService stateMachineService;
     @Mock
     private ProductOwnershipRepository productOwnershipRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+
+    private OrderService newOrderService() {
+        return new OrderService(buyerRepository, orderRepository, stateMachineService, productOwnershipRepository,
+                outboxEventRepository, OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+    }
 
     private OrderRequest requestFor(String productId) {
         OrderItemRequest item = new OrderItemRequest();
@@ -90,17 +77,15 @@ class SelfPurchasePreventionTest {
         when(productOwnershipRepository.findById("prod-1"))
                 .thenReturn(Optional.of(new ProductOwnership("prod-1", "42")));
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         assertThatThrownBy(() -> orderService.createOrder(requestFor("prod-1"), 42L))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("Cannot purchase your own product");
 
         verify(orderRepository, never()).save(any(Order.class));
-        assertThat(rabbitTemplate.routingKeys)
+        assertThat(savedEvents)
                 .withFailMessage("a rejected self-purchase must not publish any event")
                 .isEmpty();
     }
@@ -118,14 +103,12 @@ class SelfPurchasePreventionTest {
         when(stateMachineService.getCurrentState(anyString()))
                 .thenReturn(com.easydora.orders.statemachine.OrderState.PROCESSING);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.createOrder(requestFor("prod-1"), 42L);
 
-        assertThat(rabbitTemplate.routingKeys).contains("order.created");
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).contains("order.created");
     }
 
     @Test
@@ -141,14 +124,12 @@ class SelfPurchasePreventionTest {
         when(stateMachineService.getCurrentState(anyString()))
                 .thenReturn(com.easydora.orders.statemachine.OrderState.PROCESSING);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.createOrder(requestFor("prod-1"), 7L);
 
-        assertThat(rabbitTemplate.routingKeys).contains("order.created");
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).contains("order.created");
     }
 
     @Test
@@ -163,13 +144,11 @@ class SelfPurchasePreventionTest {
         when(stateMachineService.getCurrentState(anyString()))
                 .thenReturn(com.easydora.orders.statemachine.OrderState.PROCESSING);
 
-        RecordingRabbitTemplate rabbitTemplate = new RecordingRabbitTemplate();
-        OrderService orderService = new OrderService(
-                buyerRepository, orderRepository, stateMachineService, rabbitTemplate,
-                productOwnershipRepository, new SimpleMeterRegistry());
+        List<OutboxEvent> savedEvents = OutboxEventCaptureSupport.capture(outboxEventRepository);
+        OrderService orderService = newOrderService();
 
         orderService.createOrder(requestFor("prod-unknown"), 7L);
 
-        assertThat(rabbitTemplate.routingKeys).contains("order.created");
+        assertThat(savedEvents).extracting(OutboxEvent::getRoutingKey).contains("order.created");
     }
 }

@@ -109,10 +109,12 @@ to another publish:
 > never left the process) happens to mitigate a related symptom.
 
 This criterion, and which of `orders-service`'s and `billing-service`'s
-publishes it applies to, is not decided by this ADR — extending the
-pattern to either service is separate, forthcoming work, tracked by the
-existing Roadmap item this ADR does not close. This ADR's own scope is
-the specification and the harmonization above, both already shipped.
+publishes it applies to, is not decided by this ADR at the time it was
+written — extending the pattern to either service was separate,
+forthcoming work, tracked by the existing Roadmap item this ADR did not
+close. This ADR's own scope, as originally written, was the specification
+and the harmonization above. See the 2026-07-15 Update below for
+`orders-service`'s extension.
 
 ### What was deliberately not done here
 
@@ -169,11 +171,34 @@ In the same spirit as [ADR-0018](0018-persistence-strategy.md),
 - The poison-pill and unbounded-batch gaps identified above remain open,
   by deliberate choice — see the objective criteria for when they'd earn
   fixing.
-- This ADR does not extend Outbox to any new service or event. The
-  `orders-service` Roadmap item ADR-0034 opened stays open until that
-  separate work lands.
+- `billing-service` still has no Outbox for any of its publishes
+  (`payment.approved`/`payment.failed`/`payment.refunded`/
+  `payment.refund.failed`) — this ADR's adoption criterion applies to all
+  four, per the architectural analysis that produced this ADR, but
+  extending the pattern there is separate, still-forthcoming work.
 - The poller still has no distributed-locking story; unchanged limitation
   from ADR-0003, still acceptable at single-instance scale.
+
+## Update — 2026-07-15: extended to all four of orders-service's publishes
+
+The adoption criterion above was applied to every publish `orders-service`
+makes — `order.created`, `stock.reserve`, `order.status-changed`, and
+`payment.refund.requested` — and all four qualified: none is purely
+informative, and losing or failing to persist any of them would leave a
+cross-service business process stalled, orphaned, or desynchronized, per
+[ADR-0034](0034-payment-compensation-saga.md)'s own Update. `orders-service`
+now has an `outbox_events` table, `OutboxEvent`/`OutboxEventRepository`,
+and an `OutboxPublisher` identical in shape to auth-service's and
+inventory-service's (same schema, same envelope, same 5s poll, same
+metrics/logging from the start rather than as a later harmonization
+pass) — see `orders-service/.../service/OutboxPublisher.java`.
+`OrderService` no longer holds a `RabbitTemplate` at all: every one of its
+four publishes now goes through a single `writeOutboxEvent` helper that
+serializes the event with the same `ObjectMapper` the RabbitMQ message
+converter uses, so the stored payload text is byte-for-byte what a direct
+`convertAndSend` would have put on the wire. This closes the README
+Roadmap item this ADR previously left open for `orders-service`;
+`billing-service` remains open, per the residual bullet above.
 
 ## References
 

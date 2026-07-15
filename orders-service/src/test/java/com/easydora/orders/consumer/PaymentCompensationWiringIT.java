@@ -108,7 +108,11 @@ class PaymentCompensationWiringIT {
 
         Order stillRefunding = orderRepository.findById(orderId).orElseThrow();
         assertThat(stillRefunding.getState()).isEqualTo(OrderState.REFUNDING);
-        assertThat(pollForRefundPaymentCommand(orderId, 1500))
+        // 6s, not 1.5s: a real (buggy) duplicate write would only reach
+        // this probe queue on the outbox poller's next tick, up to ~5s
+        // later (ADR-0034 Update/ADR-0037) -- a short window here would
+        // pass even if the bug this asserts against were reintroduced.
+        assertThat(pollForRefundPaymentCommand(orderId, 6000))
                 .withFailMessage("a duplicate payment.approved must not publish a second RefundPaymentCommand")
                 .isFalse();
     }
@@ -147,8 +151,12 @@ class PaymentCompensationWiringIT {
         return state;
     }
 
+    // 8s, not 5s: order.status-changed/payment.refund.requested now go
+    // through OutboxPublisher's poller (ADR-0034 Update/ADR-0037) instead
+    // of a direct publish, so a row written just after a poll tick can
+    // wait nearly a full 5s fixedDelay before the next tick sends it.
     private void assertProbeReceivedOrderStatusChanged(String orderId, String previousState, String newState) {
-        long deadline = System.currentTimeMillis() + 5000;
+        long deadline = System.currentTimeMillis() + 8000;
         while (System.currentTimeMillis() < deadline) {
             Message message = rabbitTemplate.receive(OrderStatusChangedProbeSupport.PROBE_QUEUE, 500);
             if (message == null) {
@@ -166,14 +174,14 @@ class PaymentCompensationWiringIT {
     }
 
     private void assertProbeReceivedRefundPaymentCommand(String orderId) {
-        if (!pollForRefundPaymentCommand(orderId, 5000)) {
+        if (!pollForRefundPaymentCommand(orderId, 8000)) {
             throw new AssertionError("expected a real RefundPaymentCommand publish for order " + orderId
                     + " but none arrived within the timeout");
         }
     }
 
     private void drainRefundPaymentCommand(String orderId) {
-        pollForRefundPaymentCommand(orderId, 5000);
+        pollForRefundPaymentCommand(orderId, 8000);
     }
 
     private boolean pollForRefundPaymentCommand(String orderId, long timeoutMillis) {

@@ -7,22 +7,26 @@ import com.easydora.orders.dto.OrderItemResponse;
 import com.easydora.orders.entity.Buyer;
 import com.easydora.orders.entity.Order;
 import com.easydora.orders.entity.OrderItem;
+import com.easydora.orders.entity.OutboxEvent;
 import com.easydora.orders.event.OrderCreatedEvent;
 import com.easydora.orders.event.RefundPaymentCommand;
 import com.easydora.orders.event.ReserveStockCommand;
 import com.easydora.orders.repository.BuyerRepository;
 import com.easydora.orders.repository.OrderRepository;
+import com.easydora.orders.repository.OutboxEventRepository;
 import com.easydora.orders.repository.ProductOwnershipRepository;
 import com.easydora.orders.statemachine.OrderEvent;
 import com.easydora.orders.statemachine.OrderState;
 import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
-import com.easydora.correlation.CorrelationMessaging;
+import com.easydora.correlation.CorrelationContext;
+import com.easydora.correlation.OutboxEnvelopeCodec;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,8 +42,9 @@ public class OrderService {
     private final BuyerRepository buyerRepository;
     private final OrderRepository orderRepository;
     private final OrderStateMachineService stateMachineService;
-    private final RabbitTemplate rabbitTemplate;
     private final ProductOwnershipRepository productOwnershipRepository;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper outboxObjectMapper;
     private final Counter ordersCreatedCounter;
 
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
@@ -47,14 +52,16 @@ public class OrderService {
     public OrderService(BuyerRepository buyerRepository,
                         OrderRepository orderRepository,
                        OrderStateMachineService stateMachineService,
-                       RabbitTemplate rabbitTemplate,
                        ProductOwnershipRepository productOwnershipRepository,
+                       OutboxEventRepository outboxEventRepository,
+                       ObjectMapper outboxObjectMapper,
                        MeterRegistry meterRegistry) {
         this.buyerRepository = buyerRepository;
         this.orderRepository = orderRepository;
         this.stateMachineService = stateMachineService;
-        this.rabbitTemplate = rabbitTemplate;
         this.productOwnershipRepository = productOwnershipRepository;
+        this.outboxEventRepository = outboxEventRepository;
+        this.outboxObjectMapper = outboxObjectMapper;
         // Business metric (ADR-0036): infra-level metrics (request rate,
         // JVM, RabbitMQ) already answer "is the system healthy"; this one
         // answers a question infra can't -- "how much business is actually
@@ -366,9 +373,8 @@ public class OrderService {
         RefundPaymentCommand command = new RefundPaymentCommand();
         command.setOrderId(orderId);
 
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.REFUND_PAYMENT_REQUESTED_KEY,
-            command, CorrelationMessaging.withCorrelation());
-        BusinessEventLog.info(logger, "payment.refund.requested.published", orderId, "RefundPaymentCommand published");
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.REFUND_PAYMENT_REQUESTED_KEY, command);
+        BusinessEventLog.info(logger, "payment.refund.requested.outboxed", orderId, "RefundPaymentCommand recorded in outbox");
     }
 
     @Transactional
@@ -525,24 +531,18 @@ public class OrderService {
     }
 
     private void publishOrderCreatedEvent(Order order) {
-        try {
-            OrderCreatedEvent event = new OrderCreatedEvent();
-            event.setOrderId(order.getId());
-            event.setUserId(order.getUserId());
-            event.setTotalAmount(order.getTotalAmount());
-            event.setItems(order.getItems().stream()
-                .map(this::mapToEventItem)
-                .collect(Collectors.toList()));
-            event.setCreatedAt(order.getCreatedAt());
-            
-            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event, CorrelationMessaging.withCorrelation());
-            BusinessEventLog.info(logger, "order.created.published", order.getId(), "OrderCreatedEvent published");
-            ordersCreatedCounter.increment();
+        OrderCreatedEvent event = new OrderCreatedEvent();
+        event.setOrderId(order.getId());
+        event.setUserId(order.getUserId());
+        event.setTotalAmount(order.getTotalAmount());
+        event.setItems(order.getItems().stream()
+            .map(this::mapToEventItem)
+            .collect(Collectors.toList()));
+        event.setCreatedAt(order.getCreatedAt());
 
-        } catch (Exception e) {
-            logger.error("Error publishing OrderCreatedEvent: {}", e.getMessage(), e);
-            // Do not throw, so the main flow isn't broken
-        }
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_CREATED_KEY, event);
+        BusinessEventLog.info(logger, "order.created.outboxed", order.getId(), "OrderCreatedEvent recorded in outbox");
+        ordersCreatedCounter.increment();
     }
     
     private com.easydora.orders.event.OrderCreatedEvent.OrderItem mapToEventItem(OrderItem item) {
@@ -555,48 +555,56 @@ public class OrderService {
     }
     
     private void publishOrderStatusChanged(String orderId, OrderState previousState, OrderState newState) {
-        com.easydora.orders.event.OrderStatusChangedEvent event = 
+        com.easydora.orders.event.OrderStatusChangedEvent event =
             new com.easydora.orders.event.OrderStatusChangedEvent();
         event.setOrderId(orderId);
         event.setPreviousState(previousState);
         event.setNewState(newState);
-        
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_STATUS_CHANGED_KEY, event, CorrelationMessaging.withCorrelation());
-        BusinessEventLog.info(logger, "order.status-changed.published", orderId, "OrderStatusChangedEvent published: " + previousState + " -> " + newState);
+
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.ORDER_STATUS_CHANGED_KEY, event);
+        BusinessEventLog.info(logger, "order.status-changed.outboxed", orderId,
+                "OrderStatusChangedEvent recorded in outbox: " + previousState + " -> " + newState);
     }
-    
+
     private void sendReserveStockCommand(Order order) {
-        try
-        {
+        ReserveStockCommand command = new ReserveStockCommand();
+        command.setOrderId(order.getId());
 
-            ReserveStockCommand command = new ReserveStockCommand();
-            command.setOrderId(order.getId());
-            
-            List<ReserveStockCommand.OrderItemDTO> items = order.getItems().stream()
-            .map(item -> {
-                    ReserveStockCommand.OrderItemDTO dto = new ReserveStockCommand.OrderItemDTO();
-                    dto.setProductId(item.getProductId());
-                    dto.setQuantity(item.getQuantity());
-                    return dto;
-                })
-                .collect(Collectors.toList());
-                    
-            command.setItems(items);
-            
-            rabbitTemplate.convertAndSend(
-                "order.exchange",
-                "stock.reserve",
-                command,
-                CorrelationMessaging.composedWith(message -> {
-                    message.getMessageProperties().setContentType("application/json");
-                    message.getMessageProperties().setPriority(0);
-                    return message;
-                })
-            );
-            BusinessEventLog.info(logger, "stock.reserve.published", order.getId(), "ReserveStockCommand sent");
+        List<ReserveStockCommand.OrderItemDTO> items = order.getItems().stream()
+        .map(item -> {
+                ReserveStockCommand.OrderItemDTO dto = new ReserveStockCommand.OrderItemDTO();
+                dto.setProductId(item.getProductId());
+                dto.setQuantity(item.getQuantity());
+                return dto;
+            })
+            .collect(Collectors.toList());
 
-        } catch (Exception e) {
-            logger.error("Error sending ReserveStockCommand: {}", e.getMessage(), e);
+        command.setItems(items);
+
+        writeOutboxEvent(RabbitMQConfig.ORDER_EXCHANGE, RabbitMQConfig.RESERVE_STOCK_ROUTING_KEY, command);
+        BusinessEventLog.info(logger, "stock.reserve.outboxed", order.getId(), "ReserveStockCommand recorded in outbox");
+    }
+
+    // Single write path for every outbox-backed publish in this service
+    // (ADR-0037): serializes the event with the same ObjectMapper the
+    // RabbitMQ message converter uses, so the stored text is byte-for-byte
+    // what a direct convertAndSend would have put on the wire, then wraps
+    // it with the correlationId/messageId envelope OutboxPublisher later
+    // unwraps and promotes to native AMQP properties. Runs as a plain
+    // repository save inside this method's own @Transactional scope --
+    // deliberately no try/catch: a failure here is a DB failure, and must
+    // roll back the same domain change that produced this event, exactly
+    // like orderRepository.save/saveAndFlush already does.
+    private void writeOutboxEvent(String exchange, String routingKey, Object payload) {
+        try {
+            String body = outboxObjectMapper.writeValueAsString(payload);
+            String envelopedPayload = OutboxEnvelopeCodec.wrap(
+                    CorrelationContext.currentOrNewCorrelationId(),
+                    CorrelationContext.newMessageId(),
+                    body);
+            outboxEventRepository.save(new OutboxEvent(exchange, routingKey, envelopedPayload));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize outbox payload for routing key " + routingKey, e);
         }
     }
 

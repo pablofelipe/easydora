@@ -116,9 +116,15 @@ class PaymentOutcomeWiringIT {
      * next message off the queue is it -- unrelated messages are simply
      * drained and discarded, harmlessly, since nothing else reads this
      * queue.
+     *
+     * Deadline (8s, not 5s): order.status-changed is now written to
+     * OutboxPublisher's outbox_events table instead of published directly
+     * (ADR-0034 Update/ADR-0037) -- worst case, a row written just after a
+     * poll tick waits nearly the full 5s fixedDelay before the next tick
+     * picks it up, so 5s alone would be a coin flip.
      */
     private void assertOrderStatusChangedWasPublished(String orderId, String previousState, String newState) {
-        long deadline = System.currentTimeMillis() + 5000;
+        long deadline = System.currentTimeMillis() + 8000;
         while (System.currentTimeMillis() < deadline) {
             Message message = rabbitTemplate.receive(OrderStatusChangedProbeSupport.PROBE_QUEUE, 500);
             if (message == null) {

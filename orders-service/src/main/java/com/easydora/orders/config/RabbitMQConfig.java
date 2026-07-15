@@ -275,15 +275,26 @@ public class RabbitMQConfig {
         return new RepublishMessageRecoverer(rabbitTemplate, DLX_EXCHANGE);
     }
 
+    // Shared with OrderService's Outbox writes (ADR-0037/ADR-0034 Update):
+    // an outbox row's payload is stored as plain JSON text and later sent
+    // as raw bytes by OutboxPublisher, with no message converter involved
+    // at publish time -- so the text written here must already match
+    // exactly what this same ObjectMapper would have produced, which is
+    // why OrderService is wired to this exact bean instead of building its
+    // own.
     @Bean
-    public MessageConverter messageConverter() {
+    public ObjectMapper outboxObjectMapper() {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        
-        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
-        
+        return objectMapper;
+    }
+
+    @Bean
+    public MessageConverter messageConverter(ObjectMapper outboxObjectMapper) {
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(outboxObjectMapper);
+
         DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
         typeMapper.setTypePrecedence(DefaultJackson2JavaTypeMapper.TypePrecedence.INFERRED);
         converter.setJavaTypeMapper(typeMapper);
@@ -292,23 +303,24 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter messageConverter) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
-        rabbitTemplate.setMessageConverter(messageConverter());
+        rabbitTemplate.setMessageConverter(messageConverter);
         return rabbitTemplate;
     }
 
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
-            SimpleRabbitListenerContainerFactoryConfigurer configurer) {
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            MessageConverter messageConverter) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         // Applies spring.rabbitmq.listener.simple.retry.* (limited attempts,
         // exponential backoff) and wires the messageRecoverer bean above as
         // the recoverer used once retries are exhausted - no custom retry
         // code, just Spring Boot's native listener container configurer.
         configurer.configure(factory, connectionFactory);
-        factory.setMessageConverter(messageConverter());
+        factory.setMessageConverter(messageConverter);
         return factory;
     }
 }
