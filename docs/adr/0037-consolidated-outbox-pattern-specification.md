@@ -215,6 +215,60 @@ The Outbox Pattern now covers every publish in the system that qualifies
 under this ADR's own criterion — `products-service` was out of scope for
 the analysis that produced this ADR and remains untouched.
 
+## Update — 2026-07-15: outbox retention policy and the polling-vs-CDC criterion
+
+A follow-up architecture review flagged two things this ADR had left
+unaddressed: `outbox_events` rows are marked `published_at` once sent, but
+never deleted — no retention or cleanup policy has ever been decided, as
+opposed to the batch-size and poison-pill gaps above, which were at least
+explicitly deferred with criteria — and this ADR never explicitly weighed
+polling against change-data-capture (CDC), even though it already defers
+a related question (batch size) with objective criteria.
+
+**Retention: no automated cleanup added, by explicit decision, not by
+omission.** At this project's actual volume (development/demo usage, not
+a sustained production load), the unbounded row count is a theoretical
+concern, not an observed one — the existing partial index on
+`published_at IS NULL` keeps the poll query's cost tied to the unpublished
+backlog, not the table's total size, so a growing history of already-
+published rows does not by itself degrade the poller. Objective criteria
+for revisiting, in the same spirit as this ADR's other deferred items:
+
+- The table's total row count (not just the unpublished backlog) becomes
+  operationally noticeable — e.g. affecting backup size/time or
+  `VACUUM` behavior in a way that has actually been observed, not merely
+  hypothesized.
+- This project ever adopts a compliance-driven audit-retention
+  requirement that would define a retention period on different grounds
+  than storage cost (not the case today).
+
+When either happens, the fix is a straightforward scheduled deletion of
+rows past a chosen age where `published_at IS NOT NULL` — deliberately
+not built speculatively ahead of either signal.
+
+**Polling vs. CDC (e.g. Debezium): polling remains the correct choice,
+explicitly, not merely by default.** CDC would remove the fixed 5-second
+publish lag `outbox_publish_lag_seconds` already measures, by capturing
+the write-ahead log directly instead of scheduling a poll. It was
+rejected for this project for two independent reasons, either of which is
+sufficient on its own:
+
+- It requires standing up a new, stateful connector service (Debezium
+  itself typically requires Kafka Connect; a RabbitMQ-only deployment
+  would need Debezium Server or an equivalent bridge) — reintroducing
+  Kafka-adjacent infrastructure this project deliberately removed in full
+  ([ADR-0007](0007-remove-kafka-broker.md)), for a latency improvement
+  (sub-5-second propagation) with no identified caller in this system
+  that needs it.
+- Nothing measured in this project's own metrics
+  (`outbox_publish_lag_seconds`, in production use since ADR-0036) has
+  ever shown the 5-second poll to be a bottleneck for any downstream
+  consumer.
+
+This mirrors the criterion this ADR already applies to batch size and
+poison-pill visibility above: a real, measured signal would reopen the
+question; none exists today.
+
 ## References
 
 - [ADR-0003](0003-outbox-pattern-auth-service.md) — the original
