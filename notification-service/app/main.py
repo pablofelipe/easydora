@@ -1,7 +1,7 @@
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
@@ -9,6 +9,7 @@ from app.auth import AuthenticatedUserDependency, JwtCache
 from app.auth_client import AuthServiceClient, CachingAuthClient
 from app.config import load_settings
 from app.correlation import CORRELATION_ID_HEADER, REQUEST_ID_HEADER, correlation_scope, new_id
+from app.health import ProgressWatchdog
 from app.logging_config import configure_logging
 from app.rabbitmq import run_consumer
 from app.repository import NotificationRepository
@@ -21,6 +22,14 @@ settings = load_settings()
 repository = NotificationRepository(settings.db_dsn)
 jwt_cache = JwtCache()
 get_authenticated_user = AuthenticatedUserDependency(jwt_cache)
+progress_watchdog = ProgressWatchdog()
+
+# Generous relative to how often progress is actually recorded (every
+# message processed, every idle tick every IDLE_TICK_SECONDS, every
+# run_consumer loop iteration including failed reconnect attempts) -- this
+# only trips on a genuine stall, many multiples longer than any of those
+# intervals.
+LIVENESS_STUCK_THRESHOLD_SECONDS = 300
 
 
 @asynccontextmanager
@@ -38,6 +47,7 @@ async def lifespan(_app: FastAPI):
     thread = threading.Thread(
         target=run_consumer,
         args=(settings.rabbitmq_url, auth_client, repository, sender, jwt_cache),
+        kwargs={"watchdog": progress_watchdog},
         daemon=True,
     )
     thread.start()
@@ -87,6 +97,19 @@ async def correlation_middleware(request: Request, call_next):
 @app.get("/notification/health")
 def health():
     return {"status": "OK", "service": "notification-service"}
+
+
+@app.get("/health/liveness")
+@app.get("/notification/health/liveness")
+def liveness(response: Response):
+    """Backed by ProgressWatchdog (docs/adr/0038's Update): reports DOWN
+    only when the messaging loop is genuinely stalled, never merely
+    because RabbitMQ is unreachable -- deliberately separate from /health
+    above, which the readinessProbe still uses unchanged."""
+    if progress_watchdog.is_stuck(LIVENESS_STUCK_THRESHOLD_SECONDS):
+        response.status_code = 503
+        return {"status": "DOWN", "reason": f"no messaging progress recorded within {LIVENESS_STUCK_THRESHOLD_SECONDS}s"}
+    return {"status": "UP"}
 
 
 # Prometheus scrape endpoint (see ADR-0036). make_asgi_app() serves the

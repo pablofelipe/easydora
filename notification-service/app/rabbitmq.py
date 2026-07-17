@@ -7,10 +7,25 @@ import pika
 
 from app.consumer import process_order_created, process_order_status_changed
 from app.correlation import correlation_scope, current_or_new_correlation_id
+from app.health import ProgressWatchdog
 
 logger = logging.getLogger(__name__)
 
 RECONNECT_DELAY_SECONDS = 5
+
+# Explicit, not left to whatever pika/RabbitMQ negotiate by default (see
+# docs/adr/0038-infrastructure-startup-resilience.md's Update): detection
+# of a dead connection depends entirely on this value. A missed heartbeat
+# is what makes BlockingConnection.start_consuming() eventually raise and
+# fall into run_consumer's own retry loop below -- without an explicit
+# value, that detection window is implicit and unverified.
+HEARTBEAT_SECONDS = 30
+
+# How often a call_later tick fires while start_consuming() is otherwise
+# blocking -- the equivalent of Spring AMQP's ListenerContainerIdleEvent:
+# proves the connection's own ioloop is still alive and processing events,
+# independent of whether any business message has arrived.
+IDLE_TICK_SECONDS = 30
 
 # Must match orders-service's real producer exactly (see
 # orders-service/src/main/java/com/easydora/orders/config/RabbitMQConfig.java
@@ -57,7 +72,9 @@ DLQ = "notification.dlq"
 
 
 def connect(rabbitmq_url: str):
-    connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
+    parameters = pika.URLParameters(rabbitmq_url)
+    parameters.heartbeat = HEARTBEAT_SECONDS
+    connection = pika.BlockingConnection(parameters)
     channel = connection.channel()
     return connection, channel
 
@@ -184,8 +201,17 @@ def _cache_jwt_created(event: dict, jwt_cache) -> None:
     )
 
 
-def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None:
+def consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdog: ProgressWatchdog | None = None) -> None:
+    def _record_progress():
+        if watchdog is not None:
+            watchdog.record_progress()
+
+    def _idle_tick():
+        _record_progress()
+        channel.connection.call_later(IDLE_TICK_SECONDS, _idle_tick)
+
     def on_order_created(ch, method, properties, body):
+        _record_progress()
         with _scope_from_properties(properties):
             try:
                 event = json.loads(body)
@@ -196,6 +222,7 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None
                 _route_to_retry_or_dlq(ch, method, properties, body)
 
     def on_order_status_changed(ch, method, properties, body):
+        _record_progress()
         with _scope_from_properties(properties):
             try:
                 event = json.loads(body)
@@ -206,6 +233,7 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None
                 _route_to_retry_or_dlq(ch, method, properties, body)
 
     def on_jwt_created(ch, method, properties, body):
+        _record_progress()
         with _scope_from_properties(properties):
             try:
                 event = json.loads(body)
@@ -218,10 +246,12 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache) -> None
     channel.basic_consume(queue=ORDER_CREATED_QUEUE, on_message_callback=on_order_created)
     channel.basic_consume(queue=ORDER_STATUS_CHANGED_QUEUE, on_message_callback=on_order_status_changed)
     channel.basic_consume(queue=JWT_CREATED_QUEUE, on_message_callback=on_jwt_created)
+    channel.connection.call_later(IDLE_TICK_SECONDS, _idle_tick)
     channel.start_consuming()
 
 
-def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache) -> None:
+def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache,
+                  watchdog: ProgressWatchdog | None = None) -> None:
     """Runs connect + declare_topology + consume_forever in a loop that
     never gives up permanently. This is a daemon thread with no supervisor:
     a container can start before RabbitMQ is fully ready to accept
@@ -232,12 +262,20 @@ def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache) 
     the consumer was permanently dead. A later broker restart mid-run
     would kill this thread the same way. Every failure, at startup or
     mid-run, is logged and retried after a fixed delay instead.
+
+    watchdog (docs/adr/0038-infrastructure-startup-resilience.md's Update)
+    records progress on every iteration of this loop -- successful or
+    not -- plus every message processed and every idle tick inside
+    consume_forever, so an arbitrarily long, tolerated broker outage never
+    looks "stuck" as long as this loop keeps retrying.
     """
     while True:
+        if watchdog is not None:
+            watchdog.record_progress()
         try:
             _connection, channel = connect(rabbitmq_url)
             declare_topology(channel)
-            consume_forever(channel, auth_client, repository, sender, jwt_cache)
+            consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdog)
         except Exception:
             logger.exception(
                 "RabbitMQ connection lost or unavailable; retrying in %ss",

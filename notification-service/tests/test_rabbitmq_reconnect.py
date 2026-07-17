@@ -49,7 +49,7 @@ def test_run_consumer_reconnects_after_a_mid_run_disconnect():
         calls["connect"] += 1
         return object(), object()
 
-    def fake_consume(channel, auth_client, repository, sender, jwt_cache):
+    def fake_consume(channel, auth_client, repository, sender, jwt_cache, watchdog=None):
         calls["consume"] += 1
         if calls["consume"] < 2:
             raise ConnectionError("simulated: broker connection lost mid-run")
