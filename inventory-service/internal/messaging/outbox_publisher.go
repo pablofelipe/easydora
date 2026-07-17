@@ -45,9 +45,10 @@ const outboxPollInterval = 5 * time.Second
 // Mirrors auth-service's OutboxPublisher decisions (see
 // auth-service/.../service/OutboxPublisher.java).
 type OutboxPublisher struct {
-	channel *amqp.Channel
-	repo    repository.InventoryRepository
-	stop    chan struct{}
+	channel  *amqp.Channel
+	consumer *RabbitMQConsumer
+	repo     repository.InventoryRepository
+	stop     chan struct{}
 }
 
 // StartOutboxPublisher creates a dedicated channel on this consumer's
@@ -60,13 +61,31 @@ func (r *RabbitMQConsumer) StartOutboxPublisher(repo repository.InventoryReposit
 	}
 
 	publisher := &OutboxPublisher{
-		channel: channel,
-		repo:    repo,
-		stop:    make(chan struct{}),
+		channel:  channel,
+		consumer: r,
+		repo:     repo,
+		stop:     make(chan struct{}),
 	}
 
 	go publisher.run()
 	return publisher, nil
+}
+
+// ensureChannel replaces the cached channel with a fresh one from the
+// current (possibly reconnected) connection if the cached one has gone
+// stale -- without this, every Publish attempt after a broker restart
+// would fail identically forever, on the same dead channel, regardless of
+// watchConnection having already reconnected the underlying connection.
+func (p *OutboxPublisher) ensureChannel() error {
+	if p.channel != nil && !p.channel.IsClosed() {
+		return nil
+	}
+	channel, err := p.consumer.createChannel()
+	if err != nil {
+		return fmt.Errorf("failed to refresh outbox publisher channel: %w", err)
+	}
+	p.channel = channel
+	return nil
 }
 
 func (p *OutboxPublisher) run() {
@@ -84,6 +103,18 @@ func (p *OutboxPublisher) run() {
 }
 
 func (p *OutboxPublisher) publishPending() {
+	// Recorded once per tick, not once per successful publish -- this
+	// loop being alive and polling is progress regardless of whether the
+	// broker accepts anything this cycle. See the Java services'
+	// identical OutboxPublisher for the full rationale.
+	p.consumer.Watchdog.RecordProgress()
+
+	if err := p.ensureChannel(); err != nil {
+		correlation.Error(outboxLogger, context.Background(), "outbox publisher has no usable channel -- will retry next poll",
+			"error", err.Error())
+		return
+	}
+
 	events, err := p.repo.FindUnpublishedOutboxEvents()
 	if err != nil {
 		correlation.Error(outboxLogger, context.Background(), "failed to query unpublished outbox events",

@@ -18,6 +18,11 @@ import (
 
 var consumerLogger = correlation.NewLogger(os.Stdout, "inventory-service")
 
+// reconnectDelay is used both by the initial bounded boot-time retry (ADR-0038,
+// unchanged) and by the unbounded steady-state reconnect loop added here --
+// same cadence, different give-up policy.
+const reconnectDelay = 3 * time.Second
+
 // contextFromDelivery builds a context carrying the inbound message's
 // CorrelationId (reused, or freshly generated if the publisher didn't set
 // one) and its MessageId, so every log line and downstream call made while
@@ -34,17 +39,32 @@ func contextFromDelivery(d amqp.Delivery) context.Context {
 }
 
 type RabbitMQConsumer struct {
-	conn     *amqp.Connection
-	cfg      *config.Config
-	channels []*amqp.Channel // Multiple channels
+	cfg *config.Config
+
+	connMu sync.RWMutex
+	conn   *amqp.Connection
+
 	mu       sync.Mutex
-	wg       sync.WaitGroup
+	channels []*amqp.Channel // Multiple channels
+
+	wg sync.WaitGroup
+
+	// Watchdog answers "is my messaging loop still making progress" --
+	// fed by every (re)connect attempt and consumer setup cycle below,
+	// never by whether RabbitMQ happens to be reachable right now. See
+	// ProgressWatchdog's own doc comment and
+	// docs/adr/0038-infrastructure-startup-resilience.md's Update.
+	Watchdog *ProgressWatchdog
 }
 
 func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 	cfg := config.Load()
 
-	// Try to connect with retry
+	// Bounded retry for the *initial* connection only (ADR-0038): if
+	// RabbitMQ never comes up at all, failing fast at boot is correct.
+	// Steady-state reconnection (watchConnection, below) is deliberately
+	// unbounded -- a boot-time failure and a later broker restart warrant
+	// different give-up policies.
 	var conn *amqp.Connection
 	var err error
 
@@ -53,7 +73,7 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 		conn, err = amqp.Dial(cfg.RabbitMQURL)
 		if err != nil {
 			log.Printf("Attempt %d/%d - RabbitMQ is not ready: %v", i+1, maxRetries, err)
-			time.Sleep(3 * time.Second)
+			time.Sleep(reconnectDelay)
 			continue
 		}
 		log.Println("Connected to RabbitMQ")
@@ -64,18 +84,69 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ after %d attempts: %w", maxRetries, err)
 	}
 
-	return &RabbitMQConsumer{
-		conn: conn,
-		cfg:  cfg,
-	}, nil
+	r := &RabbitMQConsumer{
+		conn:     conn,
+		cfg:      cfg,
+		Watchdog: NewProgressWatchdog(),
+	}
+
+	go r.watchConnection()
+
+	return r, nil
+}
+
+// watchConnection is the steady-state counterpart to NewRabbitMQConsumer's
+// bounded boot-time retry: it never gives up. amqp091-go does not recover a
+// dropped connection on its own (unlike the RabbitMQ Java client Spring AMQP
+// wraps, which has automatic connection + topology recovery built in) --
+// this loop is what makes that same property true here, using the
+// library's own NotifyClose primitive instead of inventing a replacement
+// for it. Every attempt, successful or not, records progress: a broker
+// outage that lasts arbitrarily long must never look "stuck" as long as
+// this loop keeps trying.
+func (r *RabbitMQConsumer) watchConnection() {
+	for {
+		conn := r.currentConn()
+		closeErr := make(chan *amqp.Error, 1)
+		conn.NotifyClose(closeErr)
+
+		reason := <-closeErr
+		if reason != nil {
+			log.Printf("RabbitMQ connection lost: %v -- reconnecting", reason)
+		} else {
+			log.Println("RabbitMQ connection closed -- reconnecting")
+		}
+
+		for {
+			r.Watchdog.RecordProgress()
+			newConn, err := amqp.Dial(r.cfg.RabbitMQURL)
+			if err != nil {
+				log.Printf("Reconnect attempt failed: %v -- retrying in %s", err, reconnectDelay)
+				time.Sleep(reconnectDelay)
+				continue
+			}
+			log.Println("Reconnected to RabbitMQ")
+			r.replaceConn(newConn)
+			break
+		}
+	}
+}
+
+func (r *RabbitMQConsumer) currentConn() *amqp.Connection {
+	r.connMu.RLock()
+	defer r.connMu.RUnlock()
+	return r.conn
+}
+
+func (r *RabbitMQConsumer) replaceConn(conn *amqp.Connection) {
+	r.connMu.Lock()
+	defer r.connMu.Unlock()
+	r.conn = conn
 }
 
 // createChannel creates a new channel for exclusive use
 func (r *RabbitMQConsumer) createChannel() (*amqp.Channel, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	channel, err := r.conn.Channel()
+	channel, err := r.currentConn().Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
@@ -91,7 +162,9 @@ func (r *RabbitMQConsumer) createChannel() (*amqp.Channel, error) {
 		return nil, fmt.Errorf("failed to configure QoS: %w", err)
 	}
 
+	r.mu.Lock()
 	r.channels = append(r.channels, channel)
+	r.mu.Unlock()
 	return channel, nil
 }
 
@@ -153,43 +226,64 @@ func (r *RabbitMQConsumer) setupQueue(channel *amqp.Channel, queueName, routingK
 	return queue, nil
 }
 
-func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
-	inventoryService service.InventoryService,
-) error {
+// runConsumerLoop is the shared supervisor behind every Consume* method
+// below: it (re)creates a channel, (re)declares the queue/binding, and
+// registers a fresh consumer every time the previous one's delivery channel
+// closes -- whether that's because the connection was lost (watchConnection
+// will have already redialed by the time this loop retries, or will
+// shortly) or the channel itself was closed for some other reason. Each
+// cycle records progress before attempting setup, so a consumer stuck
+// retrying against a still-down broker is indistinguishable, from the
+// watchdog's point of view, from one happily consuming -- both are "not
+// stuck". name is only used for logging.
+func (r *RabbitMQConsumer) runConsumerLoop(name string, setup func() (*amqp.Channel, <-chan amqp.Delivery, error), handle func(d amqp.Delivery)) {
 	r.wg.Add(1)
 	defer r.wg.Done()
 
-	// Create a dedicated channel for this consumer
-	channel, err := r.createChannel()
-	if err != nil {
-		return fmt.Errorf("failed to create channel for reserve consumer: %w", err)
+	for {
+		r.Watchdog.RecordProgress()
+
+		channel, msgs, err := setup()
+		if err != nil {
+			log.Printf("[%s] setup failed: %v -- retrying in %s", name, err, reconnectDelay)
+			time.Sleep(reconnectDelay)
+			continue
+		}
+
+		for d := range msgs {
+			r.Watchdog.RecordProgress()
+			handle(d)
+		}
+
+		channel.Close()
+		log.Printf("[%s] consumer channel closed -- re-registering", name)
 	}
-	defer channel.Close()
+}
 
-	// Configure the reserve queue
-	queue, err := r.setupQueue(channel, "inventory.reserve.queue", "stock.reserve", "order.exchange")
-	if err != nil {
-		return fmt.Errorf("failed to configure reserve queue: %w", err)
-	}
+func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
+	inventoryService service.InventoryService,
+) error {
+	r.runConsumerLoop("RESERVE", func() (*amqp.Channel, <-chan amqp.Delivery, error) {
+		channel, err := r.createChannel()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create channel for reserve consumer: %w", err)
+		}
 
-	// Start consumer
-	msgs, err := channel.Consume(
-		queue.Name, // queue
-		"",         // consumer
-		false,      // auto-ack (manual ack)
-		false,      // exclusive
-		false,      // no-local
-		false,      // no-wait
-		nil,        // args
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register reserve consumer: %w", err)
-	}
+		queue, err := r.setupQueue(channel, "inventory.reserve.queue", "stock.reserve", "order.exchange")
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to configure reserve queue: %w", err)
+		}
 
-	log.Printf("Waiting for ReserveStockCommand on queue: %s (routing key: stock.reserve)", queue.Name)
+		msgs, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to register reserve consumer: %w", err)
+		}
 
-	// Process messages
-	for d := range msgs {
+		log.Printf("Waiting for ReserveStockCommand on queue: %s (routing key: stock.reserve)", queue.Name)
+		return channel, msgs, nil
+	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
 		correlation.Info(consumerLogger, ctx, "message received", "event", "stock.reserve", "aggregateId", "")
 
@@ -197,7 +291,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		if err := json.Unmarshal(d.Body, &command); err != nil {
 			log.Printf("[RESERVE] Error decoding message: %v", err)
 			d.Nack(false, false) // Do not requeue - invalid message
-			continue
+			return
 		}
 
 		correlation.Info(consumerLogger, ctx, "processing ReserveStockCommand", "event", "stock.reserve", "aggregateId", command.OrderID)
@@ -213,7 +307,7 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		if err != nil {
 			log.Printf("[RESERVE] Error processing reservation for order %s: %v", command.OrderID, err)
 			d.Nack(false, true) // Requeue to try again
-			continue
+			return
 		}
 
 		if success {
@@ -223,53 +317,40 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		}
 
 		d.Ack(false)
-	}
+	})
 
 	return nil
 }
 
 func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.InventoryService) error {
-	r.wg.Add(1)
-	defer r.wg.Done()
+	r.runConsumerLoop("RELEASE", func() (*amqp.Channel, <-chan amqp.Delivery, error) {
+		channel, err := r.createChannel()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create channel for release consumer: %w", err)
+		}
 
-	// Create a dedicated channel for this consumer
-	channel, err := r.createChannel()
-	if err != nil {
-		return fmt.Errorf("failed to create channel for release consumer: %w", err)
-	}
-	defer channel.Close()
+		queue, err := r.setupQueue(channel, "inventory.release.queue", "stock.release", "order.exchange")
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to configure release queue: %w", err)
+		}
 
-	// Configure the release queue
-	queue, err := r.setupQueue(channel, "inventory.release.queue", "stock.release", "order.exchange")
-	if err != nil {
-		return fmt.Errorf("failed to configure release queue: %w", err)
-	}
+		msgs, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to register release consumer: %w", err)
+		}
 
-	// Start consumer
-	msgs, err := channel.Consume(
-		queue.Name, // queue
-		"",         // consumer
-		false,      // auto-ack (manual ack)
-		false,      // exclusive
-		false,      // no-local
-		false,      // no-wait
-		nil,        // args
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register release consumer: %w", err)
-	}
-
-	log.Printf("Waiting for ReleaseStockCommand on queue: %s (routing key: stock.release)", queue.Name)
-
-	// Process messages
-	for d := range msgs {
+		log.Printf("Waiting for ReleaseStockCommand on queue: %s (routing key: stock.release)", queue.Name)
+		return channel, msgs, nil
+	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
 
 		var command models.ReleaseStockCommand
 		if err := json.Unmarshal(d.Body, &command); err != nil {
 			log.Printf("[RELEASE] Error decoding release command: %v", err)
 			d.Nack(false, false) // Do not requeue - invalid message
-			continue
+			return
 		}
 
 		correlation.Info(consumerLogger, ctx, "processing ReleaseStockCommand", "event", "stock.release", "aggregateId", command.OrderID)
@@ -277,12 +358,12 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
 		if err := inventoryService.ReleaseStock(ctx, &command); err != nil {
 			log.Printf("[RELEASE] Failed to process release command: %v", err)
 			d.Nack(false, true) // Requeue to try again
-			continue
+			return
 		}
 
 		d.Ack(false)
 		correlation.Info(consumerLogger, ctx, "stock released", "event", "stock.released", "aggregateId", command.OrderID)
-	}
+	})
 
 	return nil
 }
@@ -303,48 +384,39 @@ func (r *RabbitMQConsumer) consumeProductEvent(
 	queueName, routingKey string,
 	handle func(body []byte) error,
 ) error {
-	r.wg.Add(1)
-	defer r.wg.Done()
+	r.runConsumerLoop(routingKey, func() (*amqp.Channel, <-chan amqp.Delivery, error) {
+		channel, err := r.createChannel()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create channel for %s consumer: %w", routingKey, err)
+		}
 
-	channel, err := r.createChannel()
-	if err != nil {
-		return fmt.Errorf("failed to create channel for %s consumer: %w", routingKey, err)
-	}
-	defer channel.Close()
+		queue, err := r.setupQueue(channel, queueName, routingKey, "product.exchange")
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to configure %s queue: %w", routingKey, err)
+		}
 
-	queue, err := r.setupQueue(channel, queueName, routingKey, "product.exchange")
-	if err != nil {
-		return fmt.Errorf("failed to configure %s queue: %w", routingKey, err)
-	}
+		msgs, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+		if err != nil {
+			channel.Close()
+			return nil, nil, fmt.Errorf("failed to register %s consumer: %w", routingKey, err)
+		}
 
-	msgs, err := channel.Consume(
-		queue.Name, // queue
-		"",         // consumer
-		false,      // auto-ack (manual ack)
-		false,      // exclusive
-		false,      // no-local
-		false,      // no-wait
-		nil,        // args
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register %s consumer: %w", routingKey, err)
-	}
-
-	log.Printf("Waiting for %s on queue: %s (routing key: %s)", routingKey, queue.Name, routingKey)
-
-	for d := range msgs {
+		log.Printf("Waiting for %s on queue: %s (routing key: %s)", routingKey, queue.Name, routingKey)
+		return channel, msgs, nil
+	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
 		correlation.Info(consumerLogger, ctx, "message received", "event", routingKey, "aggregateId", "")
 
 		if err := handle(d.Body); err != nil {
 			log.Printf("[%s] Error decoding message: %v", routingKey, err)
 			d.Nack(false, false) // invalid message - do not requeue
-			continue
+			return
 		}
 
 		d.Ack(false)
 		correlation.Info(consumerLogger, ctx, "message processed", "event", routingKey, "aggregateId", "")
-	}
+	})
 
 	return nil
 }
@@ -403,8 +475,8 @@ func (r *RabbitMQConsumer) Close() {
 	}
 
 	// Close connection
-	if r.conn != nil {
-		r.conn.Close()
+	if conn := r.currentConn(); conn != nil {
+		conn.Close()
 	}
 
 	log.Println("RabbitMQ connection closed")

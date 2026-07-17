@@ -42,8 +42,13 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
+            # Backed by ProgressWatchdog (docs/adr/0038's Update) -- reports
+            # DOWN only when the messaging loop is genuinely stalled, never
+            # merely because RabbitMQ is unreachable. Separate from the
+            # readinessProbe's plain /health above.
             httpGet:
-              path: /health
+              path: /health/liveness
               port: 8083
             initialDelaySeconds: 20
             periodSeconds: 15
+            failureThreshold: 3

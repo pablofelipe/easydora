@@ -87,6 +87,14 @@ func main() {
     http.Handle("/health", withCORS(correlation.Middleware(withMetrics("/health", http.HandlerFunc(healthHandler)))))
     http.Handle("/inventory/health", withCORS(correlation.Middleware(withMetrics("/inventory/health", http.HandlerFunc(healthHandler)))))
 
+    // Liveness (docs/adr/0038's Update): answers "is the messaging loop
+    // stalled", never "is RabbitMQ reachable right now" -- see
+    // ProgressWatchdog's own doc comment. Deliberately separate from
+    // /health above, which the readinessProbe still uses unchanged.
+    livenessHandler := livenessHandlerFor(rabbitMQ.Watchdog)
+    http.Handle("/health/liveness", withCORS(correlation.Middleware(withMetrics("/health/liveness", http.HandlerFunc(livenessHandler)))))
+    http.Handle("/inventory/health/liveness", withCORS(correlation.Middleware(withMetrics("/inventory/health/liveness", http.HandlerFunc(livenessHandler)))))
+
     // Prometheus scrape endpoint (see ADR-0036). promhttp.Handler() serves
     // the default registry, which already includes Go runtime metrics
     // (goroutines, heap) and process metrics with zero custom collectors.
@@ -149,6 +157,27 @@ func main() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+}
+
+// livenessStuckThreshold is generous relative to how often progress is
+// actually recorded (every reconnect attempt, ~3s apart when disconnected;
+// every outbox poll tick, 5s) -- this only trips on a genuine stall, many
+// multiples longer than either interval.
+const livenessStuckThreshold = 5 * time.Minute
+
+func livenessHandlerFor(watchdog *messaging.ProgressWatchdog) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        if watchdog.IsStuck(livenessStuckThreshold) {
+            w.WriteHeader(http.StatusServiceUnavailable)
+            json.NewEncoder(w).Encode(map[string]string{
+                "status": "DOWN",
+                "reason": "no messaging progress recorded within " + livenessStuckThreshold.String(),
+            })
+            return
+        }
+        json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+    }
 }
 
 // HTTP request rate/latency/errors: promhttp.Handler() alone only exposes Go
