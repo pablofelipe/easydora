@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notification-service-config
+  namespace: easydora
+data:
+  AUTH_SERVICE_URL: http://auth-service:8081
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: easydora
+  DB_USER: admin

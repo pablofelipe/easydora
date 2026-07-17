@@ -1,0 +1,20 @@
+# Named "rabbitmq" -- the exact hostname every service's RabbitMQ env vars
+# already use in docker-compose.yml (see docs/adr/0040).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: easydora
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+    - name: prometheus
+      port: 15692
+      targetPort: 15692

@@ -1,0 +1,73 @@
+# Image built the same way as docker-compose (context: repo root, dockerfile:
+# auth-service/Dockerfile) and loaded into kind via `kind load docker-image`
+# -- see k8s/README.md. imagePullPolicy: IfNotPresent so the kind node uses
+# the loaded image instead of attempting a registry pull.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: easydora
+  labels:
+    app: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: easydora-auth-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: auth-service-config
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: JWT_SECRET
+            - name: APP_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: APP_JWT_SECRET
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: ADMIN_EMAIL
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: ADMIN_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /auth/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /auth/health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 15

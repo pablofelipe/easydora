@@ -1,0 +1,18 @@
+# NodePort, not ClusterIP -- this is the one entry point the walkthrough's
+# curl sequence and (in a later, separate delivery) the frontend both need
+# to reach from outside the cluster. nodePort 30080 is mapped to the host's
+# localhost:8080 by k8s/kind-config.yaml's extraPortMappings, matching the
+# same port docker-compose already publishes the Gateway on.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: easydora
+spec:
+  type: NodePort
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080

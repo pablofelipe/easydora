@@ -1,0 +1,14 @@
+# Non-secret env vars only -- passwords/JWT secrets come from the
+# easydora-secrets Secret instead (see docs/adr/0040).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-config
+  namespace: easydora
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/easydora
+  SPRING_DATASOURCE_USERNAME: admin
+  SPRING_PROFILES_ACTIVE: dev
+  SPRING_RABBITMQ_HOST: rabbitmq
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: admin

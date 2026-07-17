@@ -1,0 +1,19 @@
+# DATABASE_URL/RABBITMQ_URL (present in docker-compose.yml alongside these
+# discrete vars) are deliberately omitted here: grepping inventory-service's
+# Go code confirms only the discrete DB_*/RABBITMQ_* vars are ever read
+# (pkg/config) -- the two DSN-form vars are dead weight in docker-compose.yml
+# itself, not reproduced here per this project's own "avoid dead code"
+# principle.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-service-config
+  namespace: easydora
+data:
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: admin
+  DB_NAME: easydora
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: admin

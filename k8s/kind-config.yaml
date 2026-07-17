@@ -1,0 +1,24 @@
+# Single-node cluster -- this project has no multi-replica requirement (see
+# docs/adr/0040), so a control-plane+worker split would be complexity with
+# nothing to demonstrate. extraPortMappings exposes the Gateway's NodePort
+# on localhost, the same port docker-compose already publishes it on.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: easydora
+nodes:
+  - role: control-plane
+    # Pinned, not left to kind's default (latest) node image: on a host
+    # whose Docker Engine still runs cgroup v1 (`docker info` -- deprecated
+    # but common, e.g. Docker Desktop on Windows/WSL2), the newest node
+    # images fail to bootstrap the control plane (kubeadm times out
+    # waiting for the API server: "client rate limiter Wait returned an
+    # error"). v1.31.2 is confirmed working on cgroup v1; if your host runs
+    # cgroup v2, a newer image works too and this pin can be dropped.
+    image: kindest/node:v1.31.2
+    extraPortMappings:
+      - containerPort: 30080 # api-gateway NodePort (k8s/base/api-gateway/service.yaml)
+        hostPort: 8080
+        protocol: TCP
+      # A mapping for the frontend (hostPort 3000) belongs here once that
+      # component is added in the separate, later delivery described in
+      # docs/adr/0040's Non-Goals -- not part of this cluster config yet.

@@ -1,0 +1,17 @@
+# The one PersistentVolumeClaim in this delivery (see docs/adr/0040) --
+# Postgres is the only component whose state must survive a pod restart.
+# A single PVC referenced directly by a Deployment, not a StatefulSet's
+# volumeClaimTemplates: this project runs Postgres as a single instance,
+# and StatefulSet's per-replica storage identity has nothing to attach to
+# at replica=1 (see ADR-0040's rejected alternatives).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: easydora
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

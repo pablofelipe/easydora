@@ -1,0 +1,16 @@
+# All non-secret -- api-gateway is a pure reverse proxy, no credentials of
+# its own. Every URL below is the exact Kubernetes Service DNS name used by
+# this same delivery, identical in shape to docker-compose.yml's own
+# hardcoded hostnames -- zero application code change (see docs/adr/0040).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: easydora
+data:
+  AUTH_SERVICE_URL: http://auth-service:8081
+  PRODUCTS_SERVICE_URL: http://products-service:8082
+  INVENTORY_SERVICE_URL: http://inventory-service:8083
+  ORDERS_SERVICE_URL: http://orders-service:8084
+  BILLING_SERVICE_URL: http://billing-service:8085
+  NOTIFICATION_SERVICE_URL: http://notification-service:8086

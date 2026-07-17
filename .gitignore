@@ -28,6 +28,9 @@ Thumbs.db
 .env
 .dockerignore
 
+# Kubernetes (see docs/adr/0040)
+k8s/base/secrets.yaml
+
 # Build outputs
 dist/
 build/

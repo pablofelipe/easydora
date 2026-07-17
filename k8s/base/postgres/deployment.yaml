@@ -1,0 +1,63 @@
+# Deployment, not StatefulSet -- see docs/adr/0040. StatefulSet's value
+# (stable per-replica identity + volumeClaimTemplates + ordered scaling)
+# has no replica to apply to here; this mirrors Kubernetes' own
+# "Run a Single-Instance Stateful Application" tutorial pattern (Deployment
+# + one directly-referenced PVC), not a StatefulSet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: easydora
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # a single ReadWriteOnce volume cannot be mounted by two pods at once, even briefly during a rolling update
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: easydora
+            - name: POSTGRES_USER
+              value: admin
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "admin", "-d", "easydora"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "admin", "-d", "easydora"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: postgres-init
+          configMap:
+            name: postgres-init

@@ -1,0 +1,80 @@
+# Kustomize base only -- no overlays (see docs/adr/0040): this project runs
+# a single environment (local kind), so a dev/prod overlay split would be
+# ceremony with nothing to differentiate. Apply with:
+#   kubectl apply -k k8s/base
+#
+# configMapGenerator sources every infra ConfigMap directly from the exact
+# same versioned files docker-compose.yml already bind-mounts (init SQL,
+# Prometheus config, Grafana provisioning/dashboards) -- one source of
+# truth, no content duplicated into this directory.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: easydora
+
+resources:
+  - namespace.yaml
+  - postgres/pvc.yaml
+  - postgres/deployment.yaml
+  - postgres/service.yaml
+  - rabbitmq/deployment.yaml
+  - rabbitmq/service.yaml
+  - auth-service/configmap.yaml
+  - auth-service/deployment.yaml
+  - auth-service/service.yaml
+  - products-service/configmap.yaml
+  - products-service/deployment.yaml
+  - products-service/service.yaml
+  - inventory-service/configmap.yaml
+  - inventory-service/deployment.yaml
+  - inventory-service/service.yaml
+  - orders-service/configmap.yaml
+  - orders-service/deployment.yaml
+  - orders-service/service.yaml
+  - billing-service/configmap.yaml
+  - billing-service/deployment.yaml
+  - billing-service/service.yaml
+  - notification-service/configmap.yaml
+  - notification-service/deployment.yaml
+  - notification-service/service.yaml
+  - api-gateway/configmap.yaml
+  - api-gateway/deployment.yaml
+  - api-gateway/service.yaml
+  - prometheus/deployment.yaml
+  - prometheus/service.yaml
+  - grafana/deployment.yaml
+  - grafana/service.yaml
+
+configMapGenerator:
+  - name: postgres-init
+    files:
+      - ../../init-scripts/01-create-schemas.sql
+
+  - name: rabbitmq-enabled-plugins
+    files:
+      - ../../observability/rabbitmq/enabled_plugins
+
+  - name: prometheus-config
+    files:
+      - ../../observability/prometheus/prometheus.yml
+
+  - name: grafana-datasource-config
+    files:
+      - ../../observability/grafana/provisioning/datasources/datasource.yml
+
+  - name: grafana-dashboards-provider
+    files:
+      - ../../observability/grafana/provisioning/dashboards/dashboards.yml
+
+  - name: grafana-dashboards-json
+    files:
+      - ../../observability/grafana/dashboards/business.json
+      - ../../observability/grafana/dashboards/go.json
+      - ../../observability/grafana/dashboards/jvm.json
+      - ../../observability/grafana/dashboards/overview.json
+      - ../../observability/grafana/dashboards/postgres.json
+      - ../../observability/grafana/dashboards/python.json
+      - ../../observability/grafana/dashboards/rabbitmq.json
+
+generatorOptions:
+  disableNameSuffixHash: true

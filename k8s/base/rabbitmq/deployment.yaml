@@ -1,0 +1,59 @@
+# Deployment, no PersistentVolumeClaim -- queues/bindings are redeclared
+# idempotently by each consuming service's own startup code (the same
+# mechanism that already protects docker-compose today), so losing
+# RabbitMQ's state on a pod restart costs nothing real in this environment.
+# StatefulSet is only justified for a *clustered* RabbitMQ (peer discovery
+# via stable identity across multiple replicas) -- not the case here, single
+# node, same as docker-compose (see docs/adr/0040).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: easydora
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management-alpine
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+            - containerPort: 15692
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: admin
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: easydora-secrets
+                  key: RABBITMQ_PASSWORD
+          volumeMounts:
+            - name: rabbitmq-enabled-plugins
+              mountPath: /etc/rabbitmq/enabled_plugins
+              subPath: enabled_plugins
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+      volumes:
+        - name: rabbitmq-enabled-plugins
+          configMap:
+            name: rabbitmq-enabled-plugins

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-service-config
+  namespace: easydora
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/easydora
+  SPRING_DATASOURCE_USERNAME: admin
+  SPRING_PROFILES_ACTIVE: dev
+  SPRING_RABBITMQ_HOST: rabbitmq
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: admin
