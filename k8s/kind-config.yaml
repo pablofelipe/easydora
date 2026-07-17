@@ -19,6 +19,6 @@ nodes:
       - containerPort: 30080 # api-gateway NodePort (k8s/base/api-gateway/service.yaml)
         hostPort: 8080
         protocol: TCP
-      # A mapping for the frontend (hostPort 3000) belongs here once that
-      # component is added in the separate, later delivery described in
-      # docs/adr/0040's Non-Goals -- not part of this cluster config yet.
+      - containerPort: 30081 # frontend NodePort (k8s/base/frontend/service.yaml)
+        hostPort: 3000
+        protocol: TCP

@@ -9,9 +9,7 @@ this exists and what it deliberately does not attempt.
 development.** Use this only when you specifically want to exercise the
 Kubernetes object model.
 
-This covers the backend + observability delivery only. The frontend is a
-separate, later, optional delivery (see ADR-0040's Non-Goals) and is not
-part of what's built here.
+Covers backend + observability, plus the frontend (see ADR-0040's Update).
 
 ## Prerequisites
 
@@ -48,6 +46,10 @@ docker build -f inventory-service/Dockerfile    -t easydora-inventory-service:lo
 docker build -t easydora-notification-service:local notification-service
 ```
 
+Frontend: reuse the image already built for Docker Compose (`easydora-frontend:latest`)
+unmodified -- no rebuild needed, see [ADR-0040](../docs/adr/0040-minimal-kubernetes-kind-deployment.md)'s
+Update.
+
 ## 3. Load the images into the kind cluster
 
 `kind` nodes don't share the host's image cache -- a locally built image
@@ -62,6 +64,7 @@ kind load docker-image easydora-orders-service:local       --name easydora
 kind load docker-image easydora-billing-service:local      --name easydora
 kind load docker-image easydora-inventory-service:local    --name easydora
 kind load docker-image easydora-notification-service:local --name easydora
+kind load docker-image easydora-frontend:latest             --name easydora
 ```
 
 ## 4. Create the Secret
@@ -95,7 +98,7 @@ source of truth, nothing duplicated into `k8s/`) -- see
 kubectl get pods -n easydora -w
 ```
 
-All eleven components (seven application services + postgres + rabbitmq +
+All twelve components (eight application services + postgres + rabbitmq +
 prometheus + grafana) should reach `Running`/`1/1 Ready`.
 
 Then replay `docs/walkthrough.md`'s curl sequence against the Gateway,

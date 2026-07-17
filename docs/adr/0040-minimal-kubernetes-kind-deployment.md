@@ -205,6 +205,25 @@ initiative existed (DNS-based service discovery by hostname, a real
   way `docker-compose.yml`'s `${RABBITMQ_PASSWORD}` substitution does).
   Manual to keep in sync when rotating a password; accepted at this scale.
 
+## Update — 2026-07-17: frontend added
+
+The frontend, deliberately excluded from the first delivery above, is now
+added as its own Deployment/Service (`k8s/base/frontend/`). It reuses the
+exact same image already built for Docker Compose, unmodified —
+`VITE_GATEWAY_URL=http://localhost:8080` is baked in at Vite build time,
+and `k8s/kind-config.yaml`'s `extraPortMappings` already expose the
+Gateway's NodePort at that same host address, so the frontend's build-time
+assumption holds without a rebuild. A second `extraPortMappings` entry
+(NodePort 30081 → host 3000) does the same for the frontend itself,
+matching Docker Compose's own `3000:3000` publish. No PersistentVolumeClaim
+(a static SvelteKit build, no state of its own); `tcpSocket` readiness/
+liveness probes, since the frontend has no `/health` endpoint of its own
+(SSR is disabled — see ADR-0026 — so there's no server-side route to
+probe, only the static file server).
+
+This closes the one open Non-Goal from the original scope. Every other
+Non-Goal listed above remains unchanged and out of scope.
+
 ## References
 
 - [ADR-0007](0007-remove-kafka-broker.md) — an earlier infrastructure

@@ -1,0 +1,38 @@
+# See docs/adr/0040's Update. Reuses the same image already
+# built for docker-compose, unmodified -- VITE_GATEWAY_URL=http://localhost:8080
+# is baked in at Vite build time, and k8s/kind-config.yaml's
+# extraPortMappings expose the Gateway at that exact host address, so no
+# rebuild is needed for this environment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: easydora
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: easydora-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15

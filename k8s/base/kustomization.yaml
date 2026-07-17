@@ -44,6 +44,8 @@ resources:
   - prometheus/service.yaml
   - grafana/deployment.yaml
   - grafana/service.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
 
 configMapGenerator:
   - name: postgres-init
