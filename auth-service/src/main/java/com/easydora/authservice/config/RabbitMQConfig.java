@@ -47,4 +47,9 @@ public class RabbitMQConfig {
         rabbitTemplate.setMessageConverter(jsonMessageConverter());
         return rabbitTemplate;
     }
+
+    @Bean
+    public java.time.Clock clock() {
+        return java.time.Clock.systemUTC();
+    }
 }

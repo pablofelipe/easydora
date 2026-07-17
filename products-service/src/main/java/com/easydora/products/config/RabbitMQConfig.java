@@ -149,6 +149,17 @@ public class RabbitMQConfig {
         // code, just Spring Boot's native listener container configurer.
         configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(messageConverter());
+        // Publishes ListenerContainerIdleEvent every 30s even with no
+        // messages flowing -- the signal RabbitMqProgressEventListener/
+        // ProgressWatchdog use to prove the container's own loop is still
+        // alive (docs/adr/0038's Update), independent of whether RabbitMQ
+        // itself is reachable.
+        factory.setIdleEventInterval(30_000L);
         return factory;
+    }
+
+    @Bean
+    public java.time.Clock clock() {
+        return java.time.Clock.systemUTC();
     }
 }

@@ -6,6 +6,7 @@ import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.entity.User;
 import com.easydora.authservice.entity.UserStatus;
+import com.easydora.authservice.health.ProgressWatchdog;
 import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
 
@@ -105,7 +106,8 @@ class VerifyEmailOutboxHappyPathIT {
 
         OutboxEventRepository pollerOutboxRepository = mock(OutboxEventRepository.class);
         when(pollerOutboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc()).thenReturn(List.of(savedEvent));
-        OutboxPublisher publisher = new OutboxPublisher(pollerOutboxRepository, rabbitTemplate, new SimpleMeterRegistry());
+        OutboxPublisher publisher = new OutboxPublisher(pollerOutboxRepository, rabbitTemplate,
+                new SimpleMeterRegistry(), mock(ProgressWatchdog.class));
 
         publisher.publishPendingEvents();
 

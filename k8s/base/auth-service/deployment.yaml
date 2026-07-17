@@ -66,8 +66,12 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
+            # Actuator's liveness group, backed by rabbitMqProgress
+            # (docs/adr/0038's Update) -- see orders-service's identical
+            # setup for the full rationale.
             httpGet:
-              path: /auth/health
+              path: /auth/actuator/health/liveness
               port: 8081
             initialDelaySeconds: 60
             periodSeconds: 15
+            failureThreshold: 3

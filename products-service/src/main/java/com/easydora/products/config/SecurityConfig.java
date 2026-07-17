@@ -75,7 +75,8 @@ public class SecurityConfig {
                     "/ping",
                     "/health",
                     "/error",
-                    "/actuator/prometheus"
+                    "/actuator/prometheus",
+                    "/actuator/health/**"
                 ).permitAll()
                 // /my-products must be declared before the /{id} rule below:
                 // {id} is a path *pattern*, so it would otherwise also match
