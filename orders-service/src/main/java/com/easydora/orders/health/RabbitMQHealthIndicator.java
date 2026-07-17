@@ -28,7 +28,7 @@ public class RabbitMQHealthIndicator implements HealthIndicator {
                     return null;
                 } catch (Exception e) {
                     // If it doesn't exist, try to create it
-                    channel.exchangeDeclare("order.exchange", "direct", true);
+                    channel.exchangeDeclare("order.exchange", "topic", true);
 
                     // Create the queues
                     channel.queueDeclare("inventory.reserve.queue", true, false, false, null);
