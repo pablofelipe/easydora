@@ -266,6 +266,153 @@ carry dead, misleading tooling references.
   exhausts its retries. A compose-level restart policy is a cheap,
   complementary fix, out of this ADR's scope.
 
+## Update — 2026-07-17: steady-state reconnection after a broker restart
+
+### Context
+
+This ADR's original scope was boot-time only: what happens if a
+dependency isn't ready *yet* when a service starts. A separate incident
+exposed the neighboring, previously untested question: what happens if a
+dependency that was already connected gets restarted *while the service
+is running*. Generating test data against the `kind`-based Kubernetes
+deployment ([ADR-0040](0040-kubernetes-deployment.md)) — which gives
+RabbitMQ no PersistentVolume, so a pod restart there is a real, not
+hypothetical, mid-run broker restart — left `inventory-service` silently
+and permanently unable to consume any further messages after RabbitMQ
+came back up. No crash, no error surfaced anywhere; the process just
+stopped making progress.
+
+Rather than accept the first hypothesis (a missing reconnect loop) or
+jump straight to a fix, every service's Connection/Channel/Exchange/
+Queue/Binding/Consumer lifecycle was read and classified first, Spring
+AMQP's automatic-recovery and topology-recovery mechanisms were verified
+by direct jar/bytecode inspection rather than assumed from documentation,
+and two candidate blast-radius reductions — giving RabbitMQ a
+PersistentVolume, and relying on a liveness probe alone with no
+in-process reconnect code — were considered and explicitly rejected (the
+first only protects queues surviving the restart, not any client's
+ability to reconnect to them; the second isn't portable to Docker
+Compose, which doesn't restart a container on a failed healthcheck the
+way Kubernetes does, violating the "behaves the same in both
+environments" principle this project has held since
+[ADR-0040](0040-kubernetes-deployment.md)).
+
+### The causal model: four layers, only one a real code gap
+
+1. **RabbitMQ loses its queues on restart** (ADR-0040's accepted
+   trade-off, not a bug — a `kind` node with no PersistentVolume for
+   RabbitMQ was always going to behave this way).
+2. **What each client does when it notices its own connection is dead**
+   — this is where the actual gap lived, and it differed sharply by
+   language:
+   - **Java** (`amqp-client` 5.19.0, underlying all four Spring
+     services): Automatic Connection Recovery and Topology Recovery are
+     both enabled by default and were never disabled anywhere in this
+     codebase — confirmed, not assumed, by reading the actual dependency
+     jar. A real integration test (`RabbitMQReconnectionIT`-style, one
+     per Spring service) that force-closes a live connection and asserts
+     the consumer resumes on its own passed on the first attempt in all
+     four services — this layer needed **verification, not code**.
+   - **Go** (`amqp091-go`, `inventory-service`): the library exposes
+     `NotifyClose` but nothing in this codebase was subscribed to it —
+     zero reconnection, confirmed and real. This is the one genuine code
+     gap in the whole investigation.
+   - **Python** (`pika`, `notification-service`): `run_consumer`'s outer
+     `while True` loop was already structurally correct (it already had
+     a test proving it survives a *mocked* mid-run disconnect), but with
+     no heartbeat configured, how quickly — or whether — `pika` notices
+     a real broker-initiated close was untested and unverified.
+3. **No service tied its liveness signal to the health of its own AMQP
+   consumer loop** — the readiness/health endpoints every service
+   already exposed only ever checked instantaneous HTTP/connectivity
+   state, never "is my messaging loop still making progress." This
+   compounds layers 1–2: even where reconnection *does* work
+   automatically, nothing would have forced a restart if it hadn't.
+
+**Verdict, explicit and by layer, as demanded before any implementation
+work began**: layer 1 is an accepted trade-off, not a defect. Layer 2 was
+a real, confirmed code gap in Go only — Java and Python needed
+verification and a small hardening, not new reconnection logic. Layer 3
+was a real, cross-cutting gap, closed as a defense-in-depth measure, not
+a substitute for layer 2 actually working.
+
+### What changed
+
+1. **Progress Watchdog, all six services** (four Spring services, Go,
+   Python) — a small class/struct (`recordProgress()`/`isStuck(threshold)`)
+   fed by every reconnect attempt (successful or not), every message
+   processed, and a periodic idle tick — deliberately *not* fed by
+   whether the broker happens to be reachable right now, so an ordinary,
+   already-tolerated broker outage can never by itself trigger a
+   liveness-probe restart storm. Investigated first whether Spring AMQP
+   already provided an equivalent signal before building anything custom:
+   `ListenerContainerIdleEvent`/`ListenerContainerConsumerFailedEvent`
+   exist and are the right building blocks, but no ready-made
+   "stuck" indicator does (`RabbitHealthIndicator` is a pure connectivity
+   check, confirmed via `javap`). Each service's `livenessProbe`/
+   `/health/liveness` now reads this watchdog instead of instantaneous
+   connection state, and documents explicitly that it detects process/
+   loop stall, not external-dependency unavailability.
+2. **`RabbitMQHealthIndicator`'s exchange-type bug fixed**
+   (`orders-service`) — the `"direct"` vs. `"topic"` inconsistency this
+   ADR's original Consequences section left as residual is now resolved,
+   ahead of reusing this indicator's shape as part of the liveness work
+   above.
+3. **`inventory-service` (Go) gained a real reconnect supervisor** —
+   `watchConnection()`, subscribed to `NotifyClose`, unbounded retry
+   (mirroring this ADR's boot-time retry cadence but never giving up),
+   swapping the shared `*amqp.Connection` behind a `sync.RWMutex` so
+   every consumer and the Outbox publisher pick up the new connection
+   without restarting themselves. Proven against a real broker (not a
+   mock): a test force-closes the live connection mid-run and asserts
+   both the direct consumer path and the Outbox-publish path resume
+   automatically. `RabbitMQConsumer.Close()` was also given a `stop`
+   channel so shutting a consumer down cleanly no longer leaves its
+   reconnect/consume goroutines spinning forever against an
+   intentionally-closed connection — found only because the resulting
+   goroutine leak was noisy enough to fail CI once the reconnect
+   supervisor started actually retrying on every `Close()`.
+4. **`notification-service` (Python) gained an explicit `pika`
+   heartbeat** (30s) so a broker-initiated close is detected instead of
+   relying on an unconfigured default, plus a Progress Watchdog fed by
+   every message processed, a periodic idle tick, and every
+   `run_consumer` retry attempt. Proven against a real broker: a test
+   force-closes the connection via RabbitMQ's management API (chosen
+   over calling `.close()` from a second thread, since
+   `pika.BlockingConnection` isn't thread-safe) and asserts the consumer
+   resumes within 20 seconds.
+5. **`docker-compose.yml`: every service gained `restart: on-failure`** —
+   closes this ADR's own previously-residual gap (a bounded retry-then-exit
+   strategy only narrows the failure window; something still has to
+   restart the container once retries are exhausted, and nothing did).
+   This also makes the liveness-probe-driven self-healing added in this
+   Update behave equivalently in Compose, not just Kubernetes — the same
+   "behaves the same in both environments" principle the two rejected
+   alternatives above were held to.
+
+### Consequences
+
+**Positive**: the incident that triggered this investigation (a
+`kind`-restarted RabbitMQ leaving `inventory-service` permanently unable
+to consume) cannot recur — the one real code gap (Go's missing
+reconnection) is closed and proven against a real broker, not a mock.
+Java's and Python's tolerance of the same event is now verified rather
+than assumed. Every service's liveness probe now reflects the thing that
+actually matters (is the messaging loop making progress) instead of
+instantaneous connectivity, in both Compose and Kubernetes.
+
+**Negative / residual, not fixed here**: the four Spring services'
+tolerance of this failure class still rests on `amqp-client`'s own
+automatic recovery — confirmed empirically here, same caveat this ADR
+already carries for HikariCP's `initialization-fail-timeout`, that a
+future library upgrade changing that default wouldn't be caught by
+anything this project owns. No PersistentVolume was added for RabbitMQ
+in Kubernetes (deliberately rejected, see Context above) — a broker
+restart there still means every queue is recreated empty; this Update
+closes the *client-reconnection* half of that event, not the
+*message-loss* half, which remains an accepted trade-off of
+[ADR-0040](0040-kubernetes-deployment.md).
+
 ## References
 
 - [ADR-0017](0017-notification-service-startup-resilience.md) — the
