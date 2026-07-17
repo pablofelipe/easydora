@@ -49,6 +49,16 @@ type RabbitMQConsumer struct {
 
 	wg sync.WaitGroup
 
+	// stop is closed exactly once, by Close(), to tell watchConnection and
+	// every runConsumerLoop goroutine to give up instead of retrying
+	// forever against a connection that was closed on purpose. Without
+	// this, Close() left every one of those goroutines spinning on a
+	// permanently-dead connection for the rest of the process's life --
+	// harmless in production (the process exits anyway) but a real
+	// goroutine/log leak in tests, which create and Close() a fresh
+	// consumer per test case.
+	stop chan struct{}
+
 	// Watchdog answers "is my messaging loop still making progress" --
 	// fed by every (re)connect attempt and consumer setup cycle below,
 	// never by whether RabbitMQ happens to be reachable right now. See
@@ -87,9 +97,11 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 	r := &RabbitMQConsumer{
 		conn:     conn,
 		cfg:      cfg,
+		stop:     make(chan struct{}),
 		Watchdog: NewProgressWatchdog(),
 	}
 
+	r.wg.Add(1)
 	go r.watchConnection()
 
 	return r, nil
@@ -105,24 +117,40 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 // outage that lasts arbitrarily long must never look "stuck" as long as
 // this loop keeps trying.
 func (r *RabbitMQConsumer) watchConnection() {
+	defer r.wg.Done()
+
 	for {
 		conn := r.currentConn()
 		closeErr := make(chan *amqp.Error, 1)
 		conn.NotifyClose(closeErr)
 
-		reason := <-closeErr
-		if reason != nil {
-			log.Printf("RabbitMQ connection lost: %v -- reconnecting", reason)
-		} else {
-			log.Println("RabbitMQ connection closed -- reconnecting")
+		select {
+		case <-closeErr:
+		case <-r.stop:
+			return
 		}
+
+		// Close() closing the connection itself triggers closeErr above --
+		// re-check stop before committing to a reconnect so a deliberate
+		// shutdown never redials.
+		select {
+		case <-r.stop:
+			return
+		default:
+		}
+
+		log.Println("RabbitMQ connection lost -- reconnecting")
 
 		for {
 			r.Watchdog.RecordProgress()
 			newConn, err := amqp.Dial(r.cfg.RabbitMQURL)
 			if err != nil {
 				log.Printf("Reconnect attempt failed: %v -- retrying in %s", err, reconnectDelay)
-				time.Sleep(reconnectDelay)
+				select {
+				case <-time.After(reconnectDelay):
+				case <-r.stop:
+					return
+				}
 				continue
 			}
 			log.Println("Reconnected to RabbitMQ")
@@ -241,18 +269,39 @@ func (r *RabbitMQConsumer) runConsumerLoop(name string, setup func() (*amqp.Chan
 	defer r.wg.Done()
 
 	for {
+		select {
+		case <-r.stop:
+			return
+		default:
+		}
+
 		r.Watchdog.RecordProgress()
 
 		channel, msgs, err := setup()
 		if err != nil {
 			log.Printf("[%s] setup failed: %v -- retrying in %s", name, err, reconnectDelay)
-			time.Sleep(reconnectDelay)
+			select {
+			case <-time.After(reconnectDelay):
+			case <-r.stop:
+				return
+			}
 			continue
 		}
 
-		for d := range msgs {
-			r.Watchdog.RecordProgress()
-			handle(d)
+		stopped := false
+		for !stopped {
+			select {
+			case d, ok := <-msgs:
+				if !ok {
+					stopped = true
+					continue
+				}
+				r.Watchdog.RecordProgress()
+				handle(d)
+			case <-r.stop:
+				channel.Close()
+				return
+			}
 		}
 
 		channel.Close()
@@ -464,19 +513,26 @@ func (r *RabbitMQConsumer) ConsumeProductDeletedEvents(inventoryService service.
 }
 
 func (r *RabbitMQConsumer) Close() {
+	// Signal every runConsumerLoop and watchConnection goroutine to stop
+	// before closing the connection out from under them -- ordering
+	// matters: closing the connection first would fire watchConnection's
+	// NotifyClose and race it into reconnecting one more time before it
+	// sees stop.
+	close(r.stop)
+
+	if conn := r.currentConn(); conn != nil {
+		conn.Close()
+	}
+
+	r.wg.Wait()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Close all channels
 	for _, channel := range r.channels {
 		if channel != nil {
 			channel.Close()
 		}
-	}
-
-	// Close connection
-	if conn := r.currentConn(); conn != nil {
-		conn.Close()
 	}
 
 	log.Println("RabbitMQ connection closed")

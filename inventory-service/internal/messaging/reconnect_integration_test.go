@@ -40,6 +40,22 @@ func TestConsumeReserveStockCommand_ResumesAfterConnectionDropped(t *testing.T) 
 		t.Fatalf("failed to set up order.exchange: %v", err)
 	}
 
+	// Without its own OutboxPublisher, this test's two reservations would
+	// leave unpublished stock.reserved rows behind for whichever later
+	// test's OutboxPublisher happens to poll next -- and since every
+	// test's observation queue binds the same literal "stock.reserved"
+	// routing key (a topic exchange has no productId/orderId segment to
+	// scope it by), that publisher would misdeliver this test's stale
+	// backlog into a different test's assertion. Draining it here, before
+	// any later queue binds to that routing key, means the exchange has
+	// nothing to route it to and simply drops it -- exactly what an
+	// already-gone test's own events should do.
+	outbox, err := consumer.StartOutboxPublisher(repo)
+	if err != nil {
+		t.Fatalf("failed to start outbox publisher: %v", err)
+	}
+	defer outbox.Stop()
+
 	_, pubCh := openTestChannel(t)
 	defer pubCh.Close()
 	declareTestQueue(t, pubCh, "inventory.reserve.queue", "order.exchange", "stock.reserve")
@@ -101,5 +117,27 @@ func TestConsumeReserveStockCommand_ResumesAfterConnectionDropped(t *testing.T) 
 	publishReserve("order-after-drop-"+productID, 3)
 	if !awaitCondition(15*time.Second, func() bool { return reservedEquals(5) }) {
 		t.Fatal("reservation published after the connection drop was never processed -- consumer did not resume")
+	}
+
+	// Drain this test's own outbox rows before returning: the deferred
+	// outbox.Stop() above fires as soon as this function returns, which is
+	// sooner than the publisher's own 5s poll tick unless we wait for it
+	// here -- otherwise these two rows are still unpublished when this
+	// test ends, and whichever later test's OutboxPublisher polls next
+	// inherits (and misdelivers into its own assertion queue) this test's
+	// backlog instead of its own event. No queue is bound to
+	// "stock.reserved" yet at this point, so the exchange has nowhere to
+	// route these once published and simply drops them.
+	outboxPublished := func(orderID string) bool {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM inventory_schema.outbox_events WHERE payload LIKE '%' || $1 || '%' AND published_at IS NOT NULL`, orderID).Scan(&count); err != nil {
+			return false
+		}
+		return count > 0
+	}
+	if !awaitCondition(10*time.Second, func() bool {
+		return outboxPublished("order-before-drop-"+productID) && outboxPublished("order-after-drop-"+productID)
+	}) {
+		t.Fatal("this test's own outbox events were not published before it returned -- would leak into a later test's assertion queue")
 	}
 }
