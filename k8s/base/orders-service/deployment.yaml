@@ -47,8 +47,14 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
+            # Actuator's liveness group (application.properties), not the
+            # plain /orders/health readiness check above -- this one is
+            # backed by rabbitMqProgress (docs/adr/0038's Update), which
+            # only reports DOWN when the messaging loop is genuinely
+            # stalled, never merely because RabbitMQ is unreachable.
             httpGet:
-              path: /orders/health
+              path: /orders/actuator/health/liveness
               port: 8084
             initialDelaySeconds: 60
             periodSeconds: 15
+            failureThreshold: 3

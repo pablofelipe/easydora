@@ -75,7 +75,8 @@ public class SecurityConfig {
                     "/ping",
                     "/health",
                     "/error",
-                    "/actuator/prometheus"
+                    "/actuator/prometheus",
+                    "/actuator/health/**"
                 ).permitAll()
                 // Endpoints that require authentication
                 .anyRequest().authenticated()

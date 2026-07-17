@@ -2,6 +2,7 @@ package com.easydora.orders.service;
 
 import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.orders.entity.OutboxEvent;
+import com.easydora.orders.health.ProgressWatchdog;
 import com.easydora.orders.repository.OutboxEventRepository;
 
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,8 @@ class OutboxPublisherRetryTest {
         doThrow(new RuntimeException("broker unreachable"))
                 .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
-        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, new SimpleMeterRegistry());
+        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate,
+                new SimpleMeterRegistry(), mock(ProgressWatchdog.class));
 
         publisher.publishPendingEvents();
 
@@ -75,7 +77,8 @@ class OutboxPublisherRetryTest {
                 .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, meterRegistry);
+        OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate,
+                meterRegistry, mock(ProgressWatchdog.class));
 
         publisher.publishPendingEvents();
 

@@ -5,6 +5,7 @@ import com.easydora.correlation.CorrelationConstants;
 import com.easydora.correlation.OutboxEnvelope;
 import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.orders.entity.OutboxEvent;
+import com.easydora.orders.health.ProgressWatchdog;
 import com.easydora.orders.repository.OutboxEventRepository;
 
 import io.micrometer.core.instrument.Counter;
@@ -47,11 +48,13 @@ public class OutboxPublisher {
     private final RabbitTemplate rabbitTemplate;
     private final Counter outboxEventsPublishedCounter;
     private final Timer outboxPublishLagTimer;
+    private final ProgressWatchdog progressWatchdog;
 
     public OutboxPublisher(OutboxEventRepository outboxEventRepository, RabbitTemplate rabbitTemplate,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry, ProgressWatchdog progressWatchdog) {
         this.outboxEventRepository = outboxEventRepository;
         this.rabbitTemplate = rabbitTemplate;
+        this.progressWatchdog = progressWatchdog;
         // Business metrics (ADR-0036/ADR-0037): infra-level metrics already
         // answer "is the system healthy"; these answer a question infra
         // can't -- how much of the outbox backlog is actually draining, and
@@ -67,6 +70,12 @@ public class OutboxPublisher {
     @Scheduled(fixedDelay = 5000)
     @Transactional
     public void publishPendingEvents() {
+        // Recorded once per tick, not once per successful publish -- this
+        // loop being alive and polling is progress regardless of whether
+        // the broker accepts anything this cycle. Tying it to publish
+        // success would make ProgressWatchdog trip during an ordinary,
+        // tolerated broker outage (ADR-0038), not just a genuine stall.
+        progressWatchdog.recordProgress();
         List<OutboxEvent> pending = outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc();
 
         for (OutboxEvent event : pending) {
