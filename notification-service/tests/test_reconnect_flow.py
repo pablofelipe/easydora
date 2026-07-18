@@ -64,8 +64,13 @@ def test_run_consumer_resumes_consuming_after_the_broker_force_closes_the_connec
     thread.start()
 
     # Give the consumer a moment to connect and start consuming before
-    # yanking the connection out from under it.
-    time.sleep(2)
+    # yanking the connection out from under it. Must exceed RabbitMQ
+    # management plugin's default stats-collection interval (5s) --
+    # _force_close_all_connections lists connections via that same API,
+    # and a connection younger than that interval may not appear in it
+    # yet, silently closing nothing and leaving this test to time out
+    # waiting for a reconnect that was never triggered.
+    time.sleep(6)
     progress_before = watchdog.last_progress()
 
     _force_close_all_connections()
