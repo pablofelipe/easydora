@@ -436,6 +436,7 @@ jobs:
           RABBITMQ_DEFAULT_PASS: local_dev_placeholder
         ports:
           - 5672:5672
+          - 15672:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics ping"
           --health-interval 10s
