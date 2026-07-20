@@ -3,6 +3,8 @@ package messaging
 import (
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // ProgressWatchdog answers one question only: has this service's messaging
@@ -50,5 +52,28 @@ func TestProgressWatchdog_ToleratesAnArbitrarilyLongBrokerOutageAsLongAsRetriesK
 
 	if w.IsStuck(2 * time.Minute) {
 		t.Fatal("repeated recorded attempts must never report stuck")
+	}
+}
+
+// TestProgressWatchdog_RecordProgressExposesLastProgressAsAGauge proves
+// RecordProgress also updates messaging_last_progress_timestamp_seconds,
+// so Grafana can compute "time since last progress" (time() - this gauge)
+// without needing access to the watchdog's internal state directly --
+// answers the same question IsStuck already answers for the liveness
+// probe, but as a Prometheus metric instead of an HTTP response.
+func TestProgressWatchdog_RecordProgressExposesLastProgressAsAGauge(t *testing.T) {
+	w := NewProgressWatchdog()
+
+	before := testutil.ToFloat64(lastProgressTimestamp)
+
+	w.RecordProgress()
+
+	after := testutil.ToFloat64(lastProgressTimestamp)
+	if after < before {
+		t.Fatalf("expected messaging_last_progress_timestamp_seconds to advance, went from %v to %v", before, after)
+	}
+	now := float64(time.Now().Unix())
+	if now-after > 2 {
+		t.Fatalf("expected messaging_last_progress_timestamp_seconds to reflect roughly now, got %v (now=%v)", after, now)
 	}
 }

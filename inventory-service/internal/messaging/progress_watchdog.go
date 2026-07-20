@@ -3,7 +3,20 @@ package messaging
 import (
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// lastProgressTimestamp mirrors the watchdog's own internal lastProgress
+// clock as a Prometheus gauge, so "time since last progress" is queryable
+// directly (time() - this gauge) without needing to hit the liveness HTTP
+// endpoint -- part of the reconnection observability contract (see
+// docs/adr/0038-infrastructure-startup-resilience.md's Update).
+var lastProgressTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "messaging_last_progress_timestamp_seconds",
+	Help: "Unix timestamp of the last time this service's messaging loop recorded progress (a (re)connect attempt, a message processed, or an outbox poll tick).",
+})
 
 // ProgressWatchdog answers one question only: has this service's messaging
 // loop made any progress recently -- a consumer (re)connect attempt
@@ -34,6 +47,7 @@ func (w *ProgressWatchdog) RecordProgress() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.lastProgress = time.Now()
+	lastProgressTimestamp.Set(float64(w.lastProgress.Unix()))
 }
 
 func (w *ProgressWatchdog) IsStuck(threshold time.Duration) bool {
