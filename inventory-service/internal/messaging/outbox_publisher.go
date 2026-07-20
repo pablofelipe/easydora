@@ -51,20 +51,18 @@ type OutboxPublisher struct {
 	stop     chan struct{}
 }
 
-// StartOutboxPublisher creates a dedicated channel on this consumer's
-// connection and starts polling for unpublished outbox events in a
-// background goroutine.
+// StartOutboxPublisher starts polling for unpublished outbox events in a
+// background goroutine, opening its own channel (in publisher-confirm
+// mode, via ensureChannel) on this consumer's connection.
 func (r *RabbitMQConsumer) StartOutboxPublisher(repo repository.InventoryRepository) (*OutboxPublisher, error) {
-	channel, err := r.createChannel()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create channel for outbox publisher: %w", err)
-	}
-
 	publisher := &OutboxPublisher{
-		channel:  channel,
 		consumer: r,
 		repo:     repo,
 		stop:     make(chan struct{}),
+	}
+
+	if err := publisher.ensureChannel(); err != nil {
+		return nil, fmt.Errorf("failed to create channel for outbox publisher: %w", err)
 	}
 
 	go publisher.run()
@@ -76,6 +74,13 @@ func (r *RabbitMQConsumer) StartOutboxPublisher(repo repository.InventoryReposit
 // stale -- without this, every Publish attempt after a broker restart
 // would fail identically forever, on the same dead channel, regardless of
 // watchConnection having already reconnected the underlying connection.
+// Every channel this returns is in publisher-confirm mode: publishPending
+// relies on the broker's own acknowledgement, not Publish's fire-and-forget
+// return, to decide whether an event actually reached the broker before
+// marking it published -- without confirms, a publish against a target
+// that does not exist (e.g. an exchange the broker lost and has not
+// redeclared yet) still returns a nil error client-side, silently losing
+// the event despite this file's own at-least-once delivery guarantee.
 func (p *OutboxPublisher) ensureChannel() error {
 	if p.channel != nil && !p.channel.IsClosed() {
 		return nil
@@ -83,6 +88,10 @@ func (p *OutboxPublisher) ensureChannel() error {
 	channel, err := p.consumer.createChannel()
 	if err != nil {
 		return fmt.Errorf("failed to refresh outbox publisher channel: %w", err)
+	}
+	if err := channel.Confirm(false); err != nil {
+		channel.Close()
+		return fmt.Errorf("failed to enable publisher confirms: %w", err)
 	}
 	p.channel = channel
 	return nil
@@ -132,7 +141,21 @@ func (p *OutboxPublisher) publishPending() {
 
 		ctx := correlation.WithMessageID(correlation.WithCorrelationID(context.Background(), correlationID), messageID)
 
-		err = p.channel.Publish(
+		// A publish that the broker rejects at the protocol level (e.g. a
+		// row targeting an exchange that genuinely does not exist) closes
+		// the whole channel, not just that one message -- reusing a dead
+		// channel for every event still left in this batch would fail
+		// every one of them with "channel/connection is not open",
+		// regardless of whether their own target exchange is fine. One bad
+		// row must not be able to block the rest of the batch.
+		if err := p.ensureChannel(); err != nil {
+			correlation.Error(outboxLogger, ctx, "outbox publisher has no usable channel -- will retry next poll",
+				"event", event.RoutingKey, "aggregateId", event.ID, "error", err.Error())
+			continue
+		}
+
+		confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
+			context.Background(),
 			event.Exchange,
 			event.RoutingKey,
 			false, // mandatory
@@ -147,6 +170,17 @@ func (p *OutboxPublisher) publishPending() {
 		if err != nil {
 			correlation.Error(outboxLogger, ctx, "failed to publish outbox event -- will retry next poll",
 				"event", event.RoutingKey, "aggregateId", event.ID, "error", err.Error())
+			continue
+		}
+
+		// Blocks until the broker acks or nacks this specific message, or
+		// until the channel closes (e.g. the broker rejected the publish
+		// because the exchange does not exist) -- either way this always
+		// resolves, it does not hang forever. Only a positive ack means
+		// the event is durably the broker's responsibility now.
+		if ok := confirmation.Wait(); !ok {
+			correlation.Error(outboxLogger, ctx, "outbox event publish was not confirmed by the broker -- will retry next poll",
+				"event", event.RoutingKey, "aggregateId", event.ID)
 			continue
 		}
 
