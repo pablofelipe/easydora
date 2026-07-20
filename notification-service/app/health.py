@@ -1,6 +1,20 @@
 import threading
 import time
 
+from prometheus_client import Gauge
+
+# Reconnection observability (docs/adr/0038-infrastructure-startup-resilience.md's
+# Update): mirrors ProgressWatchdog's own internal (monotonic) clock as a
+# wall-clock Prometheus gauge, so "time since last progress"
+# (time() - this gauge) is queryable directly in Grafana. Same metric
+# name/shape as inventory-service's (Go) and the four Spring services'
+# equivalents.
+messaging_last_progress_timestamp_seconds = Gauge(
+    "messaging_last_progress_timestamp_seconds",
+    "Unix timestamp of the last time this service's messaging loop recorded progress "
+    "(a (re)connect attempt, a message processed, or an idle tick).",
+)
+
 
 class ProgressWatchdog:
     """Answers one question only: has this service's messaging loop made
@@ -23,6 +37,7 @@ class ProgressWatchdog:
     def record_progress(self) -> None:
         with self._lock:
             self._last_progress = time.monotonic()
+        messaging_last_progress_timestamp_seconds.set(time.time())
 
     def last_progress(self) -> float:
         with self._lock:

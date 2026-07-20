@@ -1,6 +1,6 @@
 import time
 
-from app.health import ProgressWatchdog
+from app.health import ProgressWatchdog, messaging_last_progress_timestamp_seconds
 
 
 def test_not_stuck_immediately_after_construction():
@@ -34,3 +34,21 @@ def test_last_progress_advances_after_recording():
     watchdog.record_progress()
 
     assert watchdog.last_progress() > before
+
+
+def test_record_progress_exposes_last_progress_as_a_gauge():
+    """record_progress() also updates messaging_last_progress_timestamp_seconds
+    (wall-clock, unlike last_progress()'s monotonic clock used for
+    is_stuck), so Grafana can compute "time since last progress"
+    (time() - this gauge) with the same metric name/shape as
+    inventory-service's (Go) and the four Spring services' equivalents
+    (docs/adr/0038's Update, the reconnection observability contract).
+    """
+    watchdog = ProgressWatchdog()
+    before = messaging_last_progress_timestamp_seconds._value.get()
+
+    watchdog.record_progress()
+
+    after = messaging_last_progress_timestamp_seconds._value.get()
+    assert after >= before
+    assert time.time() - after < 2

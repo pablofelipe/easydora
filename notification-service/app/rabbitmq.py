@@ -4,12 +4,30 @@ import time
 from datetime import datetime, timedelta
 
 import pika
+from prometheus_client import Counter
 
 from app.consumer import process_order_created, process_order_status_changed
 from app.correlation import correlation_scope, current_or_new_correlation_id
 from app.health import ProgressWatchdog
 
 logger = logging.getLogger(__name__)
+
+# Reconnection observability (docs/adr/0038-infrastructure-startup-resilience.md's
+# Update): same metric names/shapes as inventory-service's (Go) and the
+# four Spring services' equivalents. run_consumer's loop has no
+# structurally separate boot-time phase the way Go's does (see its own
+# docstring), so "before the first successful connection" stands in for
+# it -- neither counter is incremented until at least one connect +
+# declare_topology cycle has already succeeded once.
+rabbitmq_reconnect_attempts_total = Counter(
+    "rabbitmq_reconnect_attempts_total",
+    "Total steady-state RabbitMQ reconnect attempts made by run_consumer, successful or not.",
+)
+rabbitmq_topology_setup_total = Counter(
+    "rabbitmq_topology_setup_total",
+    "Total attempts to (re)declare this service's RabbitMQ topology after a reconnect, by outcome.",
+    ["outcome"],
+)
 
 RECONNECT_DELAY_SECONDS = 5
 
@@ -269,12 +287,37 @@ def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache,
     consume_forever, so an arbitrarily long, tolerated broker outage never
     looks "stuck" as long as this loop keeps retrying.
     """
+    first_connection = True
     while True:
         if watchdog is not None:
             watchdog.record_progress()
+        if not first_connection:
+            rabbitmq_reconnect_attempts_total.inc()
+
+        # Connect + topology are tracked separately from consume_forever
+        # below: a mid-run consume failure is an ordinary reconnect-worthy
+        # event (already counted by rabbitmq_reconnect_attempts_total on
+        # the next iteration), not a topology redeclaration failure --
+        # conflating the two would misreport a plain disconnect as a
+        # topology problem.
         try:
             _connection, channel = connect(rabbitmq_url)
             declare_topology(channel)
+        except Exception:
+            if not first_connection:
+                rabbitmq_topology_setup_total.labels(outcome="failure").inc()
+            logger.exception(
+                "RabbitMQ connection lost or unavailable; retrying in %ss",
+                RECONNECT_DELAY_SECONDS,
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
+            continue
+
+        if not first_connection:
+            rabbitmq_topology_setup_total.labels(outcome="success").inc()
+        first_connection = False
+
+        try:
             consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdog)
         except Exception:
             logger.exception(
