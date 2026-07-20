@@ -242,6 +242,23 @@ residual risks of this cache (restart wiping it; an entry outliving its
 own JWT until read) are actually happening at runtime, not a
 business-volume question.
 
+## Update — 2026-07-20: an eighth dashboard, no new counters beyond ADR-0038's own
+
+[ADR-0038](0038-infrastructure-startup-resilience.md)'s 2026-07-20 Update
+added three reconnection-observability metrics
+(`rabbitmq_reconnect_attempts_total`, `rabbitmq_topology_setup_total{outcome}`,
+`messaging_last_progress_timestamp_seconds`) across all six
+RabbitMQ-connected services, plus a new dashboard,
+`EasyDora / Resilience`, that also picks up the two existing counters
+that never had a panel of their own (`jwt_cache_lookup_total`,
+`inventory_idempotent_duplicate_detected_total` — the latter tracked as
+a residual gap in this ADR's own 2026-07-15 Update, closed here). Five
+panels, the same "small, focused dashboard" shape every dashboard this
+ADR already lists uses — not a reason to revisit this ADR's own decision
+against a general "track everything" mechanism, since every metric
+behind this new dashboard already had its own individual justification
+recorded at the ADR that added it.
+
 ## References
 
 - [ADR-0024](0024-distributed-tracing-via-propagated-identifiers.md) —

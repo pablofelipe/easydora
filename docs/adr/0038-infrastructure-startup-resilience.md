@@ -540,18 +540,35 @@ functionally the same outcome.
    not replicated to Python or expanded further in this same pass — see
    Deferred below.
 
-### Deferred to a later phase of this same stabilization effort
+### Phase 2 (2026-07-20, same day): closing the deferred observability and Postman gaps
 
-Working in explicit phases rather than one large batch: the equivalent
-`messaging_last_progress_timestamp_seconds`/reconnect-attempt metrics for
-`notification-service` (Python), a small new Grafana dashboard
-surfacing all of the above alongside the two metrics that already had no
-panel (`jwt_cache_lookup_total`, `inventory_idempotent_duplicate_detected_total`),
-and unrelated product-polish work (frontend signup/seller/cancel screens,
-completing the Postman collection) are scoped but not yet implemented as
-of this Update. None of the five services' actual reconnection behavior
-depends on any of this remaining work — it is observability and product
-finish, not correctness.
+Everything the previous section listed as deferred is now done, in its
+own phase rather than folded into the first: `notification-service`
+(Python) gained the same `rabbitmq_reconnect_attempts_total`/
+`rabbitmq_topology_setup_total{outcome}`/
+`messaging_last_progress_timestamp_seconds` metrics as the other five
+services — `run_consumer`'s loop has no structurally separate boot phase
+the way Go's does, so "before the first successful connection" stands in
+for it, and connect/topology failures are tracked separately from
+mid-run `consume_forever` failures (conflating them would misreport an
+ordinary disconnect as a topology problem). A new Grafana dashboard,
+`EasyDora / Resilience` (`observability/grafana/dashboards/resilience.json`),
+surfaces all three new metrics across every service plus the two
+counters that previously had no panel (`jwt_cache_lookup_total`,
+`inventory_idempotent_duplicate_detected_total`) — five panels, matching
+this project's own "small, focused dashboards" convention rather than
+expanding an existing one. The Postman collection gained a real
+`GET /notifications/{orderId}` call (both trees) and a new, self-contained
+"Cancellation & Payment Compensation" folder reproducing this project's
+own compensation saga (ADR-0034) end to end — see
+[`postman/README.md`](../../postman/README.md) for the retry-budget
+details that scenario needed (two additional RabbitMQ round trips beyond
+a normal state change, with no real inter-retry delay available in
+Postman's synchronous test-script model).
+
+Frontend product-polish work (signup/seller/cancel screens) remains
+deferred to its own, separate phase — unrelated to reconnection
+correctness or observability, tracked on its own schedule.
 
 Two items evaluated and deliberately **not** implemented in this pass, on
 the same "does this reduce real technical debt or just add complexity"
@@ -575,13 +592,13 @@ A reconnection contract now exists in writing, phrased as a finding backed
 by investigation rather than a permanent guarantee, so it can be revisited
 honestly if a future service or library change invalidates it.
 
-**Negative / residual, not fixed here**: the reconnection observability
-metrics do not yet exist for `notification-service`, so Grafana cannot yet
-show "time since last progress" for all six services uniformly — tracked
-as the next phase, not forgotten. No dashboard yet surfaces any of the
-metrics this Update added. The idempotency-cache TTL gap and the
-decision not to build a cross-language reconnection abstraction are both
-now explicit, reviewed trade-offs rather than open questions.
+**Negative / residual, not fixed here**: the idempotency-cache TTL gap and
+the decision not to build a cross-language reconnection abstraction are
+both explicit, reviewed trade-offs rather than open questions — neither
+is expected to change without a new, concrete trigger (see each item's
+own reasoning above). The frontend's own gaps (no signup, no `SELLER`
+screen, no cancel button) remain, tracked as separate, later,
+product-scoped work — see the README Roadmap.
 
 ## References
 
