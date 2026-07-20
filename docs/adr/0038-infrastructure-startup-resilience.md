@@ -413,6 +413,176 @@ closes the *client-reconnection* half of that event, not the
 *message-loss* half, which remains an accepted trade-off of
 [ADR-0040](0040-kubernetes-deployment.md).
 
+## Update — 2026-07-20: the previous Update's own validation had a gap, and a reconnection observability contract
+
+### Context
+
+An architectural-stabilization session revisited this ADR's 2026-07-17
+Update with a specific, adversarial question: does the fix actually
+survive the real Kubernetes scenario that motivated it, or only the
+scenario the test happened to exercise? The 2026-07-17 Update's own
+integration test forces the *TCP connection* closed while `order.exchange`
+still exists on the broker the entire time — a real reconnection test, but
+not the same event as a `kind` pod restart with no PersistentVolume
+([ADR-0040](0040-kubernetes-deployment.md)), which loses the exchange
+itself, not just the client's socket to it. The Update's own Consequences
+section claimed the triggering incident "cannot recur" — that claim was
+re-examined rather than taken at face value, and found to be incomplete.
+
+### What was found: the real gap was topology, not the connection object
+
+Reading `inventory-service/main.go` and
+`internal/messaging/rabbitmq_consumer.go` directly (not re-deriving from
+memory) confirmed: `SetupOrderExchange`/`SetupProductExchange` run exactly
+once, at boot, before `watchConnection`'s supervisor loop starts.
+`watchConnection` correctly redials and swaps the `*amqp.Connection` on
+loss, but never redeclares either exchange — so every consumer's own
+`setupQueue` (which redeclares its queue and re-binds it on every cycle,
+correctly) fails forever with `NOT_FOUND - no exchange 'order.exchange'`
+the moment the broker has actually lost it, exactly matching the original
+incident's symptom (silent, permanent inability to consume, no crash).
+Proven by forcing this condition against a real broker — deleting
+`order.exchange` and closing the connection together, mirroring what a
+`kind` pod restart without a PersistentVolume actually does — rather than
+only closing the connection as the 2026-07-17 test did.
+
+The four Spring services and `notification-service` do **not** share this
+gap: Spring's autoconfigured `RabbitAdmin` redeclares every
+`@Bean`-declared exchange/queue/binding on each new connection as part of
+Topology Recovery (confirmed already in the 2026-07-17 Update, reconfirmed
+here), and `notification-service`'s `run_consumer` loop already redeclares
+its whole topology on every reconnect cycle. This was never a six-service
+problem — it was one service's supervisor missing one call.
+
+A second, related bug surfaced while fixing the first: `OutboxPublisher`'s
+`channel.Publish` was fire-and-forget — a publish against a target that
+does not exist still returns a nil client-side error, so
+`MarkOutboxEventPublished` could mark an event published that the broker
+never actually accepted, silently contradicting this file's own
+at-least-once delivery comment. Fixed with publisher confirms
+(`channel.Confirm` + `PublishWithDeferredConfirmWithContext`), which
+surfaced a third bug during its own testing: a single permanently-bad
+outbox row (targeting a nonexistent exchange) closes the whole RabbitMQ
+*channel* on that protocol violation, and reusing that now-dead channel
+for the rest of the same poll batch failed every other, otherwise-healthy
+event in it too. Fixed by re-validating the channel before each event in
+the batch, not just once per poll.
+
+Separately, `orders-service`'s and `billing-service`'s
+`JwtAuthenticationFilter` were found still returning an explicit 401 on an
+unknown/expired cached token, diverging from `products-service`'s
+already-fixed behavior ([ADR-0026](0026-frontend-thin-client.md)) of
+letting the chain continue and leaving the decision to Spring Security's
+own `authorizeHttpRequests()`. Standardized to match — the one full-chain
+security test this exposed (`billing-service`'s
+`PaymentControllerSecurityTest`) needed its expected status updated from
+401 to 403, which is not a regression: both "no token" and "unknown
+token" now correctly converge on the same 403 Spring Security already
+returns for the former, instead of two different codes for what is
+functionally the same outcome.
+
+### What changed
+
+1. **`inventory-service` (Go): `watchConnection` now redeclares both
+   exchanges after every reconnect**, before considering the reconnect
+   complete — a redeclaration failure is treated as a failed reconnect
+   attempt (the loop keeps retrying) rather than handing consumers a
+   connection with no usable topology behind it. Proven against a real
+   broker with a new test that deletes `order.exchange` and closes the
+   connection together, then confirms a fresh publish is actually
+   consumed and reserved — not just that the connection object changed.
+2. **`inventory-service`'s `OutboxPublisher` now uses publisher
+   confirms**, and re-validates its channel before every event in a poll
+   batch rather than once per poll — closing both the silent-mark-as-
+   published gap and the one-bad-row-blocks-the-batch gap described
+   above. Proven with a test seeding a row that targets a permanently
+   nonexistent exchange and asserting it is never marked published.
+3. **JWT filter consistency**: `orders-service` and `billing-service` no
+   longer short-circuit with a 401 on a cache miss/expired token —
+   matching `products-service`. Verified safe before applying: both
+   services' `SecurityConfig` already has `anyRequest().authenticated()`
+   as the same safety net `products-service` relies on, so removing the
+   filter's own early return does not open any request path that was
+   previously protected only by the filter.
+4. **A reconnection observability contract, stated explicitly rather
+   than left implicit**: every RabbitMQ consumer/producer in this system
+   must (a) reconnect automatically, (b) redeclare its topology on every
+   reconnect, and (c) expose liveness based on messaging-loop progress,
+   never on instantaneous broker connectivity — in whatever form is
+   idiomatic to its own language/framework, not as identical code across
+   Go, Java, and Python. The investigation behind this Update evaluated
+   the alternative (one shared implementation/pattern enforced across all
+   three languages) and rejected it: Java's Automatic Connection Recovery
+   and Topology Recovery are a mature, already-battle-tested framework
+   mechanism, and reimplementing that by hand to match Go's supervisor
+   shape would replace a proven mechanism with new, untested code for
+   no behavioral gain — the same reasoning
+   [ADR-0035](0035-reject-dto-code-generation-from-json-schema.md) already
+   applied to rejecting a shared DTO-generation mechanism across the same
+   three languages. The investigation realized before implementation is
+   the one that matters here: **the investigation performed to date
+   indicates five of the six consumers already satisfy these guarantees
+   using native mechanisms from their respective frameworks. The
+   `inventory-service` remains the one identified exception** — now
+   closed by item 1 above.
+5. **New metrics, same names/shapes across every service that has them**:
+   `rabbitmq_reconnect_attempts_total`,
+   `rabbitmq_topology_setup_total{outcome}` — added in
+   `inventory-service` (Go, where the code path is new) and in all four
+   Spring services (`auth-service`, `products-service`, `orders-service`,
+   `billing-service`, via a `RabbitMqReconnectionMetrics`
+   `ConnectionListener` registered on the autoconfigured
+   `ConnectionFactory` — observing Automatic Connection Recovery's own
+   events, not reimplementing them). `inventory-service` additionally
+   gained `messaging_last_progress_timestamp_seconds`, exposing the
+   `ProgressWatchdog`'s own internal clock as a gauge so
+   `time() - this gauge` is queryable directly in Grafana. Deliberately
+   not replicated to Python or expanded further in this same pass — see
+   Deferred below.
+
+### Deferred to a later phase of this same stabilization effort
+
+Working in explicit phases rather than one large batch: the equivalent
+`messaging_last_progress_timestamp_seconds`/reconnect-attempt metrics for
+`notification-service` (Python), a small new Grafana dashboard
+surfacing all of the above alongside the two metrics that already had no
+panel (`jwt_cache_lookup_total`, `inventory_idempotent_duplicate_detected_total`),
+and unrelated product-polish work (frontend signup/seller/cancel screens,
+completing the Postman collection) are scoped but not yet implemented as
+of this Update. None of the five services' actual reconnection behavior
+depends on any of this remaining work — it is observability and product
+finish, not correctness.
+
+Two items evaluated and deliberately **not** implemented in this pass, on
+the same "does this reduce real technical debt or just add complexity"
+test applied to everything else: `inventory-service`'s idempotency-cache
+TTL gap (a post-TTL duplicate delivery is genuinely indistinguishable from
+a new one without adding a persistent per-order ledger table — new
+persistence, not a bug fix, and the existing gap is already correctly
+documented and tested) and any attempt to force topology-redeclaration
+observability into a single cross-language abstraction (see item 4 above).
+
+### Consequences (this Update)
+
+**Positive**: the specific incident this ADR's 2026-07-17 Update believed
+closed is now actually closed, proven against the exact failure mode
+(topology loss, not just connection loss) that motivated the original
+investigation — not the adjacent, easier-to-simulate one the previous
+test happened to cover. The outbox publisher's at-least-once delivery
+claim is now true under exchange loss, not just under normal operation.
+JWT filter behavior is uniform across all three consuming Spring services.
+A reconnection contract now exists in writing, phrased as a finding backed
+by investigation rather than a permanent guarantee, so it can be revisited
+honestly if a future service or library change invalidates it.
+
+**Negative / residual, not fixed here**: the reconnection observability
+metrics do not yet exist for `notification-service`, so Grafana cannot yet
+show "time since last progress" for all six services uniformly — tracked
+as the next phase, not forgotten. No dashboard yet surfaces any of the
+metrics this Update added. The idempotency-cache TTL gap and the
+decision not to build a cross-language reconnection abstraction are both
+now explicit, reviewed trade-offs rather than open questions.
+
 ## References
 
 - [ADR-0017](0017-notification-service-startup-resilience.md) — the
@@ -432,4 +602,10 @@ closes the *client-reconnection* half of that event, not the
   scope.
 - [ADR-0036](0036-metrics-via-prometheus-grafana.md) — the business-metric
   convention `infra_startup_retry_attempts_total` follows.
+- [ADR-0035](0035-reject-dto-code-generation-from-json-schema.md) — the
+  precedent this ADR's 2026-07-20 Update follows in rejecting a shared
+  cross-language reconnection mechanism in favor of a behavioral contract.
+- [ADR-0026](0026-frontend-thin-client.md) — the origin of the
+  let-the-chain-continue JWT filter fix this ADR's 2026-07-20 Update
+  extends from `products-service` to `orders-service`/`billing-service`.
 - README Roadmap — the item this ADR closes.
