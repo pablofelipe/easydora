@@ -5,6 +5,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.micrometer.core.instrument.MeterRegistry;
 
 @Configuration
 public class RabbitMQConfig {
@@ -51,5 +53,17 @@ public class RabbitMQConfig {
     @Bean
     public java.time.Clock clock() {
         return java.time.Clock.systemUTC();
+    }
+
+    // Reconnection observability (docs/adr/0038's Update): registers
+    // RabbitMqReconnectionMetrics as a ConnectionListener on the
+    // autoconfigured ConnectionFactory -- observes Automatic Connection
+    // Recovery, does not reimplement it.
+    @Bean
+    public RabbitMqReconnectionMetrics rabbitMqReconnectionMetrics(
+            ConnectionFactory connectionFactory, ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        RabbitMqReconnectionMetrics listener = new RabbitMqReconnectionMetrics(meterRegistryProvider);
+        connectionFactory.addConnectionListener(listener);
+        return listener;
     }
 }
