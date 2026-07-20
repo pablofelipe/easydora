@@ -84,10 +84,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } else {
+                // A miss/expired token does not terminate the request here
+                // -- it logs and lets the chain continue unauthenticated,
+                // the same fix products-service already had (ADR-0026).
+                // Spring Security's own authorizeHttpRequests() in
+                // SecurityConfig (anyRequest().authenticated()) is what
+                // actually rejects this request further down the chain.
                 logger.warn("Token NOT found in the valid tokens map");
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("{\"error\": \"Invalid or expired token\"}");
-                return;
             }
         } else {
             logger.warn("Authorization header missing or malformed");

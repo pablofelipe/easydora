@@ -49,9 +49,15 @@ class PaymentControllerSecurityTest {
     @Test
     void rejectsRequestWithUnknownToken() throws Exception {
         // A Bearer token that isn't in the cache: JwtAuthenticationFilter
-        // itself short-circuits with an explicit 401.
+        // no longer short-circuits itself (consistency fix matching
+        // products-service/orders-service, see ADR-0026) -- it logs and
+        // lets the chain continue unauthenticated, so this now converges
+        // on the exact same 403 as rejectsRequestWithNoToken above,
+        // decided by Spring Security's own authorizeHttpRequests() rather
+        // than by two different code paths returning two different status
+        // codes for what is functionally the same outcome.
         mockMvc.perform(get("/api/payments").header("Authorization", "Bearer not-a-cached-token"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     @Test

@@ -70,19 +70,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 List<SimpleGrantedAuthority> authorities = Collections.singletonList(
                     new SimpleGrantedAuthority("ROLE_" + userInfo.getRole())
                 );
-                
-                UsernamePasswordAuthenticationToken authentication = 
+
+                UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(userInfo, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                
+
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 logger.info("Authentication set up for: {}", userInfo.getEmail());
             } else {
+                // A miss/expired token does not terminate the request here
+                // -- it logs and lets the chain continue unauthenticated,
+                // the same fix products-service already had (ADR-0026).
+                // Spring Security's own authorizeHttpRequests() in
+                // SecurityConfig (anyRequest().authenticated()) is what
+                // actually rejects this request further down the chain;
+                // duplicating that decision here made this filter's
+                // behavior diverge from products-service's for no reason.
                 logger.warn("Token NOT found in the valid tokens map");
                 logger.warn("Full token: {}", token);
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("{\"error\": \"Invalid or expired token\"}");
-                return;
             }
         } else {
             logger.warn("Authorization header missing or malformed");

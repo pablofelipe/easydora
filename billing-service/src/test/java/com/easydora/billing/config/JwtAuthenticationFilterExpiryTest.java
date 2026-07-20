@@ -10,25 +10,26 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import java.io.PrintWriter;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Proves ADR-0039's expiresAt TTL actually takes effect at read time: a
  * cached entry whose expiresAt has already passed is treated the same as a
- * token that was never cached at all (401, evicted from the map so it
- * doesn't linger) instead of being honored forever until a restart, which
- * is what every cache entry did before this test existed. Also proves the
+ * token that was never cached at all (evicted from the map so it doesn't
+ * linger) instead of being honored forever until a restart, which is what
+ * every cache entry did before this test existed. Also proves the
  * jwt_cache_lookup_total{outcome} metric (ADR-0036's Update) distinguishes
- * the three outcomes -- previously invisible at runtime, only provable by
- * these same kinds of unit tests.
+ * the three outcomes, and that a miss/expired token never terminates the
+ * request itself -- it logs and lets the chain continue, the same
+ * consistency fix products-service already had (ADR-0026); Spring
+ * Security's own authorizeHttpRequests(), not this filter, is what decides
+ * permitAll vs 401 for whatever comes next in the chain.
  */
 class JwtAuthenticationFilterExpiryTest {
 
@@ -45,7 +46,7 @@ class JwtAuthenticationFilterExpiryTest {
     }
 
     @Test
-    void anExpiredCacheEntryIsTreatedAsUnauthenticatedAndEvicted() throws Exception {
+    void anExpiredCacheEntryIsNotAuthenticatedAndIsEvicted() throws Exception {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(objectProvider(meterRegistry));
         JwtAuthenticationFilter.JwtUserInfo expired = new JwtAuthenticationFilter.JwtUserInfo(
@@ -56,12 +57,11 @@ class JwtAuthenticationFilterExpiryTest {
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
         when(request.getHeader("Authorization")).thenReturn("Bearer expired-token");
-        when(response.getWriter()).thenReturn(mock(PrintWriter.class));
 
         filter.doFilterInternal(request, response, chain);
 
-        verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        verify(chain, never()).doFilter(request, response);
+        verify(chain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(filter.hasValidToken("expired-token"))
                 .as("an expired entry must be evicted from the map, not just skipped this once")
                 .isFalse();
@@ -85,7 +85,7 @@ class JwtAuthenticationFilterExpiryTest {
         filter.doFilterInternal(request, response, chain);
 
         verify(chain).doFilter(request, response);
-        verify(response, never()).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(meterRegistry.get("jwt_cache_lookup_total").tag("outcome", "hit").counter().count())
                 .isEqualTo(1.0);
     }
@@ -104,12 +104,11 @@ class JwtAuthenticationFilterExpiryTest {
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
         when(request.getHeader("Authorization")).thenReturn("Bearer a-token-issued-before-restart");
-        when(response.getWriter()).thenReturn(mock(PrintWriter.class));
 
         filter.doFilterInternal(request, response, chain);
 
-        verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        verify(chain, never()).doFilter(request, response);
+        verify(chain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(meterRegistry.get("jwt_cache_lookup_total").tag("outcome", "miss").counter().count())
                 .isEqualTo(1.0);
     }
