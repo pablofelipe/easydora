@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -22,6 +24,25 @@ var consumerLogger = correlation.NewLogger(os.Stdout, "inventory-service")
 // unchanged) and by the unbounded steady-state reconnect loop added here --
 // same cadence, different give-up policy.
 const reconnectDelay = 3 * time.Second
+
+// Reconnection observability (docs/adr/0038-infrastructure-startup-resilience.md's
+// Update): the only two questions infra-level metrics can't already answer
+// for the steady-state reconnect path -- how many redial attempts has this
+// process made, and did the topology it depends on come back after the
+// broker did.
+var (
+	rabbitmqReconnectAttemptsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "rabbitmq_reconnect_attempts_total",
+		Help: "Total steady-state RabbitMQ redial attempts made by watchConnection, successful or not.",
+	})
+	rabbitmqTopologySetupTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rabbitmq_topology_setup_total",
+			Help: "Total attempts to (re)declare this service's RabbitMQ exchanges after a reconnect, by outcome.",
+		},
+		[]string{"outcome"},
+	)
+)
 
 // contextFromDelivery builds a context carrying the inbound message's
 // CorrelationId (reused, or freshly generated if the publisher didn't set
@@ -116,6 +137,17 @@ func NewRabbitMQConsumer() (*RabbitMQConsumer, error) {
 // for it. Every attempt, successful or not, records progress: a broker
 // outage that lasts arbitrarily long must never look "stuck" as long as
 // this loop keeps trying.
+//
+// Reconnecting the socket alone is not enough: RabbitMQ has no
+// PersistentVolume in Kubernetes (ADR-0040, an accepted trade-off), so a
+// real broker restart loses every exchange/queue/binding along with the
+// connection. Redeclaring both exchanges here, before considering the
+// reconnect done, is what lets every consumer's own queue (re)bind
+// against something that actually exists -- without it, setupQueue's
+// QueueBind fails forever against an exchange that never comes back on
+// its own. A redeclaration failure is treated the same as a failed dial:
+// the loop keeps retrying instead of handing out a connection with no
+// usable topology behind it.
 func (r *RabbitMQConsumer) watchConnection() {
 	defer r.wg.Done()
 
@@ -143,6 +175,7 @@ func (r *RabbitMQConsumer) watchConnection() {
 
 		for {
 			r.Watchdog.RecordProgress()
+			rabbitmqReconnectAttemptsTotal.Inc()
 			newConn, err := amqp.Dial(r.cfg.RabbitMQURL)
 			if err != nil {
 				log.Printf("Reconnect attempt failed: %v -- retrying in %s", err, reconnectDelay)
@@ -153,11 +186,40 @@ func (r *RabbitMQConsumer) watchConnection() {
 				}
 				continue
 			}
-			log.Println("Reconnected to RabbitMQ")
+
 			r.replaceConn(newConn)
+			if err := r.redeclareTopology(); err != nil {
+				log.Printf("Reconnected, but failed to redeclare topology: %v -- retrying in %s", err, reconnectDelay)
+				select {
+				case <-time.After(reconnectDelay):
+				case <-r.stop:
+					return
+				}
+				continue
+			}
+
+			log.Println("Reconnected to RabbitMQ and redeclared topology")
 			break
 		}
 	}
+}
+
+// redeclareTopology recreates both exchanges this service owns, using the
+// connection that is now current. Called on every steady-state reconnect
+// (never on the very first boot connection, where main.go's own
+// SetupOrderExchange/SetupProductExchange calls already run once) --
+// see watchConnection's doc comment for why this is required, not optional.
+func (r *RabbitMQConsumer) redeclareTopology() error {
+	if err := r.setupExchange("order.exchange"); err != nil {
+		rabbitmqTopologySetupTotal.WithLabelValues("failure").Inc()
+		return err
+	}
+	if err := r.setupExchange("product.exchange"); err != nil {
+		rabbitmqTopologySetupTotal.WithLabelValues("failure").Inc()
+		return err
+	}
+	rabbitmqTopologySetupTotal.WithLabelValues("success").Inc()
+	return nil
 }
 
 func (r *RabbitMQConsumer) currentConn() *amqp.Connection {
