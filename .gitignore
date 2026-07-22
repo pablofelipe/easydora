@@ -26,7 +26,6 @@ Thumbs.db
 
 # Docker
 .env
-.dockerignore
 
 # Kubernetes (see docs/adr/0040)
 k8s/base/secrets.yaml
