@@ -1,0 +1,25 @@
+node_modules
+
+# Output
+.svelte-kit
+build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDE
+.vscode
+.idea
+
+# Not needed inside the image
+.git
+README.md

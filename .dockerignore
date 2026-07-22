@@ -1,0 +1,44 @@
+# Shared by every service whose docker-compose build context is the repo
+# root (api-gateway, auth-service, products-service, orders-service,
+# inventory-service, billing-service) -- each Dockerfile only ever COPYs
+# its own pom.xml/go.mod/src, correlation-commons(-go)/pom.xml+src, and the
+# root pom.xml, so excluding everything below never removes a file any
+# Dockerfile actually needs.
+
+.git/
+.claude/
+CLAUDE.md
+
+# Build outputs (rebuilt fresh inside the image every time)
+**/target/
+**/*.jar
+**/*.exe
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# Logs
+**/*.log
+
+# Local env/secrets -- never belong in a build context
+**/.env
+k8s/base/secrets.yaml
+
+# IDE/OS
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/Thumbs.db
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# Not needed to build any service image
+docs/
+observability/
+postman/
+e2e-tests/
+k8s/
+*.md
