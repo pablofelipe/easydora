@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { getOrder, shipOrder, confirmDelivery } from '$lib/api/orders';
+	import { getOrder, shipOrder, confirmDelivery, cancelOrder } from '$lib/api/orders';
 	import { processPayment } from '$lib/api/billing';
 	import { getNotifications } from '$lib/api/notifications';
 	import { ApiError } from '$lib/api/client';
 	import RequestDetails from '$lib/components/RequestDetails.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { auth } from '$lib/stores/auth';
-	import type { Order } from '$lib/types/order';
+	import type { Order, OrderState } from '$lib/types/order';
 	import type { Notification } from '$lib/types/notification';
 	import { formatCurrency, formatDateTime } from '$lib/utils/format';
 	import type { PageProps } from './$types';
@@ -25,7 +25,12 @@
 		paymentError = null;
 		shipError = null;
 		deliverError = null;
+		cancelError = null;
 	});
+
+	// Mirrors OrderStateMachineConfig's CANCEL_ORDER transition, valid from
+	// PENDING/PROCESSING/INVENTORY_RESERVED only.
+	const CANCELLABLE_STATES: OrderState[] = ['PENDING', 'PROCESSING', 'INVENTORY_RESERVED'];
 
 	let notifications = $state<Notification[]>([]);
 	let notificationsError = $state<string | null>(null);
@@ -39,6 +44,9 @@
 
 	let delivering = $state(false);
 	let deliverError = $state<string | null>(null);
+
+	let cancelling = $state(false);
+	let cancelError = $state<string | null>(null);
 
 	async function loadNotifications() {
 		notificationsError = null;
@@ -90,6 +98,18 @@
 			delivering = false;
 		}
 	}
+
+	async function onCancelOrder() {
+		cancelError = null;
+		cancelling = true;
+		try {
+			order = await cancelOrder(order.id);
+		} catch (err) {
+			cancelError = err instanceof ApiError ? err.message : 'Could not reach the Gateway.';
+		} finally {
+			cancelling = false;
+		}
+	}
 </script>
 
 <a href="/orders">&larr; Back to my orders</a>
@@ -128,6 +148,15 @@
 		</button>
 		{#if deliverError}
 			<p class="error-text">{deliverError}</p>
+		{/if}
+	{/if}
+
+	{#if $auth?.role === 'BUYER' && CANCELLABLE_STATES.includes(order.state)}
+		<button class="danger" onclick={onCancelOrder} disabled={cancelling}>
+			{cancelling ? 'Cancelling order...' : 'Cancel order'}
+		</button>
+		{#if cancelError}
+			<p class="error-text">{cancelError}</p>
 		{/if}
 	{/if}
 </div>
@@ -179,6 +208,15 @@
 <style>
 	.header-card {
 		margin-top: 1rem;
+	}
+	.header-card button.danger {
+		background: var(--color-danger-bg);
+		border-color: var(--color-danger);
+		color: var(--color-danger);
+	}
+	.header-card button.danger:hover {
+		background: var(--color-danger);
+		color: #fff;
 	}
 	.title-row {
 		display: flex;

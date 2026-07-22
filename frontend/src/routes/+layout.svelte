@@ -8,7 +8,7 @@
 
 	let { children } = $props();
 
-	const PUBLIC_PATHS = ['/login'];
+	const PUBLIC_PATHS = ['/login', '/signup'];
 
 	$effect(() => {
 		const isPublic = PUBLIC_PATHS.includes($page.url.pathname);

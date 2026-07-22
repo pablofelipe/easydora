@@ -51,6 +51,9 @@
 				<p class="error-text">{error}</p>
 			{/if}
 		</form>
+		<p class="text-muted footer-text">
+			Don't have an account? <a href="/signup">Sign up</a>
+		</p>
 	</div>
 </div>
 
@@ -66,6 +69,10 @@
 	}
 	h1 {
 		text-align: center;
+	}
+	.footer-text {
+		text-align: center;
+		margin-top: 1rem;
 	}
 	form {
 		display: flex;

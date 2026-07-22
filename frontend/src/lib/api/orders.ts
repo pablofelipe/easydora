@@ -21,6 +21,10 @@ export function confirmDelivery(orderId: string): Promise<Order> {
 	return apiFetch<Order>(`/orders/${orderId}/deliver`, { method: 'POST' });
 }
 
+export function cancelOrder(orderId: string): Promise<Order> {
+	return apiFetch<Order>(`/orders/${orderId}/cancel`, { method: 'POST' });
+}
+
 export function listFulfillmentQueue(): Promise<Order[]> {
 	return apiFetch<Order[]>('/orders/fulfillment');
 }

@@ -14,6 +14,7 @@
 		{ href: '/orders', label: 'My Orders' }
 	];
 	const adminLinks = [{ href: '/fulfillment', label: 'Fulfillment' }];
+	const sellerLinks = [{ href: '/products/new', label: 'New product' }];
 </script>
 
 <nav>
@@ -29,6 +30,13 @@
 				{#if $auth.role === 'ADMIN'}
 					{#each adminLinks as link (link.href)}
 						<a href={link.href} class:active={$page.url.pathname.startsWith(link.href)}>
+							{link.label}
+						</a>
+					{/each}
+				{/if}
+				{#if $auth.role === 'SELLER'}
+					{#each sellerLinks as link (link.href)}
+						<a href={link.href} class:active={$page.url.pathname === link.href}>
 							{link.label}
 						</a>
 					{/each}
