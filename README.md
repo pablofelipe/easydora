@@ -19,11 +19,13 @@ processing.
 
 **Status: in active development.** All eight services are implemented and
 building (api-gateway, auth, products, inventory, orders, billing,
-notification, frontend). Four of the backend services (auth-service, orders-service, products-service,
-billing-service) have contract tests validating their event/message DTOs
-against JSON Schemas shared in `/schemas/json/`; inventory-service has eight
-unit tests, four of which cover its stock-reservation idempotency logic
-specifically, not the service broadly. notification-service consumes both
+notification, frontend). All six messaging services (auth-service,
+products-service, orders-service, billing-service, inventory-service,
+notification-service) have contract tests validating their event/message
+DTOs against JSON Schemas shared in `/schemas/json/`, covering all 17
+currently-published messages (see
+[ADR-0002](docs/adr/0002-json-schema-contract-testing.md)'s 2026-07-13
+Update). notification-service consumes both
 `order.created` and `order.status-changed` via RabbitMQ, enriches the
 former with a real HTTP call to auth-service, and persists an observable
 notification per event — never overwriting a previous one — queryable via
@@ -42,12 +44,15 @@ notification/observability view, deliberately not a full storefront (see
   notification) flows through topic exchanges instead of synchronous
   calls. See [Architecture](#architecture) and
   [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
-- **Outbox Pattern** — auth-service and inventory-service write their
-  outbound event in the same database transaction as the state change that
-  triggers it, so an event is never silently lost on a crash between
-  commit and publish. See
-  [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md) and
-  [ADR-0007](docs/adr/0007-remove-kafka-broker.md).
+- **Outbox Pattern** — auth-service, inventory-service, orders-service, and
+  billing-service all write their outbound events in the same database
+  transaction as the state change that triggers them, so an event is never
+  silently lost on a crash between commit and publish. See
+  [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md),
+  [ADR-0007](docs/adr/0007-remove-kafka-broker.md), and
+  [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)
+  for the consolidated specification and its extension to orders-service
+  and billing-service.
 - **Contract testing** — event/message DTOs are validated against
   versioned JSON Schemas so producer/consumer drift is caught
   automatically instead of discovered in production. See
@@ -182,7 +187,7 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 26
+- [Architecture Decision Records](#architecture-decision-records) — 40
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Observability](docs/architecture/observability.md) — how one business
@@ -202,6 +207,10 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 - [Design notes](#design-notes) — why each service uses the stack it uses.
 - [Service Status](#service-status) — per-service ports, stack, and test
   coverage.
+- [Versioning and Release Policy](docs/project-governance/versioning-and-release-policy.md)
+  — what a version number means here, and what must stay in sync at
+  release time. Project governance, not architecture — kept separate from
+  the ADRs above on purpose.
 
 ## Service Status
 
@@ -218,7 +227,7 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 
 "Implemented" means the service builds, runs, and has the test coverage shown above — it does not imply every known gap is closed; see the Roadmap below and each ADR's Consequences section for what's still open.
 
-Event contracts are validated via JSON Schema for two of the system's event types — see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md) for what's covered and the known `price` type gap schema validation can't catch. The messaging layer itself was separately audited for wiring bugs (routing keys, field names, a competing-consumer incident) — see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md).
+Event contracts are validated via JSON Schema for all 17 currently-published messages — see [ADR-0002](docs/adr/0002-json-schema-contract-testing.md) for what's covered and the known `price` type gap schema validation can't catch. The messaging layer itself was separately audited for wiring bugs (routing keys, field names, a competing-consumer incident) — see [ADR-0001](docs/adr/0001-messaging-wiring-audit.md).
 
 billing-service's `mvn verify` suite required fixing three real bugs the first time it actually ran against Postgres/RabbitMQ, including a `TYPE_MAPPINGS` entry pointing at another service's event class — a concrete instance of this project's lack of contract testing between services, since each service hand-duplicates its own copy of shared event DTOs. See [ADR-0008](docs/adr/0008-surefire-failsafe-test-split.md).
 
