@@ -122,6 +122,24 @@ in `README.md`.
 Small, purely mechanical changes (formatting, dependency bumps, typo
 fixes) do not need an ADR.
 
+## Versioning
+
+This project follows Semantic Versioning, with the Git tag as the single
+source of truth for the version. Every `pom.xml` (root `easydora-parent`
+and every child module) and `frontend/package.json`/`package-lock.json`
+must carry that same version — never left at a generator's default. See
+[docs/project-governance/versioning-and-release-policy.md](docs/project-governance/versioning-and-release-policy.md)
+for the full rationale — this is project governance, not an architectural
+decision, so it deliberately isn't an ADR — including:
+
+- What `1.0.0` means here (architectural stabilization, not
+  "production-ready" — this remains an educational/portfolio project) and
+  the objective test for what counts as an architectural change versus
+  purely additive work.
+- The release checklist (CI green on the tagged commit, `CHANGELOG.md`,
+  Release Notes, README/ADR index, version sync, tag) that every tagged
+  release must satisfy, in that order.
+
 ## Questions
 
 If anything in this guide is unclear, open an issue describing what
