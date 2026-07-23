@@ -6,7 +6,7 @@
 
     <groupId>com.easydora</groupId>
     <artifactId>e2e-tests</artifactId>
-    <version>1.0.0</version>
+    <version>0.3.0</version>
     <packaging>jar</packaging>
 
     <properties>
