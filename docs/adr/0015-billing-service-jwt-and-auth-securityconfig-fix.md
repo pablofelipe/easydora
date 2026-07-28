@@ -58,7 +58,7 @@ ADR-0013's original billing-service Basic Auth fix was verified only live, via `
 
 **Not fixed here / known limitations**:
 - No retry/backoff/DLQ on the new `billing.jwt.created.queue` consumer — same accepted gap as every other RabbitMQ consumer in this project.
-- A service restart still wipes billing-service's token cache in-memory, exactly like every other service using this pattern — previously-issued tokens become invalid until the next login or JWT rebroadcast. This is a pre-existing, project-wide characteristic of the broadcast-cache design (see `CLAUDE.md`'s "Cross-service auth" section), not something introduced or worsened here.
+- A service restart still wipes billing-service's token cache in-memory, exactly like every other service using this pattern — previously-issued tokens become invalid until the next login or JWT rebroadcast. This is a pre-existing, project-wide characteristic of the broadcast-cache design (see the [Architecture Overview](../architecture/overview.md#communication)'s Communication section), not something introduced or worsened here.
 - auth-service still has `.httpBasic(Customizer.withDefaults())` configured alongside `anyRequest().authenticated()`, even though every one of its endpoints is `permitAll()`-ed — the fix here is defensive (it's what stops a *future* protected endpoint from silently 403-ing regardless of credentials), but as of today that combination is unexercised configuration, not something actively guarding a real endpoint. Left as-is rather than simplified, since removing it now would just reintroduce the same landmine the moment a protected endpoint is added.
 
 ## Update — 2026-07-07

@@ -160,11 +160,11 @@ log lines that mark a traceable business milestone were changed.
 
 ## Shared correlation infrastructure: two deliberate exceptions to "no shared library"
 
-This project's stated convention (see
-[architectural-principles.md](architectural-principles.md) and
-`CLAUDE.md`) is that services do not share a library. Each service
-keeps its own copy of event DTOs, so a polyglot service can evolve
-independently. That convention is about *business* contracts.
+This project's stated convention is that services do not share a
+library (see [architectural-principles.md](architectural-principles.md)).
+Each service keeps its own copy of event DTOs, so a polyglot service
+can evolve independently. That convention is about *business*
+contracts.
 
 The identifier-generation, context-propagation, and logging code
 described above has no business meaning at all. This code must stay

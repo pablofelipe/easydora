@@ -89,8 +89,8 @@ which this ADR defers to rather than duplicating.
   Spring services, `correlation-commons-go` for the two Go services) —
   a deliberate, narrow exception to this project's "no shared library
   between services" convention (see
-  [architectural-principles.md](../architecture/architectural-principles.md)
-  and `CLAUDE.md`). That convention exists to let *business* DTOs evolve
+  [architectural-principles.md](../architecture/architectural-principles.md)).
+  That convention exists to let *business* DTOs evolve
   independently per polyglot service; this code has no business meaning
   and must stay byte-for-byte identical across every same-language
   service for the CorrelationId contract to hold, so duplicating it

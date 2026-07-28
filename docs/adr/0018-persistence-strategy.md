@@ -11,8 +11,8 @@ Microservices architectures face a recurring persistence decision:
 instance) versus **Shared Database** (services share an instance, isolated
 some other way). This project has run with an answer to that question
 since its first commit, but never as a reviewed, explicit decision — the
-README and `CLAUDE.md` have long carried a one-line disclaimer ("database
-per service is not actually true") without an ADR backing it. This ADR
+README has long carried a one-line disclaimer ("database per service is
+not actually true") without an ADR backing it. This ADR
 closes that gap: it registers, deliberately and explicitly, a decision
 that has been implicit all along.
 
