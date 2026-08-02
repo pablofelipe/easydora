@@ -58,6 +58,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void evenAmountIsApproved() {
         Payment existing = new Payment("order-even", new BigDecimal("100.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-even")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -69,6 +70,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void oddAmountIsRejected() {
         Payment existing = new Payment("order-odd", new BigDecimal("99.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-odd")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -100,6 +102,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void retryingAFailedPaymentForTheSameOrderRepeatsTheSameOutcome() {
         Payment existing = new Payment("order-retry", new BigDecimal("13.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-retry")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -115,6 +118,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void aConcurrentWriteConflictIsNeverSwallowedIntoAReturnedFailedPayment() {
         Payment existing = new Payment("order-conflict", new BigDecimal("100.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-conflict")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class)))
                 .thenThrow(new OptimisticLockingFailureException("stale payment"));
@@ -130,6 +134,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void anOutboxWriteFailureAfterApprovalIsNeverSwallowedIntoAFailedPayment() {
         Payment existing = new Payment("order-even-outbox-fails", new BigDecimal("100.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-even-outbox-fails")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         doThrow(new RuntimeException("db unavailable"))
@@ -150,6 +155,7 @@ class PaymentServiceDeterministicApprovalTest {
     @Test
     void approvedPaymentRecordsExactlyOnePaymentApprovedEventInTheOutbox() {
         Payment existing = new Payment("order-even-outbox", new BigDecimal("100.00"));
+        existing.setOrderState("INVENTORY_RESERVED");
         when(paymentRepository.findByOrderId("order-even-outbox")).thenReturn(Optional.of(existing));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

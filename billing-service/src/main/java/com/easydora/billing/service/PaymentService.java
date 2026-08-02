@@ -6,6 +6,7 @@ import com.easydora.correlation.CorrelationContext;
 import com.easydora.correlation.OutboxEnvelopeCodec;
 import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.entity.OutboxEvent;
+import com.easydora.billing.exception.OrderNotReadyForPaymentException;
 import com.easydora.billing.exception.PaymentNotFoundException;
 import com.easydora.billing.model.Payment;
 import com.easydora.billing.model.PaymentStatus;
@@ -98,7 +99,24 @@ public class PaymentService {
     public boolean checkIfPaymentExists(String orderId) {
         return paymentRepository.findByOrderId(orderId).isPresent();
     }
-    
+
+    // Reacts to orders-service's order.status-changed broadcast (see
+    // OrderEventListener). A status-changed event can arrive before this
+    // service's own Payment row exists yet (order.created and
+    // order.status-changed race independently) -- a no-op, not an error,
+    // since processPayment's guard rejects on a missing orderState anyway
+    // and the row will simply pick up the next status-changed event.
+    @Transactional
+    public void updateOrderState(String orderId, String newState) {
+        paymentRepository.findByOrderId(orderId).ifPresentOrElse(
+            payment -> {
+                payment.setOrderState(newState);
+                paymentRepository.save(payment);
+            },
+            () -> logger.warn("order.status-changed received for order {} with no Payment yet -- ignoring", orderId)
+        );
+    }
+
     // ========== METHODS FOR REST API ==========
     
     public PaymentDTO findById(Long id) {
@@ -131,10 +149,27 @@ public class PaymentService {
             .orElseThrow(() -> new PaymentNotFoundException(orderId));
         logger.info("Payment found: {}", payment.getStatus());
 
-        // If already approved, return it
+        // If already approved, return it -- checked before the state guard
+        // below so a duplicate/replayed call for a payment that already
+        // succeeded stays a no-op even if the order has since moved past
+        // INVENTORY_RESERVED (e.g. into PAYMENT_APPROVED, its own next
+        // state).
         if (payment.getStatus() == PaymentStatus.APPROVED) {
             logger.warn("Payment already APPROVED for order {}", orderId);
             return convertToDTO(payment);
+        }
+
+        // ADR-0026 documented this endpoint as callable "at any time" by
+        // any direct caller, relying entirely on ADR-0034's compensation
+        // saga to unwind a payment approved too early or too late. This
+        // guard closes the avoidable case at the source: a real customer
+        // action (or gateway callback) should only ever land here once
+        // the order has actually reached INVENTORY_RESERVED. The saga
+        // still exists for genuine races this guard can't see (e.g. the
+        // order moves on between this check and the provider call below).
+        if (!"INVENTORY_RESERVED".equals(payment.getOrderState())) {
+            logger.warn("Order {} is not ready for payment (state: {})", orderId, payment.getOrderState());
+            throw new OrderNotReadyForPaymentException(orderId, payment.getOrderState());
         }
 
         BigDecimal amount = payment.getAmount();

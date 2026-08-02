@@ -10,8 +10,9 @@ const BADGE_BY_STATE: Record<OrderState, string> = {
 	SHIPPED: 'badge-blue',
 	DELIVERED: 'badge-green',
 	CANCELLED: 'badge-gray',
-	// ADR-0034: system-driven compensation states, no user action triggers
-	// or resolves them.
+	// ADR-0034: REFUNDING/REFUNDED are system-driven, no user action
+	// triggers or resolves them. REFUND_FAILED can be manually resolved by
+	// an ADMIN account via the /refunds remediation queue.
 	REFUNDING: 'badge-purple',
 	REFUNDED: 'badge-gray',
 	REFUND_FAILED: 'badge-red'

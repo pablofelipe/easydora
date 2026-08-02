@@ -1166,14 +1166,40 @@ The stack split is deliberate:
       `BillingServiceApplicationIT` (which exercises the same path
       implicitly), and now also has its own `FlywayMigrationIT` asserting
       the same thing explicitly.
-- [ ] **Opened 2026-07-10 (Medium).** Payment processing stays a manual
+- [x] **Opened 2026-07-10 (Medium).** Payment processing stays a manual
       button; nothing publishes an event that triggers
       `PaymentService.processPayment` automatically. See
-      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
-- [ ] **Opened 2026-07-12 (Medium).** No remediation tooling exists for
+      [ADR-0026](docs/adr/0026-frontend-thin-client.md). Re-evaluated, not
+      auto-triggered: a real payment requires an external actor (the
+      customer completing checkout, or a gateway callback) — the manual
+      button is a correct simulation of that step, not a gap to automate
+      away. The actual gap was that `processPayment` accepted a charge at
+      any time with no check at all. Closed with a real guard instead:
+      `billing-service` now consumes `order.status-changed` to track each
+      order's own state locally (`Payment.orderState`), and
+      `processPayment` rejects (`400`,
+      `OrderNotReadyForPaymentException`) unless the order has actually
+      reached `INVENTORY_RESERVED`. ADR-0034's compensation saga is
+      unchanged and still exists for the races this guard can't see.
+      Proven by `PaymentServiceOrderStateGuardTest` and confirmed live
+      against real running containers: an immediate payment attempt on a
+      still-`PROCESSING` order returned `400`; the same order returned
+      `200` once it reached `INVENTORY_RESERVED`.
+- [x] **Opened 2026-07-12 (Medium).** No remediation tooling exists for
       the manual review a `REFUND_FAILED` order needs — a genuine dead
       end today. See
-      [ADR-0034](docs/adr/0034-payment-compensation-saga.md).
+      [ADR-0034](docs/adr/0034-payment-compensation-saga.md). Closed:
+      `REFUND_FAILED` gained one outgoing transition (`RETRY_REFUND` →
+      `REFUNDING`, mirroring `INITIATE_REFUND`'s own precedent) plus a
+      persisted `refundFailureReason` column (previously only logged).
+      `orders-service` gained an `ADMIN`-gated `GET /orders/refunds/failed`
+      queue and `POST /orders/{orderId}/retry-refund` action, mirroring
+      the existing `getFulfillmentQueue`/`shipOrder` pattern exactly. The
+      frontend gained a `/refunds` admin page, the same shape as the
+      existing `/fulfillment` page. Retrying re-publishes
+      `RefundPaymentCommand` through the Outbox; `billing-service`'s
+      `refundPayment` was already idempotent, so retrying against a
+      `Payment` that turned out fine is harmless.
 - [ ] **Opened 2026-07-04 (Low).** Whether `JWT_SECRET`/`app.jwt.secret`
       is genuinely dead configuration in `products-service`,
       `orders-service`, and `billing-service` was never conclusively

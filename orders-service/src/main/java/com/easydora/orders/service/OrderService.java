@@ -495,7 +495,9 @@ public class OrderService {
     // for why they're not split into two different Order states). No
     // automatic retry here: ADR-0019's transport-level retry already
     // covers transient delivery failures, and this failure mode isn't
-    // transient.
+    // transient. reason is persisted (not just logged) so the admin
+    // remediation queue (getRefundFailedQueue) can show it without
+    // cross-referencing logs.
     public void handleRefundFailed(String orderId, String reason) {
         try {
             Order order = orderRepository.findById(orderId)
@@ -507,6 +509,7 @@ public class OrderService {
             if (eventSent) {
                 OrderState newState = stateMachineService.getCurrentState(orderId);
                 order.setState(newState);
+                order.setRefundFailureReason(reason);
                 orderRepository.saveAndFlush(order);
                 logger.error("Refund failed for order {}: {}", orderId, reason);
                 publishOrderStatusChanged(orderId, previousState, newState);
@@ -517,6 +520,47 @@ public class OrderService {
             logger.error("Error in handleRefundFailed for order {}: {}", orderId, e.getMessage());
             throw e;
         }
+    }
+
+    // Platform-operations read model: orders stuck in the REFUND_FAILED
+    // dead end, needing manual review (ADR-0034's own documented residual
+    // gap). Same role gate as getFulfillmentQueue/shipOrder.
+    public List<OrderResponse> getRefundFailedQueue() {
+        return orderRepository.findByState(OrderState.REFUND_FAILED).stream()
+            .map(this::mapToOrderResponse)
+            .collect(Collectors.toList());
+    }
+
+    // Operator-initiated remediation: sends a REFUND_FAILED order back
+    // through REFUNDING and re-publishes RefundPaymentCommand, exactly
+    // the same command a fresh INITIATE_REFUND would have produced.
+    // billing-service's refundPayment is already idempotent (a redelivered
+    // command for an already-REFUNDED Payment is a no-op), so retrying
+    // against a Payment that turned out fine is harmless; retrying against
+    // the same still-broken precondition (Payment missing/not APPROVED)
+    // simply produces the same payment.refund.failed again, which is the
+    // correct, honest outcome, not something to hide.
+    @Transactional
+    public OrderResponse retryRefund(String orderId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+        OrderState previousState = order.getState();
+        boolean eventSent = stateMachineService.sendEvent(orderId, OrderEvent.RETRY_REFUND);
+
+        if (!eventSent) {
+            throw new RuntimeException("Cannot retry refund for order " + orderId + " in state " + previousState);
+        }
+
+        OrderState newState = stateMachineService.getCurrentState(orderId);
+        order.setState(newState);
+        order.setRefundFailureReason(null);
+        orderRepository.saveAndFlush(order);
+
+        publishOrderStatusChanged(orderId, previousState, newState);
+        publishRefundPaymentCommand(orderId);
+
+        return mapToOrderResponse(order);
     }
 
     private void rejectSelfPurchase(OrderRequest request, Long userId) {
@@ -616,7 +660,8 @@ public class OrderService {
         response.setState(order.getState());
         response.setCreatedAt(order.getCreatedAt());
         response.setUpdatedAt(order.getUpdatedAt());
-        
+        response.setRefundFailureReason(order.getRefundFailureReason());
+
         List<OrderItemResponse> itemResponses = order.getItems().stream()
                 .map(this::mapToOrderItemResponse)
                 .collect(Collectors.toList());

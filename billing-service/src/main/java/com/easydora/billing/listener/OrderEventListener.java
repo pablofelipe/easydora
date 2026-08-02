@@ -3,6 +3,7 @@ package com.easydora.billing.listener;
 import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.billing.service.PaymentService;
 import com.easydora.billing.messaging.events.OrderCreatedEvent;
+import com.easydora.billing.messaging.events.OrderStatusChangedEvent;
 import com.easydora.billing.messaging.events.RefundPaymentCommand;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationConstants;
@@ -50,6 +51,29 @@ public class OrderEventListener {
                 logger.error("[RabbitMQ] Error processing OrderCreatedEvent: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to process OrderCreatedEvent for order " + event.getOrderId(), e);
             }
+        } finally {
+            MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
+            MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);
+        }
+    }
+
+    // Tracks the order's own state locally (see PaymentService.
+    // updateOrderState) so processPayment can reject a call that arrives
+    // before the order has actually reached INVENTORY_RESERVED, instead
+    // of accepting a charge at any time and relying solely on ADR-0034's
+    // compensation saga to unwind it afterwards.
+    @RabbitListener(queues = RabbitMQConfig.ORDER_STATUS_CHANGED_QUEUE)
+    public void handleOrderStatusChanged(
+            OrderStatusChangedEvent event,
+            @Header(name = AmqpHeaders.CORRELATION_ID, required = false) String correlationId,
+            @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
+        MDC.put(CorrelationConstants.CORRELATION_ID_MDC_KEY,
+                correlationId != null ? correlationId : CorrelationContext.newCorrelationId());
+        MDC.put(CorrelationConstants.MESSAGE_ID_MDC_KEY, messageId);
+        try {
+            BusinessEventLog.info(logger, "order.status-changed.received", event.getOrderId(),
+                    "Received OrderStatusChangedEvent: " + event.getNewState());
+            paymentService.updateOrderState(event.getOrderId(), event.getNewState());
         } finally {
             MDC.remove(CorrelationConstants.CORRELATION_ID_MDC_KEY);
             MDC.remove(CorrelationConstants.MESSAGE_ID_MDC_KEY);

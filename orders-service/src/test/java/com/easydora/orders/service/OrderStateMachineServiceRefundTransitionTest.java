@@ -61,4 +61,26 @@ class OrderStateMachineServiceRefundTransitionTest {
         assertThat(accepted).isTrue();
         assertThat(order.getState()).isEqualTo(OrderState.REFUNDING);
     }
+
+    // ADR-0034's remediation-tooling follow-up: REFUND_FAILED is also an
+    // .end() state, and needs the same real-runtime confirmation before
+    // OrderService.retryRefund is built on top of the assumption.
+    @org.junit.jupiter.api.Test
+    void refundFailedAlsoAcceptsARealOutgoingTransition(
+            @Autowired StateMachineFactory<OrderState, OrderEvent> factory) {
+        Order order = new Order();
+        order.setId("order-2");
+        order.setState(OrderState.REFUND_FAILED);
+
+        OrderRepository repository = mock(OrderRepository.class);
+        when(repository.findById("order-2")).thenReturn(Optional.of(order));
+        when(repository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderStateMachineService service = new OrderStateMachineService(factory, repository);
+
+        boolean accepted = service.sendEvent("order-2", OrderEvent.RETRY_REFUND);
+
+        assertThat(accepted).isTrue();
+        assertThat(order.getState()).isEqualTo(OrderState.REFUNDING);
+    }
 }

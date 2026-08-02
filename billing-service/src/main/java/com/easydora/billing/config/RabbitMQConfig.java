@@ -31,6 +31,13 @@ public class RabbitMQConfig {
     // Queues do billing-service
     public static final String ORDER_CREATED_QUEUE = "billing.order.created.queue";
 
+    // order.status-changed (see OrderEventListener.handleOrderStatusChanged):
+    // tracks the order's own state locally, on the Payment row, so
+    // PaymentService can reject a processPayment call that arrives before
+    // the order has actually reached INVENTORY_RESERVED.
+    public static final String ORDER_STATUS_CHANGED_KEY = "order.status-changed";
+    public static final String ORDER_STATUS_CHANGED_QUEUE = "billing.order.status-changed.queue";
+
     // Routing keys para publicar o resultado do processamento do pagamento
     // (consumidos por orders-service - ver PaymentEventsConsumer). Publicados
     // na mesma order.exchange já declarada acima, sem exchange/fila novas
@@ -77,6 +84,18 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(orderCreatedQueue)
                 .to(orderExchange)
                 .with(ORDER_CREATED_KEY);
+    }
+
+    @Bean
+    public Queue orderStatusChangedQueue() {
+        return new Queue(ORDER_STATUS_CHANGED_QUEUE, true);
+    }
+
+    @Bean
+    public Binding orderStatusChangedBinding(Queue orderStatusChangedQueue, TopicExchange orderExchange) {
+        return BindingBuilder.bind(orderStatusChangedQueue)
+                .to(orderExchange)
+                .with(ORDER_STATUS_CHANGED_KEY);
     }
 
     @Bean

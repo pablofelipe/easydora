@@ -13,7 +13,10 @@
 		{ href: '/checkout', label: 'Checkout' },
 		{ href: '/orders', label: 'My Orders' }
 	];
-	const adminLinks = [{ href: '/fulfillment', label: 'Fulfillment' }];
+	const adminLinks = [
+		{ href: '/fulfillment', label: 'Fulfillment' },
+		{ href: '/refunds', label: 'Refunds' }
+	];
 	const sellerLinks = [{ href: '/products/new', label: 'New product' }];
 </script>
 

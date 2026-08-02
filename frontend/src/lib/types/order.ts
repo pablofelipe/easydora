@@ -30,6 +30,7 @@ export interface Order {
 	items: OrderItem[];
 	createdAt: string;
 	updatedAt: string;
+	refundFailureReason?: string | null;
 }
 
 export interface CreateOrderItem {

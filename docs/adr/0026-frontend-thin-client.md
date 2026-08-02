@@ -223,6 +223,40 @@ ticket's scope needs:
   would hide the exact architectural property this frontend exists to
   make visible.
 
+## Update — 2026-08-02: the manual payment button is correct, not a gap
+
+This ADR's own residual item — "payment processing stays a manual button,
+not automatic" — was revisited and re-scoped, not simply closed by adding
+automation. A real payment fundamentally requires an external actor: the
+customer completing checkout, or a payment gateway's own callback. Having
+`billing-service` auto-trigger `processPayment` the moment an order
+reaches `INVENTORY_RESERVED` would model something this domain doesn't
+actually have — a system charging a customer's card with no customer
+action or gateway confirmation involved. The manual button stays exactly
+as this ADR originally built it: a correct simulation of that missing
+external step, using the deterministic mock provider
+([ADR-0030](0030-deterministic-payment-provider.md)) already standing in
+for a real gateway.
+
+The real gap this ADR's own Context implicitly pointed at was different:
+`PaymentController.processPayment` accepted a charge for an order in
+*any* state, at any time — the reason [ADR-0034](0034-payment-compensation-saga.md)'s
+whole compensation saga had to exist in the first place. That gap is now
+closed with a guard, not automation: `billing-service` consumes
+`order.status-changed` (a new `OrderEventListener.handleOrderStatusChanged`)
+to keep each `Payment`'s own `orderState` column current, and
+`processPayment` rejects (`400`, a new `OrderNotReadyForPaymentException`)
+unless the order has actually reached `INVENTORY_RESERVED` — checked
+after the existing already-`APPROVED` short-circuit, so a
+duplicate/replayed call for a payment that already succeeded stays a
+no-op even once the order has moved past that state into
+`PAYMENT_APPROVED`. ADR-0034's saga is unchanged and still exists for the
+races this guard can't see (e.g. the order moves on between this check
+and the provider call). Proven by `PaymentServiceOrderStateGuardTest` and
+confirmed live: an immediate payment attempt on a still-`PROCESSING`
+order returned `400`; the same order returned `200` once
+`order.status-changed` had propagated it to `INVENTORY_RESERVED`.
+
 ## References
 
 - [ADR-0025](0025-gateway-transparent-routing.md) — established the

@@ -130,4 +130,30 @@ public class OrderController {
         List<OrderResponse> orders = orderService.getFulfillmentQueue();
         return ResponseEntity.ok(orders);
     }
+
+    // Platform-operations read model: orders stuck in the REFUND_FAILED
+    // dead end (ADR-0034), needing manual review. Same role gate as
+    // getFulfillmentQueue/shipOrder.
+    @GetMapping("/refunds/failed")
+    public ResponseEntity<List<OrderResponse>> getRefundFailedQueue(
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        if (!"ADMIN".equals(principal.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        List<OrderResponse> orders = orderService.getRefundFailedQueue();
+        return ResponseEntity.ok(orders);
+    }
+
+    // Platform-operations action: retries compensation for a REFUND_FAILED
+    // order. Same role gate as shipOrder.
+    @PostMapping("/{orderId}/retry-refund")
+    public ResponseEntity<OrderResponse> retryRefund(
+            @PathVariable String orderId,
+            @AuthenticationPrincipal JwtUserInfo principal) {
+        if (!"ADMIN".equals(principal.getRole())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        OrderResponse response = orderService.retryRefund(orderId);
+        return ResponseEntity.ok(response);
+    }
 }

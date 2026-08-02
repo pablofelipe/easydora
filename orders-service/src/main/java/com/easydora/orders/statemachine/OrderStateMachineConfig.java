@@ -23,14 +23,19 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
                 .states(EnumSet.allOf(OrderState.class))
                 .end(OrderState.DELIVERED)
                 .end(OrderState.PAYMENT_FAILED)
-                // INVENTORY_FAILED/CANCELLED are no longer unconditionally
-                // final (ADR-0034): each still ends the order's own
-                // lifecycle by default, but now has one outgoing edge
-                // (INITIATE_REFUND) for the case a payment.approved arrives
-                // for an order that already reached one of these states --
-                // see OrderService.handlePaymentReceived.
-                .end(OrderState.REFUNDED)
-                .end(OrderState.REFUND_FAILED);
+                // INVENTORY_FAILED/CANCELLED/REFUND_FAILED are all
+                // deliberately absent from this .end() list (ADR-0034):
+                // Spring State Machine refuses any further event once a
+                // machine reaches a declared .end() state, which would
+                // block their one legitimate outgoing edge each
+                // (INITIATE_REFUND for the first two, RETRY_REFUND for the
+                // third) -- confirmed empirically, not assumed, by
+                // OrderStateMachineServiceRefundTransitionTest, which
+                // failed against a real .end(OrderState.REFUND_FAILED)
+                // declaration before this comment was corrected to match.
+                // REFUNDED alone is genuinely terminal: nothing in this
+                // domain ever un-refunds an order.
+                .end(OrderState.REFUNDED);
     }
 
     @Bean
@@ -114,6 +119,16 @@ public class OrderStateMachineConfig extends StateMachineConfigurerAdapter<Order
             .withExternal()
                 .source(OrderState.REFUNDING).target(OrderState.REFUND_FAILED)
                 .event(OrderEvent.REFUND_FAILED)
+            .and()
+
+            // Remediation (ADR-0034's own Roadmap follow-up): an operator
+            // reviewing the admin queue (GET /refunds/failed) can retry a
+            // dead-end REFUND_FAILED order, sending it back through the
+            // same REFUNDING state a fresh INITIATE_REFUND would have
+            // produced -- see OrderService.retryRefund.
+            .withExternal()
+                .source(OrderState.REFUND_FAILED).target(OrderState.REFUNDING)
+                .event(OrderEvent.RETRY_REFUND)
             .and();
     }
 }

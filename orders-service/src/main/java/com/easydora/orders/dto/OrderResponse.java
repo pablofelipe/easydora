@@ -14,6 +14,7 @@ public class OrderResponse {
     private List<OrderItemResponse> items;
     private Instant createdAt;
     private Instant updatedAt;
+    private String refundFailureReason;
     public String getId() {
         return id;
     }
@@ -55,5 +56,11 @@ public class OrderResponse {
     }
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+    public String getRefundFailureReason() {
+        return refundFailureReason;
+    }
+    public void setRefundFailureReason(String refundFailureReason) {
+        this.refundFailureReason = refundFailureReason;
     }
 }

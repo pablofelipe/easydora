@@ -26,7 +26,12 @@ public class Order {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderState state;
-    
+
+    // Why REFUNDING -> REFUND_FAILED happened (ADR-0034), previously only
+    // logged. Backs the admin remediation queue (GET /refunds/failed).
+    @Column(name = "refund_failure_reason", length = 500)
+    private String refundFailureReason;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<OrderItem> items = new ArrayList<>();
     
@@ -82,6 +87,14 @@ public class Order {
 
     public void setState(OrderState state) {
         this.state = state;
+    }
+
+    public String getRefundFailureReason() {
+        return refundFailureReason;
+    }
+
+    public void setRefundFailureReason(String refundFailureReason) {
+        this.refundFailureReason = refundFailureReason;
     }
 
 

@@ -28,3 +28,11 @@ export function cancelOrder(orderId: string): Promise<Order> {
 export function listFulfillmentQueue(): Promise<Order[]> {
 	return apiFetch<Order[]>('/orders/fulfillment');
 }
+
+export function listRefundFailedQueue(): Promise<Order[]> {
+	return apiFetch<Order[]>('/orders/refunds/failed');
+}
+
+export function retryRefund(orderId: string): Promise<Order> {
+	return apiFetch<Order>(`/orders/${orderId}/retry-refund`, { method: 'POST' });
+}

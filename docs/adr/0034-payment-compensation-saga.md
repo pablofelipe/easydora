@@ -373,6 +373,57 @@ helper, and a dedicated `OutboxPublisher` (mirroring
 cadence. The asymmetry this ADR's original passage worried about is gone
 because every publish moved together, not because the concern was wrong.
 
+## Update — 2026-08-02: remediation tooling for REFUND_FAILED
+
+This ADR's own Consequences section named the residual gap directly: "no
+automatic retry, no remediation tooling. Recovering from it today is a
+manual/operational action outside this system." That action now exists
+inside the system, following the exact pattern
+`getFulfillmentQueue`/`shipOrder` already established for
+platform-operations work.
+
+`REFUND_FAILED` gains one outgoing transition, `RETRY_REFUND` →
+`REFUNDING`, mirroring `INITIATE_REFUND`'s own shape exactly. Confirmed
+empirically first, not assumed: `REFUND_FAILED` was still declared as one
+of `OrderStateMachineConfig`'s `.end()` states, and Spring State Machine
+refuses any further event once a machine reaches a declared `.end()`
+state — a real spike failure
+(`OrderStateMachineServiceRefundTransitionTest`) caught this before
+`OrderService.retryRefund` was built on top of the wrong assumption that
+`.end()` and a real outgoing transition could simply coexist (they can,
+but only for a state that was never declared `.end()` in the first
+place — which, on inspection, is also the actual reason
+`INVENTORY_FAILED`/`CANCELLED` already worked: this ADR's original prose
+said they "still end the order's own lifecycle by default" while
+implying they stayed in the `.end()` list, but they were never actually
+declared there either).
+
+`Order` gains a persisted `refundFailureReason` column (`V6` migration),
+previously only logged — set by `handleRefundFailed`, cleared by
+`retryRefund`. `orders-service` gains `getRefundFailedQueue`
+(`GET /orders/refunds/failed`) and `retryRefund`
+(`POST /orders/{orderId}/retry-refund`), both `ADMIN`-gated the same way
+`shipOrder`/`getFulfillmentQueue` already are. `retryRefund` re-publishes
+`RefundPaymentCommand` through the Outbox, exactly what a fresh
+`INITIATE_REFUND` would have produced;
+`PaymentService.refundPayment`'s existing idempotency (a redelivered
+command for an already-`REFUNDED` `Payment` is a no-op) means retrying
+against a `Payment` that turned out fine is harmless, and retrying
+against the same still-broken precondition simply reproduces the same
+`payment.refund.failed` outcome — the correct, honest result, not
+something to hide.
+
+The frontend gains a `/refunds` admin page, structurally identical to the
+existing `/fulfillment` page: a table of affected orders (now showing
+`refundFailureReason`), one action button per row.
+
+Proven by `OrderServiceRefundRemediationTest`,
+`OrderStateMachineServiceRefundTransitionTest`'s new
+`refundFailedAlsoAcceptsARealOutgoingTransition` case, and
+`OrderFulfillmentControllerTest`'s new ADMIN-gate cases for both new
+endpoints. Confirmed live against real running containers via the actual
+`/orders/refunds/failed` and `/refunds` routes.
+
 ## References
 
 - [ADR-0032](0032-accept-order-state-machine-hybrid.md) — found and opened

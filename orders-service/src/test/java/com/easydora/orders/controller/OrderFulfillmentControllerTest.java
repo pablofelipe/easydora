@@ -121,4 +121,50 @@ class OrderFulfillmentControllerTest {
 
         verify(orderService).getFulfillmentQueue();
     }
+
+    // ADR-0034's remediation-tooling follow-up: same ADMIN-only,
+    // platform-operations gate as fulfillment/ship above.
+    @Test
+    void refundFailedQueue_asBuyer_isForbidden() throws Exception {
+        mockMvc.perform(get("/refunds/failed")
+                .with(authentication(authenticationFor(BUYER_ID, "BUYER"))))
+            .andExpect(status().isForbidden());
+
+        verify(orderService, never()).getRefundFailedQueue();
+    }
+
+    @Test
+    void refundFailedQueue_asAdmin_succeeds() throws Exception {
+        when(orderService.getRefundFailedQueue()).thenReturn(List.of());
+
+        mockMvc.perform(get("/refunds/failed")
+                .with(authentication(authenticationFor(ADMIN_ID, "ADMIN"))))
+            .andExpect(status().isOk());
+
+        verify(orderService).getRefundFailedQueue();
+    }
+
+    @Test
+    void retryRefund_asBuyer_isForbidden() throws Exception {
+        mockMvc.perform(post("/order-1/retry-refund")
+                .with(authentication(authenticationFor(BUYER_ID, "BUYER")))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+
+        verify(orderService, never()).retryRefund(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void retryRefund_asAdmin_succeeds() throws Exception {
+        OrderResponse response = new OrderResponse();
+        response.setId("order-1");
+        when(orderService.retryRefund("order-1")).thenReturn(response);
+
+        mockMvc.perform(post("/order-1/retry-refund")
+                .with(authentication(authenticationFor(ADMIN_ID, "ADMIN")))
+                .with(csrf()))
+            .andExpect(status().isOk());
+
+        verify(orderService).retryRefund("order-1");
+    }
 }

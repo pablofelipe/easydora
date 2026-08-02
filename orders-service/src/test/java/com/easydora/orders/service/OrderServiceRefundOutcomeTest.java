@@ -105,6 +105,9 @@ class OrderServiceRefundOutcomeTest {
         orderService.handleRefundFailed("order-1", "Payment not found for order order-1");
 
         assertThat(order.getState()).isEqualTo(OrderState.REFUND_FAILED);
+        assertThat(order.getRefundFailureReason())
+                .withFailMessage("the failure reason should be persisted, not only logged, for the admin remediation queue")
+                .isEqualTo("Payment not found for order order-1");
         List<OrderStatusChangedEvent> events = statusChangedEvents(savedEvents);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).getPreviousState()).isEqualTo(OrderState.REFUNDING);

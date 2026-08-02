@@ -36,7 +36,14 @@ public class Payment {
     private String transactionId;
     
     private String failureReason;
-    
+
+    // The order's own state, as last reported by orders-service's
+    // order.status-changed broadcast (see OrderEventListener). Used to
+    // reject a processPayment call that arrives before the order has
+    // actually reached INVENTORY_RESERVED -- see PaymentService.
+    @Column(name = "order_state")
+    private String orderState;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -103,6 +110,14 @@ public class Payment {
 
     public void setFailureReason(String failureReason) {
         this.failureReason = failureReason;
+    }
+
+    public String getOrderState() {
+        return orderState;
+    }
+
+    public void setOrderState(String orderState) {
+        this.orderState = orderState;
     }
 
     public LocalDateTime getCreatedAt() {
