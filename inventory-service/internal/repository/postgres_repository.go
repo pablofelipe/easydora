@@ -123,6 +123,23 @@ func (r *PostgresRepository) ReserveStockForOrder(ctx context.Context, command *
     }
     defer tx.Rollback()
 
+    // Database-level idempotency check (closes the post-TTL gap left open
+    // by inventoryService's in-memory cache, see README Roadmap): a
+    // placeholder row is inserted for this OrderID and then locked with
+    // FOR UPDATE. If another transaction (same process after its cache
+    // entry expired, or a different process entirely) already resolved
+    // this OrderID, the INSERT no-ops and the SELECT below returns that
+    // outcome instead of reserving stock again. If a concurrent
+    // transaction is mid-flight for the same OrderID, this SELECT blocks
+    // on its row lock until that transaction commits or rolls back.
+    outcome, err := r.lockReservationOutcome(tx, command.OrderID)
+    if err != nil {
+        return false, nil, err
+    }
+    if outcome != nil {
+        return outcome.success, outcome.insufficientEvent, nil
+    }
+
     for _, item := range command.Items {
         var currentQuantity, reserved int
         var available, deleted bool
@@ -150,6 +167,14 @@ func (r *PostgresRepository) ReserveStockForOrder(ctx context.Context, command *
             if err := r.insertOutboxEvent(ctx, tx, "order.exchange", "stock.insufficient", insufficientEvent); err != nil {
                 return false, nil, err
             }
+            if _, err := tx.Exec(
+                `UPDATE inventory_schema.reservation_outcomes
+                 SET success = false, insufficient_product_id = $2, insufficient_required = $3, insufficient_available = $4
+                 WHERE order_id = $1`,
+                command.OrderID, insufficientEvent.ProductID, insufficientEvent.Required, insufficientEvent.Available,
+            ); err != nil {
+                return false, nil, fmt.Errorf("failed to record reservation outcome: %v", err)
+            }
             if err := tx.Commit(); err != nil {
                 return false, nil, fmt.Errorf("failed to commit transaction: %v", err)
             }
@@ -175,11 +200,75 @@ func (r *PostgresRepository) ReserveStockForOrder(ctx context.Context, command *
         return false, nil, err
     }
 
+    if _, err := tx.Exec(
+        `UPDATE inventory_schema.reservation_outcomes SET success = true WHERE order_id = $1`,
+        command.OrderID,
+    ); err != nil {
+        return false, nil, fmt.Errorf("failed to record reservation outcome: %v", err)
+    }
+
     if err := tx.Commit(); err != nil {
         return false, nil, fmt.Errorf("failed to commit transaction: %v", err)
     }
 
     return true, nil, nil
+}
+
+// reservationOutcome is the durable, database-level record of a
+// previously resolved ReserveStockCommand, mirroring
+// inventoryService.reservationOutcome but sourced from
+// inventory_schema.reservation_outcomes instead of an in-memory cache --
+// see lockReservationOutcome.
+type reservationOutcome struct {
+    success           bool
+    insufficientEvent *models.StockInsufficientEvent
+}
+
+// lockReservationOutcome inserts a placeholder row for orderID if one
+// doesn't already exist, then locks it with SELECT ... FOR UPDATE. It
+// returns nil if this is a fresh OrderID (the caller should proceed with
+// the reservation and record its outcome before committing), or the
+// already-resolved outcome if a prior transaction already committed one
+// for this OrderID.
+func (r *PostgresRepository) lockReservationOutcome(tx *sql.Tx, orderID string) (*reservationOutcome, error) {
+    if _, err := tx.Exec(
+        `INSERT INTO inventory_schema.reservation_outcomes (order_id) VALUES ($1) ON CONFLICT (order_id) DO NOTHING`,
+        orderID,
+    ); err != nil {
+        return nil, fmt.Errorf("failed to record reservation attempt: %v", err)
+    }
+
+    var success sql.NullBool
+    var insufficientProductID sql.NullString
+    var insufficientRequired, insufficientAvailable sql.NullInt64
+    if err := tx.QueryRow(
+        `SELECT success, insufficient_product_id, insufficient_required, insufficient_available
+         FROM inventory_schema.reservation_outcomes WHERE order_id = $1 FOR UPDATE`,
+        orderID,
+    ).Scan(&success, &insufficientProductID, &insufficientRequired, &insufficientAvailable); err != nil {
+        return nil, fmt.Errorf("failed to read reservation outcome: %v", err)
+    }
+
+    if !success.Valid {
+        // Fresh OrderID (or a placeholder from a crashed transaction that
+        // never committed and was rolled back with it) -- proceed as a
+        // real delivery.
+        return nil, nil
+    }
+
+    if success.Bool {
+        return &reservationOutcome{success: true}, nil
+    }
+    return &reservationOutcome{
+        success: false,
+        insufficientEvent: &models.StockInsufficientEvent{
+            OrderID:   orderID,
+            ProductID: insufficientProductID.String,
+            Required:  int(insufficientRequired.Int64),
+            Available: int(insufficientAvailable.Int64),
+            Timestamp: time.Now(),
+        },
+    }, nil
 }
 
 // insertOutboxEvent stores the event's CorrelationId (reused from ctx, or

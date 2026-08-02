@@ -1039,17 +1039,37 @@ deliberately accepted trade-offs — those already have their own
 "Objective criteria for revisiting" section in the relevant ADR and are
 not repeated here.
 
-- [ ] **Opened 2026-08-01 (High).** RabbitMQ's automatic recovery is not
+- [x] **Opened 2026-08-01 (High).** RabbitMQ's automatic recovery is not
       lossless under a hard container kill: 2 of 207 broker-acknowledged
       messages never reached the consumer in
       [ADR-0041](docs/adr/0041-kafka-rabbitmq-broker-benchmark.md)'s
-      benchmark. A narrow, real gap in the Outbox pattern's at-least-once
-      guarantee ([ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md))
-      under non-graceful broker failure, unresolved.
-- [ ] **Opened 2026-07-15 (High).** `inventory-service`'s `ReserveStock`
+      benchmark. Root cause found and fixed the same day
+      (ADR-0041's 2026-08-02 Update): `inventory-service`'s
+      `OutboxPublisher` never set `DeliveryMode` on its published
+      messages, which `amqp091-go` treats as Transient regardless of the
+      target queue's own durability — a durable queue holding a
+      non-persistent message is not written to disk, so a hard broker
+      kill can lose it even after a positive publisher confirm. The three
+      Java services were never affected (Spring AMQP defaults
+      `deliveryMode` to `PERSISTENT`). Fixed by setting
+      `DeliveryMode: amqp.Persistent` on the one production publish call
+      site, proven by `TestOutboxPublisher_PublishesMessagesAsPersistent`.
+- [x] **Opened 2026-07-15 (High).** `inventory-service`'s `ReserveStock`
       idempotency protection only covers the TTL cache window. The
       database-level check that would also close the post-TTL
       duplication window remains a further, not-yet-adopted option.
+      Closed: `PostgresRepository.ReserveStockForOrder` now writes a
+      durable `inventory_schema.reservation_outcomes` row (order ID as
+      primary key) in the same transaction as the reservation itself. A
+      redelivered command — whether the in-memory cache's TTL has expired
+      or the process restarted and wiped it entirely — locks that row
+      (`SELECT ... FOR UPDATE`) and replays the already-committed outcome
+      instead of reserving stock again, including a cached
+      insufficient-stock outcome. Proven by
+      `TestReserveStockForOrder_RepeatedOrderIDIsIdempotentAtTheDatabaseLevel`
+      and `TestReserveStockForOrder_RepeatedOrderIDReplaysInsufficientOutcome`,
+      both calling the repository directly with no in-memory cache in
+      front of it at all.
 - [ ] **Opened 2026-07-04 (High).** `auth-service`'s `registerUser` still
       publishes `user.registered` directly rather than through the
       Outbox — a publish failure after a successful save can silently

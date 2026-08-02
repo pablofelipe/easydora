@@ -172,6 +172,7 @@ func (p *OutboxPublisher) publishPending() {
 				ContentType:   "application/json",
 				CorrelationId: correlationID,
 				MessageId:     messageID,
+				DeliveryMode:  amqp.Persistent,
 				Body:          []byte(body),
 			},
 		)

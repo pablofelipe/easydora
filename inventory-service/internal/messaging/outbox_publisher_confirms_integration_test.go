@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	amqp "github.com/rabbitmq/amqp091-go"
+
 	"inventory-service/internal/repository"
 )
 
@@ -83,5 +85,61 @@ func TestOutboxPublisher_DoesNotMarkPublishedWhenExchangeMissing(t *testing.T) {
 
 	if ts := publishedAt(); ts.Valid {
 		t.Fatal("outbox event was marked published even though its target exchange never existed")
+	}
+}
+
+// TestOutboxPublisher_PublishesMessagesAsPersistent proves an outbox event
+// still reaches a consumer after a broker restart, not just that the
+// broker acknowledged the publish. ADR-0041's benchmark found 2 of 207
+// broker-acknowledged messages lost under a hard container kill, on a
+// durable queue -- the root cause is that amqp.Publishing{} leaves
+// DeliveryMode at its zero value, which amqp091-go treats as Transient
+// regardless of the queue's own durability (see amqp091-go's
+// types.go: "Transient (0 or 1) or Persistent (2)"). A durable queue
+// holding a transient message does not persist that message to disk, so a
+// broker crash/restart can lose it even after a positive publisher
+// confirm.
+func TestOutboxPublisher_PublishesMessagesAsPersistent(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	repo := repository.NewPostgresRepository(db)
+
+	consumer, err := NewRabbitMQConsumer()
+	if err != nil {
+		t.Fatalf("failed to connect consumer: %v", err)
+	}
+	defer consumer.Close()
+	if err := consumer.SetupOrderExchange(); err != nil {
+		t.Fatalf("failed to set up order.exchange: %v", err)
+	}
+
+	_, pubCh := openTestChannel(t)
+	defer pubCh.Close()
+
+	testQueue := fmt.Sprintf("test.persistence.%d", time.Now().UnixNano())
+	declareTestQueue(t, pubCh, testQueue, "order.exchange", "test.persistence")
+
+	correlationID := fmt.Sprintf("persistence-test-%d", time.Now().UnixNano())
+	payload := correlation.WrapOutboxPayload(correlationID, "", `{"hello":"world"}`)
+	if _, err := db.Exec(
+		`INSERT INTO inventory_schema.outbox_events (exchange, routing_key, payload) VALUES ($1, $2, $3)`,
+		"order.exchange", "test.persistence", payload,
+	); err != nil {
+		t.Fatalf("failed to seed outbox row: %v", err)
+	}
+
+	outbox, err := consumer.StartOutboxPublisher(repo)
+	if err != nil {
+		t.Fatalf("failed to start outbox publisher: %v", err)
+	}
+	defer outbox.Stop()
+
+	msg := awaitMessage(t, pubCh, testQueue, 10*time.Second)
+	if msg == nil {
+		t.Fatal("expected the outbox publisher to deliver the seeded event")
+	}
+	if msg.DeliveryMode != amqp.Persistent {
+		t.Fatalf("expected DeliveryMode to be Persistent (%d), got %d -- a durable queue does not protect a transient message from loss on broker restart", amqp.Persistent, msg.DeliveryMode)
 	}
 }

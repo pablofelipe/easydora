@@ -264,18 +264,19 @@ func TestReserveStock_CacheDoesNotGrowUnboundedWithVolume(t *testing.T) {
 }
 
 // TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation documents
-// a known, accepted residual gap: the idempotency cache only protects
-// against retries that arrive within its TTL window. A redelivery that
-// shows up after the entry has expired (e.g. a message reprocessed late
-// from a dead-letter queue, or a service restart followed by a slow
-// broker reconnect) is indistinguishable from a first delivery and will
-// reserve stock again. This is not fixed here: the Outbox Pattern
-// (ReserveStockForOrder, ADR-0007) closes a different gap — it guarantees
-// the stock.reserved/stock.insufficient event is never lost once a
-// reservation commits — but it doesn't make message redelivery itself
-// idempotent, so this residual gap remains open. This test only proves
-// the current behavior matches what the README claims, instead of
-// leaving it as an unverified assumption.
+// a residual gap at this test's own level: mockInventoryRepository is a
+// naive in-memory stand-in with no idempotency protection of its own, so
+// once inventoryService's TTL cache entry expires, a redelivery duplicates
+// the reservation here. The real production repository no longer has this
+// gap: PostgresRepository.ReserveStockForOrder now also checks
+// inventory_schema.reservation_outcomes, a durable, database-level record
+// written in the same transaction as the reservation itself -- see
+// TestReserveStockForOrder_RepeatedOrderIDIsIdempotentAtTheDatabaseLevel
+// in internal/messaging, which proves the opposite against real Postgres,
+// with no in-memory cache in front of it at all. This test remains useful
+// as a unit-level proof that inventoryService's own in-memory cache layer,
+// taken alone, provides no protection past its TTL -- the database-level
+// check is what actually closes the gap end to end.
 func TestReserveStock_RedeliveryAfterTTLExpiryDuplicatesReservation(t *testing.T) {
 	repo := newMockInventoryRepository()
 	repo.inventory["prod-1"] = &models.Inventory{

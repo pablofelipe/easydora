@@ -125,6 +125,50 @@ true, not hypothetically:
   result materially enough to change the throughput or recovery
   conclusion above.
 
+## Update — 2026-08-02: root cause found and fixed for the RabbitMQ hard-kill gap
+
+This ADR's own "Objective criteria for revisiting" deferred the 2/207
+hard-kill loss until it recurred in a real incident, not merely in this
+benchmark. Treating an environment closely mirroring production as
+sufficient grounds, the gap was investigated anyway.
+
+**Root cause**: `inventory-service`'s `OutboxPublisher`
+(`internal/messaging/outbox_publisher.go`) published every event via
+`amqp.Publishing{}` without setting `DeliveryMode`. `amqp091-go` leaves
+that field at its zero value in that case, which the broker treats as
+Transient — the same as explicitly setting `Transient` (1) — regardless of
+the target queue's own `durable` flag. A durable queue holding a
+non-persistent message does not write that message to disk, so a hard
+broker kill can lose it even after a positive publisher confirm, which
+only guarantees the broker accepted the message, not that it was
+persisted. This benchmark's harness (`benchmarks/broker-comparison/`)
+reproduced the same gap because it deliberately mirrors this exact
+`OutboxPublisher` call pattern (see this ADR's own Decision section) — it
+inherited the same omission, not a different one.
+
+The three Java services' `OutboxPublisher` (`auth-service`,
+`orders-service`, `billing-service`) were not affected: Spring AMQP's
+`MessageProperties` defaults `deliveryMode` to `PERSISTENT`
+(`MessageProperties.DEFAULT_DELIVERY_MODE`) unless a caller explicitly
+overrides it, and none of the three does.
+
+**Fix**: `amqp.Publishing{DeliveryMode: amqp.Persistent, ...}` added to
+`OutboxPublisher`'s single publish call site — the only production
+publish site in `inventory-service` using `amqp091-go` directly (verified
+by inspection: `internal/messaging/outbox_publisher.go` is the only
+non-test file in the service constructing `amqp.Publishing`). Proven by a
+new integration test,
+`TestOutboxPublisher_PublishesMessagesAsPersistent`
+(`internal/messaging/outbox_publisher_confirms_integration_test.go`),
+which asserts a delivered message's `DeliveryMode` equals `amqp.Persistent`
+— failing (`DeliveryMode` 0) before the fix, passing after.
+
+This closes the narrow gap this ADR found for `inventory-service`'s own
+Outbox publisher. It does not change this ADR's Decision (RabbitMQ remains
+EasyDora's sole broker) or re-run the benchmark itself — the benchmark
+harness's own `results.jsonl` still reflects the pre-fix measurement, since
+re-running it was not part of this fix's scope.
+
 ## References
 
 - [ADR-0007](0007-remove-kafka-broker.md) — the original, argued-not-measured

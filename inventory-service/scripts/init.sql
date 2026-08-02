@@ -39,3 +39,19 @@ CREATE TABLE IF NOT EXISTS inventory_schema.outbox_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_outbox_events_unpublished ON inventory_schema.outbox_events(created_at) WHERE published_at IS NULL;
+
+-- Database-level idempotency for ReserveStockForOrder, closing the
+-- post-TTL gap left open by inventoryService's in-memory cache (the cache
+-- only protects a redelivery arriving within its own TTL window, or
+-- before a process restart wipes it -- see README Roadmap). One row per
+-- OrderID, written in the same transaction as the reservation itself: a
+-- redelivered command for an OrderID already resolved here returns the
+-- stored outcome instead of reserving stock a second time.
+CREATE TABLE IF NOT EXISTS inventory_schema.reservation_outcomes (
+    order_id VARCHAR(255) PRIMARY KEY,
+    success BOOLEAN,
+    insufficient_product_id VARCHAR(255),
+    insufficient_required INTEGER,
+    insufficient_available INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);

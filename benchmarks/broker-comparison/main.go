@@ -236,7 +236,7 @@ func runThroughputRabbit(count int64) report {
 		t0 := time.Now()
 		confirmation, err := pubCh.PublishWithDeferredConfirmWithContext(context.Background(),
 			rabbitExchange, rabbitRoutingKey, false, false,
-			amqp.Publishing{ContentType: "application/json", Body: body})
+			amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Body: body})
 		if err != nil {
 			log.Printf("publish error: %v", err)
 			continue
@@ -460,7 +460,7 @@ func runFailoverRabbit(duration time.Duration, rate int) failoverReport {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		confirmation, err := setupCh.PublishWithDeferredConfirmWithContext(ctx,
 			rabbitExchange, rabbitRoutingKey, false, false,
-			amqp.Publishing{ContentType: "application/json", Body: body})
+			amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Body: body})
 		var ok bool
 		if err == nil && confirmation != nil {
 			ok = confirmation.Wait()
