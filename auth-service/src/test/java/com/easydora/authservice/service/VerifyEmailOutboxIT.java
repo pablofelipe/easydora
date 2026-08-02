@@ -16,6 +16,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -66,8 +67,6 @@ class VerifyEmailOutboxIT {
             // drain leftovers from earlier runs
         }
 
-        RabbitMQProducerService rabbitMQProducerService = new RabbitMQProducerService(rabbitTemplate, exchange);
-
         User user = new User();
         user.setId(777L);
         user.setEmail("flaky@example.com");
@@ -85,7 +84,7 @@ class VerifyEmailOutboxIT {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, rabbitMQProducerService, verificationTokenService, outboxEventRepository);
+        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, outboxEventRepository, new ObjectMapper());
 
         assertThatThrownBy(() -> userService.verifyEmail("token-flaky"))
                 .isInstanceOf(RuntimeException.class)

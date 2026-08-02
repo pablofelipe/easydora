@@ -12,6 +12,9 @@ import com.easydora.authservice.entity.UserRole;
 import com.easydora.authservice.entity.UserStatus;
 import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
+import com.easydora.authservice.event.UserRegisteredEvent;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,17 +37,17 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final RabbitMQProducerService rabbitMQProducerService;
     private final VerificationTokenService verificationTokenService;
     private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, RabbitMQProducerService rabbitMQProducerService, VerificationTokenService verificationTokenService, OutboxEventRepository outboxEventRepository) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, VerificationTokenService verificationTokenService, OutboxEventRepository outboxEventRepository, ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.rabbitMQProducerService = rabbitMQProducerService;
         this.verificationTokenService = verificationTokenService;
         this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
     }
     
     public SignupResponse registerUser(SignupRequest signupRequest) {
@@ -65,7 +68,7 @@ public class UserService {
 
         User savedUser = userRepository.save(user);
 
-        rabbitMQProducerService.sendUserRegisteredEvent(
+        UserRegisteredEvent event = new UserRegisteredEvent(
             savedUser.getId(),
             savedUser.getEmail(),
             savedUser.getFirstName(),
@@ -73,7 +76,23 @@ public class UserService {
             signupRequest.getRole(),
             verificationToken
         );
-        BusinessEventLog.info(logger, "user.registered.published", savedUser.getId(), "User registered event published");
+        String eventJson;
+        try {
+            eventJson = objectMapper.writeValueAsString(event);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize UserRegisteredEvent", e);
+        }
+        String envelopedPayload = OutboxEnvelopeCodec.wrap(
+            CorrelationContext.currentOrNewCorrelationId(),
+            CorrelationContext.newMessageId(),
+            eventJson
+        );
+        outboxEventRepository.save(new OutboxEvent(
+            RabbitMQConfig.EXCHANGE_NAME,
+            RabbitMQConfig.USER_REGISTERED_KEY,
+            envelopedPayload
+        ));
+        BusinessEventLog.info(logger, "user.registered.outboxed", savedUser.getId(), "User registered event recorded in outbox");
 
         return mapToSignupResponse(savedUser, verificationToken);
     }

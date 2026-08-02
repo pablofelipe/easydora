@@ -13,9 +13,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Both direct publishes must go through the correlation-aware
- * MessagePostProcessor overload of convertAndSend, not the bare 3-arg one
- * -- otherwise correlationId/messageId never make it onto the wire.
+ * sendJwtCreatedEvent (the only remaining direct publish this service
+ * makes -- both sendUserVerifiedEvent (ADR-0003) and
+ * sendUserRegisteredEvent moved to the Outbox and were deleted as dead
+ * code once this class had no other caller) must go through the
+ * correlation-aware MessagePostProcessor overload of convertAndSend, not
+ * the bare 3-arg one -- otherwise correlationId/messageId never make it
+ * onto the wire.
  */
 class RabbitMQProducerServiceTest {
 
@@ -27,18 +31,6 @@ class RabbitMQProducerServiceTest {
 
         RabbitMQProducerService service = new RabbitMQProducerService(rabbitTemplate, exchange);
         service.sendJwtCreatedEvent("token", 1L, "e@x.com", "First", "Last", "BUYER", 3600L);
-
-        verify(rabbitTemplate).convertAndSend(eq("auth.exchange"), anyString(), any(Object.class), any(MessagePostProcessor.class));
-    }
-
-    @Test
-    void sendUserRegisteredEventPublishesWithAMessagePostProcessor() {
-        RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
-        TopicExchange exchange = mock(TopicExchange.class);
-        when(exchange.getName()).thenReturn("auth.exchange");
-
-        RabbitMQProducerService service = new RabbitMQProducerService(rabbitTemplate, exchange);
-        service.sendUserRegisteredEvent(1L, "e@x.com", "First", "Last", "BUYER", "token");
 
         verify(rabbitTemplate).convertAndSend(eq("auth.exchange"), anyString(), any(Object.class), any(MessagePostProcessor.class));
     }

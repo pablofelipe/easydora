@@ -1031,14 +1031,6 @@ The stack split is deliberate:
       [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
       2026-08-02 Update.
 
-The following open items were surveyed and registered together on
-2026-08-02, ordered by severity rather than by the date each was
-originally found (every other entry in this Roadmap orders by date
-found). Each keeps its own true "Opened" date. None of these are
-deliberately accepted trade-offs — those already have their own
-"Objective criteria for revisiting" section in the relevant ADR and are
-not repeated here.
-
 - [x] **Opened 2026-08-01 (High).** RabbitMQ's automatic recovery is not
       lossless under a hard container kill: 2 of 207 broker-acknowledged
       messages never reached the consumer in
@@ -1070,17 +1062,43 @@ not repeated here.
       and `TestReserveStockForOrder_RepeatedOrderIDReplaysInsufficientOutcome`,
       both calling the repository directly with no in-memory cache in
       front of it at all.
-- [ ] **Opened 2026-07-04 (High).** `auth-service`'s `registerUser` still
+- [x] **Opened 2026-07-04 (High).** `auth-service`'s `registerUser` still
       publishes `user.registered` directly rather than through the
       Outbox — a publish failure after a successful save can silently
       drop the event. Never evaluated against the adoption criterion
       [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)
       later introduced for `orders-service`/`billing-service`. See
-      [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md).
-- [ ] **Opened 2026-07-07 (High).** `auth-service`'s
+      [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md). Closed:
+      `registerUser` now serializes `UserRegisteredEvent` to JSON and
+      writes it as an `OutboxEvent` row in the same transaction as
+      `userRepository.save`, mirroring `verifyEmail`'s existing pattern
+      exactly — the same `OutboxPublisher` drains it, at-least-once. This
+      was the last caller of `RabbitMQProducerService.sendUserRegisteredEvent`,
+      so that method was deleted as dead code (mirroring ADR-0003's own
+      precedent for `sendUserVerifiedEvent`), along with `UserService`'s
+      now-unused `RabbitMQProducerService` dependency entirely. Proven by
+      `RegisterUserOutboxBehaviorTest`, including a JSON round-trip
+      assertion that the outboxed payload deserializes back into an
+      equivalent `UserRegisteredEvent`. Also found and removed, unrelated
+      to this fix: `UserRegisteredEventListener`, a Spring
+      `@EventListener` that was never wired to fire (nothing in the
+      codebase ever called `ApplicationEventPublisher.publishEvent` with
+      this event type) — genuinely dead code, not a consequence of this
+      change.
+- [x] **Opened 2026-07-07 (High).** `auth-service`'s
       `application-dev.properties` default `jwt.secret`/`app.jwt.secret`
       fallback is shorter than HMAC-SHA's recommended minimum key length.
       See [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md).
+      Closed: the fallback (used only when `APP_JWT_SECRET` is unset, e.g.
+      running the service as a bare process outside docker-compose/`.env`)
+      is now 44 characters (352 bits), above HMAC-SHA's RFC 7518 §3.2
+      minimum of 256 bits — the previous 21-character placeholder (168
+      bits) made `JwtService`/`VerificationTokenService` throw
+      `WeakKeyException` at construction. Proven by
+      `JwtSecretStrengthTest`, and confirmed against a real bare-process
+      boot (no `.env`, no `APP_JWT_SECRET`): the service now progresses
+      past JWT bean construction to its Postgres connection attempt,
+      instead of crashing immediately on `WeakKeyException`.
 - [ ] **Opened 2026-07-04 (Medium).** `api-gateway`'s circuit breaker
       detects a failed call only by checking for the proxy's own `502` —
       a status-code heuristic that would misfire if a real backend ever

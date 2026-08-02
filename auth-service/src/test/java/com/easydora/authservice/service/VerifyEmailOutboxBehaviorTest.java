@@ -9,6 +9,8 @@ import com.easydora.authservice.entity.UserStatus;
 import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -51,11 +53,10 @@ class VerifyEmailOutboxBehaviorTest {
         when(verificationTokenService.getEmailFromToken("token-flaky")).thenReturn("flaky@example.com");
 
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        RabbitMQProducerService rabbitMQProducerService = mock(RabbitMQProducerService.class);
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, rabbitMQProducerService,
-                verificationTokenService, outboxEventRepository);
+        UserService userService = new UserService(userRepository, passwordEncoder,
+                verificationTokenService, outboxEventRepository, new ObjectMapper());
 
         assertThatThrownBy(() -> userService.verifyEmail("token-flaky"))
                 .isInstanceOf(RuntimeException.class)
@@ -82,12 +83,11 @@ class VerifyEmailOutboxBehaviorTest {
         when(verificationTokenService.getEmailFromToken("token-ok")).thenReturn("verified@example.com");
 
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-        RabbitMQProducerService rabbitMQProducerService = mock(RabbitMQProducerService.class);
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, rabbitMQProducerService,
-                verificationTokenService, outboxEventRepository);
+        UserService userService = new UserService(userRepository, passwordEncoder,
+                verificationTokenService, outboxEventRepository, new ObjectMapper());
 
         userService.verifyEmail("token-ok");
 

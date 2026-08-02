@@ -5,6 +5,10 @@ import com.easydora.authservice.entity.User;
 import com.easydora.authservice.repository.OutboxEventRepository;
 import com.easydora.authservice.repository.UserRepository;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,13 +29,15 @@ class UserServiceSignupRoleTest {
     private UserService newUserService(UserRepository userRepository) {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         when(passwordEncoder.encode(any())).thenReturn("hashed");
-        RabbitMQProducerService rabbitMQProducerService = mock(RabbitMQProducerService.class);
         VerificationTokenService verificationTokenService = mock(VerificationTokenService.class);
         when(verificationTokenService.generateEmailVerificationToken(any())).thenReturn("token");
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
+        ObjectMapper objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-        return new UserService(userRepository, passwordEncoder, rabbitMQProducerService,
-                verificationTokenService, outboxEventRepository);
+        return new UserService(userRepository, passwordEncoder,
+                verificationTokenService, outboxEventRepository, objectMapper);
     }
 
     private SignupRequest requestWithRole(String role) {

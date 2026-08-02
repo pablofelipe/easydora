@@ -63,6 +63,45 @@ new metrics (`outbox_events_published_total`,
 the table shape, envelope, and poll cadence described above are unchanged
 and are exactly what ADR-0037 formalizes.
 
+## Update — 2026-08-02: registerUser moved to the Outbox too
+
+The residual risk this ADR explicitly left open in `registerUser`'s
+save-then-direct-publish path — a publish failure after a successful save
+silently drops the event — is now closed. `registerUser` builds the same
+`UserRegisteredEvent` it always did, serializes it to JSON, and writes it
+as an `OutboxEvent` row (`auth.exchange`, `user.registered`) in the same
+transaction as `userRepository.save`, using the exact same
+`OutboxEnvelopeCodec`/`OutboxPublisher` machinery `verifyEmail` already
+used. Unlike `verifyEmail`'s envelope (a bare numeric user ID, preserving
+the pre-existing wire shape two consumers already expected), this one
+carries the full JSON event body, so `UserService` now takes a
+Jackson `ObjectMapper` as a constructor dependency, configured with
+`JavaTimeModule` and `WRITE_DATES_AS_TIMESTAMPS` disabled — the same
+configuration `RabbitMQConfig`'s own message converter and the
+`UserRegisteredEventContractTest` already used, so the JSON shape on the
+outbox path is identical to what a live `convertAndSend` would have
+produced.
+
+`RabbitMQProducerService.sendUserRegisteredEvent` had no other caller once
+`registerUser` stopped using it, so it was deleted as dead code — the same
+call this ADR already made for `sendUserVerifiedEvent`. `UserService`'s
+`RabbitMQProducerService` dependency itself is now gone too, since nothing
+in the class used it anymore.
+
+Proven by `RegisterUserOutboxBehaviorTest`
+(`auth-service/src/test/java/com/easydora/authservice/service/`), mirroring
+`VerifyEmailOutboxBehaviorTest`'s shape: one test proves no outbox row is
+written when the save fails, the other captures the written row and
+round-trips its JSON body back into a `UserRegisteredEvent` to prove the
+wire shape survived the envelope.
+
+While investigating this call site, an unrelated, already-dead piece of
+code was found and removed: `UserRegisteredEventListener`, a Spring
+`@EventListener` bean that was never actually wired to fire — nothing in
+the codebase ever called `ApplicationEventPublisher.publishEvent` with a
+`UserRegisteredEvent`, in this version of the class or any prior one this
+task touched. Its removal is unrelated to the outbox change itself.
+
 ## References
 
 - Baseline audit (2026-07-03 entry in this repo's history) — original catalogue of the outbox-pattern debt, including this exact `verifyEmail` ordering and the separate `inventory-service` risk.

@@ -22,6 +22,7 @@ import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Optional;
@@ -70,8 +71,6 @@ class VerifyEmailOutboxHappyPathIT {
             // drain leftovers from earlier runs
         }
 
-        RabbitMQProducerService rabbitMQProducerService = new RabbitMQProducerService(rabbitTemplate, exchange);
-
         User user = new User();
         user.setId(888L);
         user.setEmail("verified@example.com");
@@ -90,7 +89,7 @@ class VerifyEmailOutboxHappyPathIT {
         OutboxEventRepository userServiceOutboxRepository = mock(OutboxEventRepository.class);
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, rabbitMQProducerService, verificationTokenService, userServiceOutboxRepository);
+        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, userServiceOutboxRepository, new ObjectMapper());
 
         userService.verifyEmail("token-ok");
 
