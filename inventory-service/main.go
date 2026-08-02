@@ -93,8 +93,9 @@ func main() {
     // forwards the incoming path unchanged, see ADR-0025 -- reaches the
     // same handler instead of being swallowed by the /inventory/ catch-all
     // below, which would otherwise treat "health" as a product ID).
-    http.Handle("/health", withCORS(correlation.Middleware(withMetrics("/health", http.HandlerFunc(healthHandler)))))
-    http.Handle("/inventory/health", withCORS(correlation.Middleware(withMetrics("/inventory/health", http.HandlerFunc(healthHandler)))))
+    healthHandler := healthHandlerFor(db)
+    http.Handle("/health", withCORS(correlation.Middleware(withMetrics("/health", healthHandler))))
+    http.Handle("/inventory/health", withCORS(correlation.Middleware(withMetrics("/inventory/health", healthHandler))))
 
     // Liveness (docs/adr/0038's Update): answers "is the messaging loop
     // stalled", never "is RabbitMQ reachable right now" -- see
@@ -173,9 +174,37 @@ func getEnvOrDefault(key, defaultValue string) string {
     return defaultValue
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"status": "OK"})
+// healthHandlerFor performs a real, short-timeout connectivity probe
+// against Postgres (see ADR-0010's Update: this endpoint -- the one
+// Docker's own HEALTHCHECK and the Gateway route hit -- used to report a
+// hardcoded "OK" with no real dependency probe at all, the same
+// shallow-liveness-check pattern already fixed for the four Spring
+// services). 2s is generous against this project's own measured
+// healthy-backend latencies (100-115ms, ADR-0006) while still bounding how
+// long a caller waits on a genuinely stuck connection. RabbitMQ has its
+// own, separate real check at /health/liveness (ProgressWatchdog) --
+// deliberately kept apart from this handler, same as before.
+func healthHandlerFor(db *sql.DB) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+
+        ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+        defer cancel()
+
+        if err := db.PingContext(ctx); err != nil {
+            w.WriteHeader(http.StatusServiceUnavailable)
+            json.NewEncoder(w).Encode(map[string]string{
+                "status":   "DOWN",
+                "database": "Disconnected",
+            })
+            return
+        }
+
+        json.NewEncoder(w).Encode(map[string]string{
+            "status":   "OK",
+            "database": "Connected",
+        })
+    }
 }
 
 // livenessStuckThreshold is generous relative to how often progress is

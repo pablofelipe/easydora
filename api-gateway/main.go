@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -351,11 +352,25 @@ const transportFailureContextKey = "gatewayTransportFailure"
 // backend, even a 4xx/5xx one, including a backend-originated 502. So the
 // breaker trips on "downstream unreachable", not "downstream returned an
 // error status".
+// circuitBreakers holds every breaker createReverseProxyWithBreaker has
+// ever built, keyed by ServiceConfig.Name -- the real-time signal
+// healthCheck reads instead of the static Implemented config flag (see
+// ADR-0010's Update, extended to the Go services: /health used to report
+// "implemented" unconditionally, never reflecting whether the breaker for
+// that service had actually tripped open).
+var (
+	circuitBreakersMu sync.RWMutex
+	circuitBreakers   = make(map[string]*gobreaker.CircuitBreaker)
+)
+
 func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
 	// Built once here and shared across every request this handler serves —
 	// createReverseProxyWithBreaker itself only runs once per service, at
 	// route-registration time in setupServiceRoutes.
 	breaker := gobreaker.NewCircuitBreaker(circuitBreakerSettings(serviceName))
+	circuitBreakersMu.Lock()
+	circuitBreakers[serviceName] = breaker
+	circuitBreakersMu.Unlock()
 	plainProxy := createReverseProxy(target, serviceName)
 
 	return func(c *gin.Context) {
@@ -376,15 +391,43 @@ func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
 	}
 }
 
+// breakerStateLabel translates gobreaker's own State into the label
+// healthCheck reports -- Closed is the normal, healthy state; Open means
+// ReadyToTrip fired and requests are being short-circuited; HalfOpen means
+// the cooldown elapsed and a single trial request is being let through.
+func breakerStateLabel(state gobreaker.State) string {
+	switch state {
+	case gobreaker.StateClosed:
+		return "healthy"
+	case gobreaker.StateOpen:
+		return "unavailable"
+	case gobreaker.StateHalfOpen:
+		return "recovering"
+	default:
+		return "unknown"
+	}
+}
+
 func healthCheck(c *gin.Context) {
-	// Service status
+	// Service status: a real, real-time signal (the service's own circuit
+	// breaker state) where one exists, not just the static Implemented
+	// config flag -- see circuitBreakers' own doc comment.
 	servicesStatus := make(map[string]string)
 	for path, config := range services {
-		if config.Implemented && config.URL != "" {
-			servicesStatus[path] = "implemented"
-		} else {
+		if !config.Implemented || config.URL == "" {
 			servicesStatus[path] = "not_implemented"
+			continue
 		}
+
+		circuitBreakersMu.RLock()
+		breaker, ok := circuitBreakers[config.Name]
+		circuitBreakersMu.RUnlock()
+
+		if !ok {
+			servicesStatus[path] = "implemented"
+			continue
+		}
+		servicesStatus[path] = breakerStateLabel(breaker.State())
 	}
 
 	status := gin.H{

@@ -172,6 +172,35 @@ same shallow-check shape (`inventory-service` confirmed by inspection;
 `api-gateway` not checked) but are Go, out of this ADR's Spring-only
 scope — tracked as a new, separate README Roadmap item.
 
+## Update — 2026-08-02 (2): the two Go services closed too
+
+`inventory-service`'s `healthHandler` became `healthHandlerFor(db *sql.DB)`,
+performing the same real, 2-second-timeout probe as the Spring services
+(`db.PingContext`), returning `503`/`"Disconnected"` on failure instead of
+always `200`/`{"status": "OK"}`. RabbitMQ's own real check stays at the
+separate `/health/liveness` endpoint (`ProgressWatchdog`), unchanged — this
+only closes the gap in `/health` itself, the endpoint Docker's own
+`HEALTHCHECK` and the Gateway route actually hit. Proven by
+`TestHealthHandler_ReturnsServiceUnavailableWhenDatabaseIsUnreachable`
+(`main_test.go`, no live infra needed — dials a closed local port) and
+`TestHealthHandler_ReturnsOKStatus` (`main_health_integration_test.go`,
+`-tags=integration`, real Postgres).
+
+`api-gateway` has no database or message broker of its own — a direct
+connectivity probe isn't the right analogue here. Instead, its `/health`
+now reports each service's actual circuit breaker state
+(`healthy`/`unavailable`/`recovering`, from `gobreaker.CircuitBreaker.State()`)
+instead of the static `Implemented` config flag it used to report
+unconditionally regardless of whether that service was actually reachable.
+`createReverseProxyWithBreaker` now also registers the breaker it builds
+into a package-level `circuitBreakers` map (keyed by service name,
+guarded by a `sync.RWMutex`) so `healthCheck` can read it — the function's
+own signature and every existing call site were left unchanged, only this
+side effect was added. Proven by `TestHealthCheck_ReflectsRealBreakerState`:
+a service whose breaker was tripped open by repeated failures shows
+`"unavailable"` in `/health`'s `services` map, not `"implemented"` as if
+nothing were wrong.
+
 ## References
 
 - [ADR-0009](0009-billing-circuit-breaker.md) — where the port bug and its

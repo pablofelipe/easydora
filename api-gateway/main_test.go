@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -365,5 +366,46 @@ func TestSetupServiceRoutes_BillingUsesBreaker(t *testing.T) {
 	code := doRequest(t, server, "/billing/ping")
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 (breaker open) on the 6th call through the billing route, got %d", code)
+	}
+}
+
+// TestHealthCheck_ReflectsRealBreakerState proves /health reports each
+// service's actual circuit breaker state instead of the static
+// "implemented" config flag it used to report unconditionally (ADR-0010's
+// Update, extended to the Go services): a service whose breaker has
+// tripped open shows as "unavailable", not "implemented" as if nothing
+// were wrong.
+func TestHealthCheck_ReflectsRealBreakerState(t *testing.T) {
+	downURL := closedPortURL(t)
+	original := services["billing"]
+	services["billing"] = ServiceConfig{URL: downURL, Name: "billing-service", Implemented: true}
+	defer func() { services["billing"] = original }()
+
+	router := gin.New()
+	router.GET("/health", healthCheck)
+	setupServiceRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Trip billing's breaker open.
+	for i := 0; i < 6; i++ {
+		doRequest(t, server, "/billing/ping")
+	}
+
+	resp, err := http.Get(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Services map[string]string `json:"services"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode /health response: %v", err)
+	}
+
+	if got := body.Services["billing"]; got != "unavailable" {
+		t.Fatalf("expected billing to report \"unavailable\" with its breaker open, got %q", got)
 	}
 }

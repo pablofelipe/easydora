@@ -1197,7 +1197,7 @@ The stack split is deliberate:
       CorrelationId's own envelope trick for the same gap. See
       [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
       2026-08-02 Update.
-- [ ] **Opened 2026-08-02 (Low).** `inventory-service`'s (and, unverified,
+- [x] **Opened 2026-08-02 (Low).** `inventory-service`'s (and, unverified,
       `api-gateway`'s) `/health` endpoint — the one Docker's own
       `HEALTHCHECK` and the Gateway route hit — reports a hardcoded
       `{"status": "OK"}` with no real dependency probe, the same shallow-
@@ -1207,7 +1207,20 @@ The stack split is deliberate:
       progress), deliberately kept apart from `/health` per its own doc
       comment — this item is about `/health` itself, not about lacking a
       real check anywhere in the service. See
-      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md).
+      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md). Closed:
+      `inventory-service`'s `/health` now performs a real, 2-second-timeout
+      `db.PingContext` probe (`healthHandlerFor`), returning `503`/
+      `"Disconnected"` when Postgres is unreachable — the same shape as the
+      Spring services, proven by `TestHealthHandler_ReturnsServiceUnavailableWhenDatabaseIsUnreachable`
+      (no infra needed) and `TestHealthHandler_ReturnsOKStatus` (real
+      Postgres, `-tags=integration`). `api-gateway` has no database or
+      broker of its own, so a direct connectivity probe doesn't apply the
+      same way; instead its `/health` now reports each service's real,
+      real-time circuit breaker state (`healthy`/`unavailable`/
+      `recovering`) instead of the static `Implemented` config flag it
+      used to report unconditionally — a service whose breaker has tripped
+      open now actually shows as unavailable. Proven by
+      `TestHealthCheck_ReflectsRealBreakerState`.
 
 </details>
 
