@@ -197,6 +197,16 @@ path already had, and it gained the same two new metrics
 auth-service's implementation. No change to the atomicity guarantee or
 table shape described above.
 
+## Update — 2026-08-01: measured against Kafka, not just argued
+
+[ADR-0041](0041-kafka-rabbitmq-broker-benchmark.md) ran a standalone
+benchmark harness (outside this project's real service topology) against
+both brokers on the same machine: RabbitMQ at roughly 14x the
+publish-then-ack throughput of Kafka under this project's own outbox call
+pattern, and automatic recovery from a hard broker-container kill that
+Kafka's default client did not show within the same test window. This
+Decision is unchanged; ADR-0041 replaces "probably fine" with a number.
+
 ## References
 
 - [Architectural Principles](../architecture/architectural-principles.md)
