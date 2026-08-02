@@ -14,6 +14,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -52,6 +53,9 @@ class ProductControllerAuthenticationTest {
 
     @MockBean
     private ProductService productService;
+
+    @MockBean
+    private DataSource dataSource;
 
     private Authentication authenticationFor(Long userId) {
         JwtUserInfo principal = new JwtUserInfo(userId, "seller@example.com", "Real", "Seller", "SELLER");

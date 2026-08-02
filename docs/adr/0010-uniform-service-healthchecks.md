@@ -132,6 +132,46 @@ actually gates on orders-service being ready.
   claim `"database": "Connected"` unconditionally, without checking.
   Pre-existing pattern, not introduced or deepened here.
 
+## Update — 2026-08-02: /health now performs a real database probe
+
+The Consequences section above flagged the residual gap directly: `/health`
+across all four Spring services was a shallow liveness check, hardcoded
+`"status": "OK"`, with `products-service` and `auth-service` even claiming
+`"database": "Connected"` unconditionally, never actually checking.
+
+`AuthController`, `ProductController`, and `OrderController` (which didn't
+previously report a `database` field at all) each now take a `DataSource`
+constructor dependency and perform a real, short-timeout connectivity
+probe (`connection.isValid(2)`, 2 seconds — generous against this
+project's own measured healthy-backend latencies of 100-115ms from this
+ADR's own live verification above, while still bounding how long a caller
+waits on a genuinely stuck connection) before answering. `billing-service`'s
+`HealthController` gets the identical treatment. `"database"` now reflects
+the real outcome (`Connected`/`Disconnected`) and the endpoint itself
+returns `503` when unreachable instead of always `200` — a real behavior
+change for Docker's `HEALTHCHECK` and anything depending on
+`condition: service_healthy` against one of these four services, not just
+a cosmetic field fix.
+
+Proven by one `*ControllerHealthTest` per service
+(`AuthControllerHealthTest`, `ProductControllerHealthTest`,
+`OrderControllerHealthTest`, and billing's existing `HealthControllerTest`
+extended in place), each a `@WebMvcTest` slice with a mocked `DataSource`
+asserting both outcomes: `200`/`Connected` when the mocked connection is
+valid, `503`/`Disconnected`/`"status": "DOWN"` when `getConnection()`
+throws. Adding the `DataSource` constructor parameter required adding a
+`@MockBean DataSource` to every other `@WebMvcTest` slice touching these
+same controllers (`ProductControllerAuthenticationTest`,
+`DebugEndpointRemovedTest` in both products-service and orders-service,
+`OrderControllerAuthenticationTest`, `OrderFulfillmentControllerTest`) —
+mechanical fallout from the new dependency, not a behavior change in any
+of those tests.
+
+`inventory-service`'s and `api-gateway`'s own `/health` endpoints have the
+same shallow-check shape (`inventory-service` confirmed by inspection;
+`api-gateway` not checked) but are Go, out of this ADR's Spring-only
+scope — tracked as a new, separate README Roadmap item.
+
 ## References
 
 - [ADR-0009](0009-billing-circuit-breaker.md) — where the port bug and its

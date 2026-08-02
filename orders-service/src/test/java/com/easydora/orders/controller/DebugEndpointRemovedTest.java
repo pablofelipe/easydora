@@ -11,6 +11,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,6 +43,9 @@ class DebugEndpointRemovedTest {
 
     @MockBean
     private BuyerRepository buyerRepository;
+
+    @MockBean
+    private DataSource dataSource;
 
     @Test
     void debugTokensEndpointIsNotReachableAnonymously() throws Exception {

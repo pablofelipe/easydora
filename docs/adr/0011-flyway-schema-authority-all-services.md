@@ -44,6 +44,37 @@ No JPA-context-loading test exists in this repo (same convention ADR-0004 alread
 - products-service's *live* schema (in this long-running environment) still carries the Hibernate-era drift described above (shorter `avatar_url`/`role` columns, Hibernate-named FK) — not rolled back, since `ddl-auto=validate` doesn't care about column length or constraint names and reconciling it wasn't asked for. A **fresh** environment (new clone, empty database) will run `V1`/`V2` from scratch and end up with the *original*, non-drifted schema (`VARCHAR(500)`/`VARCHAR(50)`, `fk_products_seller`) — subtly different from what this long-running environment has. This asymmetry between "this dev environment" and "a fresh install" is the new known residual debt, in the same spirit as what ADR-0004 documented for auth-service.
 - Neither products-service nor billing-service has ever run `mvn verify` with a real `*IT` test exercising this Flyway path — verification here is manual boot-testing, same limitation ADR-0004 already had.
 
+## Update — 2026-08-02: both residual items closed (one moot, one fixed)
+
+**products-service's live schema drift is no longer reproducible.** This
+environment's Postgres volume was recreated 2026-07-14 — confirmed by
+`products_schema.flyway_schema_history`'s `installed_on` timestamps and
+the Docker volume's own `CreatedAt`, both after this ADR's 2026-07-06
+authoring date. A fresh volume runs `V1`/`V2` from scratch, which is
+exactly the "fresh environment" case this ADR's own Consequences section
+predicted would produce the *original*, non-drifted schema. Verified
+directly against the live database: `sellers.avatar_url` is
+`VARCHAR(500)`, `role` is `VARCHAR(50)`, and the foreign key is named
+`fk_products_seller` — none of the Hibernate-era drift (`VARCHAR(255)`,
+`fkepbha8uixgrmnejm27n6e1kkd`) this ADR described. No reconciliation
+migration was written, since there is nothing left to reconcile in the
+environment that exists today; this is recorded as closed-as-obsolete in
+the README Roadmap, not closed-as-fixed.
+
+**Neither service had a real `*IT` Flyway test — now both do.**
+`products-service` gained `maven-failsafe-plugin` (previously deliberately
+absent, per ADR-0008's 2026-07-06 (2) Update, since it had zero `*IT`
+classes) and a new `FlywayMigrationIT`, which boots the real Spring
+context against real Postgres and additionally asserts directly against
+`flyway_schema_history` that every migration is present and marked
+`success = true` — a direct assertion, not only the indirect signal of
+`ddl-auto=validate` failing context startup on a mismatch.
+`billing-service` already had `BillingServiceApplicationIT` exercising the
+same path implicitly; it now also has its own `FlywayMigrationIT` with the
+same direct `flyway_schema_history` assertion, for parity with
+products-service and so the intent is explicit rather than an incidental
+side effect of an unrelated context-load test.
+
 ## References
 
 - ADR-0004 (auth-service schema authority fix) — the original, narrower version of this same decision; this ADR closes the gap it explicitly left open ("whether the same mismatch exists in any other service... was not checked").

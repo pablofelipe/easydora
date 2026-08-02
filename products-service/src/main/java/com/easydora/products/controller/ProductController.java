@@ -5,10 +5,14 @@ import com.easydora.products.dto.ProductRequest;
 import com.easydora.products.dto.ProductResponse;
 import com.easydora.products.service.ProductService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,14 +22,16 @@ import org.slf4j.LoggerFactory;
 
 @RestController
 public class ProductController {
-    
+
     private final ProductService productService;
+    private final DataSource dataSource;
     private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
 
-    public ProductController(ProductService productService) {
+    public ProductController(ProductService productService, DataSource dataSource) {
         this.productService = productService;
+        this.dataSource = dataSource;
     }
-    
+
     @GetMapping("/ping")
     public ResponseEntity<Map<String, String>> ping() {
         Map<String, String> response = new HashMap<>();
@@ -35,15 +41,33 @@ public class ProductController {
         return ResponseEntity.ok(response);
     }
 
+    // A short-timeout, real connectivity probe (see ADR-0010's residual
+    // gap: this endpoint -- the one Docker's own HEALTHCHECK and the
+    // Gateway route hit -- used to hardcode a claim about the database
+    // without ever checking it). 2s is generous against this project's own
+    // measured healthy-backend latencies (100-115ms, ADR-0006) while still
+    // bounding how long a caller waits on a genuinely stuck connection.
+    private boolean isDatabaseReachable() {
+        try (Connection connection = dataSource.getConnection()) {
+            return connection.isValid(2);
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
+        boolean databaseReachable = isDatabaseReachable();
+
         Map<String, Object> health = new HashMap<>();
-        health.put("status", "OK");
+        health.put("status", databaseReachable ? "OK" : "DOWN");
         health.put("service", "products-service");
         health.put("schema", "products_schema");
-        health.put("database", "Connected");
-        
-        return ResponseEntity.ok(health);
+        health.put("database", databaseReachable ? "Connected" : "Disconnected");
+
+        return databaseReachable
+            ? ResponseEntity.ok(health)
+            : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(health);
     }
 
     @PostMapping("/createProduct")

@@ -1124,20 +1124,48 @@ The stack split is deliberate:
       timeout, not the failure count, was what made the worst case
       disproportionate. Proven by
       `TestReverseProxy_TimesOutOnHangingDownstream`.
-- [ ] **Opened 2026-07-05 (Medium).** `/health` across all four Spring
+- [x] **Opened 2026-07-05 (Medium).** `/health` across all four Spring
       services is a shallow liveness check with no real dependency probe
       — `products-service`'s and `auth-service`'s even claim
       `"database": "Connected"` unconditionally. See
-      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md).
-- [ ] **Opened 2026-07-06 (Medium).** `products-service`'s live schema in
+      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md). Closed:
+      `AuthController`, `ProductController`, `OrderController`, and
+      `HealthController` (billing) each now inject the service's own
+      `DataSource` and perform a real, 2-second-timeout
+      `connection.isValid()` probe — `"database"` reflects the actual
+      result (`Connected`/`Disconnected`), and the endpoint itself returns
+      `503` when the database is unreachable instead of always `200`.
+      `orders-service` didn't previously report a `database` field at all;
+      it now does too, for consistency across all four. Proven by a new
+      `*ControllerHealthTest` per service, each asserting both the
+      reachable and unreachable cases against a mocked `DataSource`.
+- [x] **Opened 2026-07-06 (Medium).** `products-service`'s live schema in
       this long-running environment still carries Hibernate-era drift; a
       fresh environment running the same Flyway migrations from scratch
       would end up with a subtly different schema. See
       [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md).
-- [ ] **Opened 2026-07-06 (Medium).** Neither `products-service` nor
+      Closed as obsolete, not fixed: this environment's Postgres volume
+      was recreated 2026-07-14 (confirmed via
+      `products_schema.flyway_schema_history`'s `installed_on` timestamps
+      and the volume's own `CreatedAt`) — after this debt was catalogued.
+      The drifted columns/constraint names this item described no longer
+      exist; the live schema now matches `V1`/`V2` exactly (`avatar_url
+      VARCHAR(500)`, `role VARCHAR(50)`, `fk_products_seller`), exactly
+      the "fresh environment" outcome ADR-0011 itself predicted. No
+      migration was written for a drift that isn't reproducible today.
+- [x] **Opened 2026-07-06 (Medium).** Neither `products-service` nor
       `billing-service` has ever run a real `*IT` integration test
       exercising its own Flyway migration path. See
       [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md).
+      Closed: `products-service` gained `maven-failsafe-plugin` (previously
+      absent — ADR-0008's 2026-07-06 (2) Update named this exact gap) and
+      a new `FlywayMigrationIT`, asserting directly against
+      `flyway_schema_history` that every migration ran and succeeded, not
+      just relying on `ddl-auto=validate` failing the context as an
+      indirect signal. `billing-service` already had
+      `BillingServiceApplicationIT` (which exercises the same path
+      implicitly), and now also has its own `FlywayMigrationIT` asserting
+      the same thing explicitly.
 - [ ] **Opened 2026-07-10 (Medium).** Payment processing stays a manual
       button; nothing publishes an event that triggers
       `PaymentService.processPayment` automatically. See
@@ -1169,6 +1197,17 @@ The stack split is deliberate:
       CorrelationId's own envelope trick for the same gap. See
       [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
       2026-08-02 Update.
+- [ ] **Opened 2026-08-02 (Low).** `inventory-service`'s (and, unverified,
+      `api-gateway`'s) `/health` endpoint — the one Docker's own
+      `HEALTHCHECK` and the Gateway route hit — reports a hardcoded
+      `{"status": "OK"}` with no real dependency probe, the same shallow-
+      liveness-check pattern ADR-0010's Update just fixed for the four
+      Spring services. `inventory-service` already has a separate, real
+      dependency check at `/health/liveness` (`ProgressWatchdog`, RabbitMQ
+      progress), deliberately kept apart from `/health` per its own doc
+      comment — this item is about `/health` itself, not about lacking a
+      real check anywhere in the service. See
+      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md).
 
 </details>
 

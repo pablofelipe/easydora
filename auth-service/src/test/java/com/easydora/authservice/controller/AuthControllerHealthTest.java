@@ -1,6 +1,8 @@
-package com.easydora.billing.controller;
+package com.easydora.authservice.controller;
 
-import com.easydora.billing.config.SecurityConfig;
+import com.easydora.authservice.config.SecurityConfig;
+import com.easydora.authservice.service.AuthService;
+import com.easydora.authservice.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -19,37 +21,28 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(HealthController.class)
+/**
+ * /health used to hardcode "database": "Connected" with no real check
+ * (ADR-0010's residual gap) -- this is the endpoint Docker's own
+ * HEALTHCHECK and the Gateway route hit. It now performs a real,
+ * short-timeout connectivity probe via the injected DataSource.
+ */
+@WebMvcTest(AuthController.class)
 @Import(SecurityConfig.class)
-class HealthControllerTest {
+class AuthControllerHealthTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockBean
+    private UserService userService;
+
+    @MockBean
+    private AuthService authService;
+
+    @MockBean
     private DataSource dataSource;
 
-    @Test
-    void healthIsReachableWithoutAuthentication() throws Exception {
-        Connection connection = mock(Connection.class);
-        when(dataSource.getConnection()).thenReturn(connection);
-        when(connection.isValid(anyInt())).thenReturn(true);
-
-        mockMvc.perform(get("/health"))
-            .andExpect(status().isOk());
-    }
-
-    @Test
-    void pingIsReachableWithoutAuthentication() throws Exception {
-        mockMvc.perform(get("/ping"))
-            .andExpect(status().isOk());
-    }
-
-    // healthReflectsRealDatabaseConnectivity documents the gap ADR-0010
-    // left open: this /health endpoint (the one Docker's own HEALTHCHECK
-    // and the Gateway route hit) used to hardcode a claim about the
-    // database without ever checking it. It now performs a real,
-    // short-timeout connectivity probe via the injected DataSource.
     @Test
     void healthReportsConnectedAndOkWhenDatabaseIsReachable() throws Exception {
         Connection connection = mock(Connection.class);

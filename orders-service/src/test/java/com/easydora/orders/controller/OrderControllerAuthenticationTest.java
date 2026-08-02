@@ -15,6 +15,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +48,9 @@ class OrderControllerAuthenticationTest {
 
     @MockBean
     private OrderService orderService;
+
+    @MockBean
+    private DataSource dataSource;
 
     private Authentication authenticationFor(Long userId) {
         JwtUserInfo principal = new JwtUserInfo(userId, "buyer@example.com", "Real", "Buyer", "BUYER", true);
