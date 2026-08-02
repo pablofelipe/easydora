@@ -1031,6 +1031,92 @@ The stack split is deliberate:
       [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
       2026-08-02 Update.
 
+The following open items were surveyed and registered together on
+2026-08-02, ordered by severity rather than by the date each was
+originally found (every other entry in this Roadmap orders by date
+found). Each keeps its own true "Opened" date. None of these are
+deliberately accepted trade-offs — those already have their own
+"Objective criteria for revisiting" section in the relevant ADR and are
+not repeated here.
+
+- [ ] **Opened 2026-08-01 (High).** RabbitMQ's automatic recovery is not
+      lossless under a hard container kill: 2 of 207 broker-acknowledged
+      messages never reached the consumer in
+      [ADR-0041](docs/adr/0041-kafka-rabbitmq-broker-benchmark.md)'s
+      benchmark. A narrow, real gap in the Outbox pattern's at-least-once
+      guarantee ([ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md))
+      under non-graceful broker failure, unresolved.
+- [ ] **Opened 2026-07-15 (High).** `inventory-service`'s `ReserveStock`
+      idempotency protection only covers the TTL cache window. The
+      database-level check that would also close the post-TTL
+      duplication window remains a further, not-yet-adopted option.
+- [ ] **Opened 2026-07-04 (High).** `auth-service`'s `registerUser` still
+      publishes `user.registered` directly rather than through the
+      Outbox — a publish failure after a successful save can silently
+      drop the event. Never evaluated against the adoption criterion
+      [ADR-0037](docs/adr/0037-consolidated-outbox-pattern-specification.md)
+      later introduced for `orders-service`/`billing-service`. See
+      [ADR-0003](docs/adr/0003-outbox-pattern-auth-service.md).
+- [ ] **Opened 2026-07-07 (High).** `auth-service`'s
+      `application-dev.properties` default `jwt.secret`/`app.jwt.secret`
+      fallback is shorter than HMAC-SHA's recommended minimum key length.
+      See [ADR-0013](docs/adr/0013-ci-phase-3-cross-service-e2e.md).
+- [ ] **Opened 2026-07-04 (Medium).** `api-gateway`'s circuit breaker
+      detects a failed call only by checking for the proxy's own `502` —
+      a status-code heuristic that would misfire if a real backend ever
+      legitimately returned `502` itself. See
+      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md).
+- [ ] **Opened 2026-07-04 (Medium).** The circuit breaker's thresholds (5
+      consecutive failures, 30s cooldown) are fixed values, never
+      validated against this project's actual traffic patterns or
+      measured failure-recovery times. See
+      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md).
+- [ ] **Opened 2026-07-05 (Medium).** `/health` across all four Spring
+      services is a shallow liveness check with no real dependency probe
+      — `products-service`'s and `auth-service`'s even claim
+      `"database": "Connected"` unconditionally. See
+      [ADR-0010](docs/adr/0010-uniform-service-healthchecks.md).
+- [ ] **Opened 2026-07-06 (Medium).** `products-service`'s live schema in
+      this long-running environment still carries Hibernate-era drift; a
+      fresh environment running the same Flyway migrations from scratch
+      would end up with a subtly different schema. See
+      [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md).
+- [ ] **Opened 2026-07-06 (Medium).** Neither `products-service` nor
+      `billing-service` has ever run a real `*IT` integration test
+      exercising its own Flyway migration path. See
+      [ADR-0011](docs/adr/0011-flyway-schema-authority-all-services.md).
+- [ ] **Opened 2026-07-10 (Medium).** Payment processing stays a manual
+      button; nothing publishes an event that triggers
+      `PaymentService.processPayment` automatically. See
+      [ADR-0026](docs/adr/0026-frontend-thin-client.md).
+- [ ] **Opened 2026-07-12 (Medium).** No remediation tooling exists for
+      the manual review a `REFUND_FAILED` order needs — a genuine dead
+      end today. See
+      [ADR-0034](docs/adr/0034-payment-compensation-saga.md).
+- [ ] **Opened 2026-07-04 (Low).** Whether `JWT_SECRET`/`app.jwt.secret`
+      is genuinely dead configuration in `products-service`,
+      `orders-service`, and `billing-service` was never conclusively
+      resolved. See [ADR-0005](docs/adr/0005-secret-rotation.md).
+- [ ] **Opened 2026-07-09 (Low).** `notification-service`'s
+      `process_order_created`/`process_order_status_changed` remain
+      unaware that a retry/DLQ policy exists at all — the whole policy
+      lives only in `app/rabbitmq.py`'s `_route_to_retry_or_dlq`.
+- [ ] **Opened 2026-07-15 (Low).** The four Spring services' tolerance of
+      a RabbitMQ/Postgres startup race rests on framework behavior
+      confirmed empirically here but not owned or tested by this
+      project's own code. See
+      [ADR-0038](docs/adr/0038-infrastructure-startup-resilience.md).
+- [ ] **Opened 2026-07-15 (Low).** `notification-service`'s unbounded
+      RabbitMQ reconnect retry is inconsistent with its own bounded
+      Postgres retry. See
+      [ADR-0038](docs/adr/0038-infrastructure-startup-resilience.md).
+- [ ] **Opened 2026-08-02 (Low).** Outbox-mediated publishes
+      (`orders-service`, `inventory-service`, `billing-service`) don't
+      yet carry a trace across their write-to-publish gap, unlike
+      CorrelationId's own envelope trick for the same gap. See
+      [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
+      2026-08-02 Update.
+
 </details>
 
 ## License
