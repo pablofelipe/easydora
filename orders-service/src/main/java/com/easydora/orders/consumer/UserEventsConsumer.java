@@ -17,6 +17,8 @@ import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 @Service
 public class UserEventsConsumer {
     
@@ -50,28 +52,37 @@ public class UserEventsConsumer {
                 return;
             }
             
-            Buyer buyer = buyerRepository.findById(userEvent.getUserId())
-                .orElse(new Buyer());
-                
+            Optional<Buyer> existingBuyer = buyerRepository.findById(userEvent.getUserId());
+            Buyer buyer = existingBuyer.orElse(new Buyer());
+
             buyer.setUserId(userEvent.getUserId());
             buyer.setEmail(userEvent.getEmail());
             buyer.setName(userEvent.getFullName());
-            
+
             String role = userEvent.getRole();
             if (role == null || role.trim().isEmpty()) {
                 logger.warn("Role not found in USER_REGISTERED event for user: {}", userEvent.getUserId());
                 role = "BUYER"; // Default for orders-service
             }
-            
+
             try {
                 buyer.setRole(UserRole.valueOf(role.toUpperCase()));
             } catch (IllegalArgumentException e) {
                 logger.warn("Invalid role: {}, defaulting to BUYER", role);
                 buyer.setRole(UserRole.BUYER);
             }
-            
-            buyer.setActive(false); // Inactive until the email is activated
-            
+
+            // Only a genuinely new buyer starts inactive. auth-service's
+            // registerUser now publishes user.registered through the
+            // Outbox (up to a 5s poll delay), so this event is no longer
+            // guaranteed to arrive before jwt.created/user.verified for
+            // the same user -- unconditionally forcing active=false here
+            // would silently deactivate a buyer a later-received event
+            // already activated correctly.
+            if (existingBuyer.isEmpty()) {
+                buyer.setActive(false); // Inactive until the email is activated
+            }
+
             if (buyer.getCreatedAt() == null) {
                 buyer.setCreatedAt(java.time.LocalDateTime.now());
             }

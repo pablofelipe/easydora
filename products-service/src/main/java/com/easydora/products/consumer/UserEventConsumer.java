@@ -17,6 +17,8 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 
 @Service
 public class UserEventConsumer {
@@ -51,15 +53,26 @@ public class UserEventConsumer {
                     return;
                 }
 
-                Seller seller = sellerRepository.findById(userEvent.getUserId().toString())
-                    .orElse(new Seller());
+                Optional<Seller> existingSeller = sellerRepository.findById(userEvent.getUserId().toString());
+                Seller seller = existingSeller.orElse(new Seller());
 
                 seller.setUserId(userEvent.getUserId().toString());
                 seller.setEmail(userEvent.getEmail());
                 seller.setName(userEvent.getFullName());
                 seller.setRole(UserRole.SELLER);
                 seller.setName(userEvent.getFullName());
-                seller.setActive(false); // Inactive until email is activated
+
+                // Only a genuinely new seller starts inactive.
+                // auth-service's registerUser now publishes
+                // user.registered through the Outbox (up to a 5s poll
+                // delay), so this event is no longer guaranteed to arrive
+                // before jwt.created/user.verified for the same user --
+                // unconditionally forcing active=false here would
+                // silently deactivate a seller a later-received event
+                // already activated correctly.
+                if (existingSeller.isEmpty()) {
+                    seller.setActive(false); // Inactive until email is activated
+                }
 
                 if (seller.getCreatedAt() == null) {
                     seller.setCreatedAt(java.time.LocalDateTime.now());

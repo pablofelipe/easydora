@@ -98,6 +98,63 @@ class UserEventConsumerBehaviorTest {
         assertThat(captor.getValue().isExpired()).isTrue();
     }
 
+    // auth-service's registerUser now publishes user.registered through
+    // the Outbox (up to a 5s poll delay), where it previously went out
+    // synchronously and so always arrived before any other event for the
+    // same user. That ordering assumption is no longer safe: a real
+    // user.registered can now arrive after jwt.created/user.verified
+    // already activated this seller -- unconditionally forcing
+    // active=false in handleUserRegistered would silently deactivate a
+    // seller a later-received event already activated correctly. The same
+    // regression was found and fixed for orders-service's Buyer.
+    @Test
+    void handleUserRegisteredDoesNotDeactivateASellerAlreadyActivatedByALaterEvent() {
+        Seller alreadyActiveSeller = new Seller();
+        alreadyActiveSeller.setUserId("42");
+        alreadyActiveSeller.setEmail("seller@example.com");
+        alreadyActiveSeller.setActive(true);
+        when(sellerRepository.findById("42")).thenReturn(Optional.of(alreadyActiveSeller));
+
+        UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
+
+        UserEvent event = new UserEvent();
+        event.setUserId(42L);
+        event.setEmail("seller@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("SELLER");
+
+        consumer.handleUserRegistered(event, "corr-3", "msg-3");
+
+        ArgumentCaptor<Seller> saved = ArgumentCaptor.forClass(Seller.class);
+        verify(sellerRepository).save(saved.capture());
+        assertThat(saved.getValue().getActive())
+                .withFailMessage("a delayed/redelivered user.registered must not deactivate an already-active seller")
+                .isTrue();
+    }
+
+    @Test
+    void handleUserRegisteredStillCreatesANewSellerAsInactive() {
+        when(sellerRepository.findById("43")).thenReturn(Optional.empty());
+
+        UserEventConsumer consumer = new UserEventConsumer(sellerRepository, jwtAuthenticationFilter);
+
+        UserEvent event = new UserEvent();
+        event.setUserId(43L);
+        event.setEmail("seller-new@example.com");
+        event.setFirstName("Ana");
+        event.setLastName("Silva");
+        event.setRole("SELLER");
+
+        consumer.handleUserRegistered(event, "corr-4", "msg-4");
+
+        ArgumentCaptor<Seller> saved = ArgumentCaptor.forClass(Seller.class);
+        verify(sellerRepository).save(saved.capture());
+        assertThat(saved.getValue().getActive())
+                .withFailMessage("a genuinely new seller must still start inactive until email verification")
+                .isFalse();
+    }
+
     @Test
     void ignoresAVerifiedUserThatIsNotASeller() {
         when(sellerRepository.findById("99")).thenReturn(Optional.empty());
