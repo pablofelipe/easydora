@@ -1099,16 +1099,31 @@ The stack split is deliberate:
       boot (no `.env`, no `APP_JWT_SECRET`): the service now progresses
       past JWT bean construction to its Postgres connection attempt,
       instead of crashing immediately on `WeakKeyException`.
-- [ ] **Opened 2026-07-04 (Medium).** `api-gateway`'s circuit breaker
+- [x] **Opened 2026-07-04 (Medium).** `api-gateway`'s circuit breaker
       detects a failed call only by checking for the proxy's own `502` —
       a status-code heuristic that would misfire if a real backend ever
       legitimately returned `502` itself. See
-      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md).
-- [ ] **Opened 2026-07-04 (Medium).** The circuit breaker's thresholds (5
+      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md). Closed: the
+      proxy's own `ErrorHandler` now flags a genuine transport failure on
+      the request context directly, instead of the breaker inferring it
+      from the response status; a backend that legitimately answers `502`
+      no longer trips the breaker. Proven by
+      `TestCircuitBreaker_DoesNotTripOnLegitimateBackend502`.
+- [x] **Opened 2026-07-04 (Medium).** The circuit breaker's thresholds (5
       consecutive failures, 30s cooldown) are fixed values, never
       validated against this project's actual traffic patterns or
       measured failure-recovery times. See
-      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md).
+      [ADR-0006](docs/adr/0006-gateway-circuit-breaker.md). Closed: measured
+      against a real, frozen (`docker pause`) `inventory-service`
+      container — a reachable-but-unresponsive downstream, distinct from
+      the fully-stopped-container case this ADR originally measured. The
+      30s `ResponseHeaderTimeout` (itself never measured either) meant 5
+      consecutive failures left the Gateway exposed for 150s before the
+      breaker opened. Reduced to 5s, bounding the same worst case to 25s.
+      The breaker's own 5-failure threshold was left unchanged — the
+      timeout, not the failure count, was what made the worst case
+      disproportionate. Proven by
+      `TestReverseProxy_TimesOutOnHangingDownstream`.
 - [ ] **Opened 2026-07-05 (Medium).** `/health` across all four Spring
       services is a shallow liveness check with no real dependency probe
       — `products-service`'s and `auth-service`'s even claim

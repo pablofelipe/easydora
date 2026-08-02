@@ -4,8 +4,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -68,6 +70,42 @@ func flakyDownstream(t *testing.T) (addr string, callCount *int32, closeFn func(
 		}
 	}()
 	return "http://" + listener.Addr().String(), &count, func() { listener.Close() }
+}
+
+// hangingDownstream accepts a TCP connection and then never writes
+// anything back -- unlike flakyDownstream (which closes the connection
+// immediately, an instant transport-level failure), this simulates a
+// downstream that is reachable but frozen mid-request (e.g. `docker
+// pause`), the scenario responseHeaderTimeout actually bounds.
+func hangingDownstream(t *testing.T) (addr string, closeFn func()) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to open listener: %v", err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Deliberately never read or write -- the connection just sits
+			// open until closeFn runs.
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
+		}
+	}()
+	return "http://" + listener.Addr().String(), func() {
+		listener.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	}
 }
 
 func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
@@ -165,6 +203,36 @@ func TestCircuitBreaker_ProxyBypassedWhenOpen(t *testing.T) {
 	}
 }
 
+// TestCircuitBreaker_DoesNotTripOnLegitimateBackend502 proves the breaker
+// distinguishes "downstream unreachable" from "downstream is reachable and
+// legitimately answered 502" -- ADR-0006's own documented residual gap: the
+// old detection checked only the proxied response's status code, so a real
+// backend intentionally returning 502 (a valid, if unusual, HTTP response)
+// was indistinguishable from httputil.ReverseProxy's own transport-failure
+// 502 and would incorrectly trip the breaker.
+func TestCircuitBreaker_DoesNotTripOnLegitimateBackend502(t *testing.T) {
+	var callCount int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer backend.Close()
+
+	server := newProxyTestServer(createReverseProxyWithBreaker(backend.URL, "products-service"))
+	defer server.Close()
+
+	for i := 0; i < 6; i++ {
+		code := doRequest(t, server, "/ping")
+		if code != http.StatusBadGateway {
+			t.Fatalf("call %d: expected the backend's own legitimate 502 to pass through untouched, got %d", i+1, code)
+		}
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != 6 {
+		t.Fatalf("expected the breaker to stay closed and keep dialing a reachable backend that legitimately returns 502, got %d dials after 6 requests", got)
+	}
+}
+
 // TestPlainProxy_DoesNotShortCircuit proves createReverseProxy itself (the
 // helper createReverseProxyWithBreaker wraps internally) keeps calling the
 // downstream on every request — no breaker, no 503 short-circuit — even
@@ -189,6 +257,34 @@ func TestPlainProxy_DoesNotShortCircuit(t *testing.T) {
 
 	if got := atomic.LoadInt32(callCount); got != 10 {
 		t.Fatalf("expected the plain proxy to dial the downstream on every one of the 10 calls, got %d dials", got)
+	}
+}
+
+// TestReverseProxy_TimesOutOnHangingDownstream proves responseHeaderTimeout
+// actually bounds how long a single request waits on a reachable-but-frozen
+// downstream (see the constant's own doc comment for the real-container
+// measurement -- docker pause, 30s -- that motivated dropping it from 30s
+// to 5s). A regression back to a much larger value would make this test's
+// upper bound assertion fail well before an actual 30s wait would.
+func TestReverseProxy_TimesOutOnHangingDownstream(t *testing.T) {
+	addr, closeFn := hangingDownstream(t)
+	defer closeFn()
+
+	server := newProxyTestServer(createReverseProxy(addr, "some-service"))
+	defer server.Close()
+
+	start := time.Now()
+	code := doRequest(t, server, "/ping")
+	elapsed := time.Since(start)
+
+	if code != http.StatusBadGateway {
+		t.Fatalf("expected 502 once responseHeaderTimeout elapses, got %d", code)
+	}
+	if elapsed < responseHeaderTimeout-500*time.Millisecond {
+		t.Fatalf("request returned suspiciously early (%s) -- expected to wait close to responseHeaderTimeout (%s)", elapsed, responseHeaderTimeout)
+	}
+	if elapsed > responseHeaderTimeout+3*time.Second {
+		t.Fatalf("request took %s, more than responseHeaderTimeout (%s) plus slack -- timeout regressed to a much larger value?", elapsed, responseHeaderTimeout)
 	}
 }
 

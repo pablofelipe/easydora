@@ -95,6 +95,23 @@ func correlationMiddleware() gin.HandlerFunc {
 	}
 }
 
+// responseHeaderTimeout bounds how long the proxy waits for a downstream's
+// response headers before treating the call as a transport failure (see
+// transportFailureContextKey). This was 30s, given directly with no
+// measurement behind it (ADR-0006's own documented residual gap). Measured
+// against a real container frozen mid-request (docker pause, holding an
+// open TCP connection but never answering -- distinct from a fast
+// connection-refused failure, which ADR-0006's original live verification
+// already covered): at 30s, 5 consecutive failures (the breaker's own
+// ReadyToTrip threshold) left the Gateway exposed for 150s before it
+// started short-circuiting. 5s keeps that worst case at 25s -- still well
+// above every healthy-backend latency this project has ever measured
+// (100-115ms per ADR-0006's live verification) -- while bounding the
+// slow-failure exposure to roughly the same order of magnitude as the
+// breaker's own 30s cooldown. See docs/adr/0006-gateway-circuit-breaker.md's
+// Update for the full measurement.
+const responseHeaderTimeout = 5 * time.Second
+
 // circuitBreakerSettings applies the same thresholds to every service:
 // 5 consecutive downstream-unreachable failures opens the breaker, and it
 // stays open for 30s before allowing a single trial request through
@@ -237,9 +254,15 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-		// Configure error handler for debugging
+		// Configure error handler for debugging. Also marks this request as a
+		// genuine transport failure (see transportFailureContextKey) --
+		// createReverseProxyWithBreaker reads that flag instead of the
+		// response status code, so a backend that legitimately answers with
+		// its own 502 is never confused with the downstream being
+		// unreachable.
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("Proxy error for %s: %v", serviceName, err)
+			c.Set(transportFailureContextKey, true)
 			w.WriteHeader(http.StatusBadGateway)
 			json.NewEncoder(w).Encode(gin.H{
 				"error":   "Service unavailable",
@@ -255,7 +278,7 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 		// outgoing request -- this is how the trace continues into
 		// whichever downstream service handles it next.
 		proxy.Transport = otelhttp.NewTransport(&http.Transport{
-			ResponseHeaderTimeout: 30 * time.Second,
+			ResponseHeaderTimeout: responseHeaderTimeout,
 			DialContext: (&net.Dialer{
 				Timeout:   10 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -305,6 +328,16 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 	}
 }
 
+// transportFailureContextKey flags a request as a genuine transport-level
+// failure (connection refused, dial timeout, broken pipe) -- set only by
+// createReverseProxy's own proxy.ErrorHandler, never inferred from the
+// response status code. This is what lets createReverseProxyWithBreaker
+// tell "downstream unreachable" apart from "downstream is reachable and
+// legitimately answered 502 itself" -- the two were indistinguishable
+// under the previous status-code-only check (ADR-0006's own documented
+// residual gap).
+const transportFailureContextKey = "gatewayTransportFailure"
+
 // createReverseProxyWithBreaker wraps createReverseProxy with a per-service
 // gobreaker.CircuitBreaker (see circuitBreakerSettings: 5 consecutive
 // failures to open, 30s cooldown before a half-open trial). Every
@@ -312,12 +345,12 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 // included, since ADR-0009) — createReverseProxy itself stays as a plain,
 // breaker-less helper used only internally, not routed to directly.
 //
-// Failure is detected by checking the response status createReverseProxy
-// actually wrote: proxy.ErrorHandler (inside createReverseProxy) only
-// writes 502 when httputil.ReverseProxy's transport fails outright —
-// connection refused, dial timeout, broken pipe — never for a valid HTTP
-// response from the backend, even a 4xx/5xx one. So the breaker trips on
-// "downstream unreachable", not "downstream returned an error status".
+// Failure is detected via transportFailureContextKey, set only when
+// httputil.ReverseProxy's transport fails outright — connection refused,
+// dial timeout, broken pipe — never for a valid HTTP response from the
+// backend, even a 4xx/5xx one, including a backend-originated 502. So the
+// breaker trips on "downstream unreachable", not "downstream returned an
+// error status".
 func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
 	// Built once here and shared across every request this handler serves —
 	// createReverseProxyWithBreaker itself only runs once per service, at
@@ -328,7 +361,7 @@ func createReverseProxyWithBreaker(target, serviceName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, err := breaker.Execute(func() (interface{}, error) {
 			plainProxy(c)
-			if c.Writer.Status() == http.StatusBadGateway {
+			if c.GetBool(transportFailureContextKey) {
 				return nil, fmt.Errorf("%s unreachable", serviceName)
 			}
 			return nil, nil

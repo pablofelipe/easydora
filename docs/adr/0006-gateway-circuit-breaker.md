@@ -48,6 +48,55 @@ open Roadmap item, was closed the same week by
 pattern (5 failures / 30s cooldown) applied to `billing`'s gateway route,
 using the identical wrapper structure this ADR established.
 
+## Update — 2026-08-02: failure detection fixed, thresholds measured
+
+Two residual gaps this ADR left open were closed together.
+
+**Failure signal was a status-code heuristic.** `createReverseProxyWithBreaker`
+used to infer "downstream unreachable" by checking whether the proxied
+response was `502` — indistinguishable from a backend that legitimately
+answers `502` itself. `createReverseProxy`'s own `proxy.ErrorHandler` (the
+only place that ever writes a transport-failure `502`) now also sets a
+`transportFailureContextKey` flag on the `gin.Context`; the breaker wrapper
+reads that flag instead of the status code. Proven by
+`TestCircuitBreaker_DoesNotTripOnLegitimateBackend502`: a real, reachable
+backend that always answers `502` no longer trips the breaker after 6
+requests, where it used to open after 5.
+
+**Thresholds were never measured.** This ADR's own "Live verification"
+above only exercised one failure mode — a fully stopped container, TCP
+connection refused instantly (~2.3s per request, ~11.5s total exposure
+across 5 consecutive failures before the breaker opened). That is the
+*fast* failure path. A frozen-but-reachable downstream (`docker pause`
+against a real `inventory-service` container — the TCP connection is
+accepted, the process just never answers, unlike a stopped container)
+exercises a materially different path: the proxy's `ResponseHeaderTimeout`,
+previously `30s` with no measurement or reasoning behind that number
+either. Measured directly against the real, paused container: every one of
+5 consecutive requests took the full `30s` before the proxy gave up, for a
+worst-case exposure of **150 seconds** before the breaker started
+short-circuiting — over ten times worse than the fast-failure path this
+ADR originally measured, and dominated entirely by the timeout value, not
+the breaker's own 5-failure threshold.
+
+`ResponseHeaderTimeout` is now `5s` (`responseHeaderTimeout` in
+`api-gateway/main.go`), bounding the same worst case to `25s` — still
+generous against every healthy-backend latency this project has ever
+measured (`100`–`115ms`, this ADR's own live verification) — while keeping
+the slow-failure exposure roughly the same order of magnitude as the
+breaker's own `30s` cooldown, instead of five times larger than it.
+`ReadyToTrip`'s `5`-consecutive-failure threshold itself was left
+unchanged: the measurement showed the timeout value, not the failure
+count, was what made the worst case disproportionate. Proven by
+`TestReverseProxy_TimesOutOnHangingDownstream`, using a test double that
+accepts a TCP connection and never answers — the same shape as the real
+`docker pause` measurement, without needing a live container in CI.
+
+Cooldown recovery itself was also confirmed against the same real,
+paused-then-unpaused container: once the downstream started answering
+again, the Gateway resumed serving `200`s within a few seconds of the
+`30s` cooldown window, not some much longer or shorter interval.
+
 ## References
 
 - Baseline audit (2026-07-03 entry in this repo's history) — original catalogue of "no circuit breaker/retry anywhere in the codebase."
