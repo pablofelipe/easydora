@@ -136,7 +136,19 @@ class OrderLifecycleE2ETest extends E2ETestSupport {
                 "quantity", quantity,
                 "unitPrice", new BigDecimal("9.99"));
         Map<String, Object> orderBody = Map.of("items", List.of(item));
-        HttpResponse<String> response = postJson(ORDERS_URL, "/orders/createOrder", orderBody, buyerHeaders);
+
+        // The buyer's own activation (orders-service's UserEventsConsumer.
+        // handleJwtCreated, reacting to the real jwt.created broadcast
+        // login just triggered) is asynchronous relative to login's own
+        // HTTP response -- a small, inherent race between "login returned"
+        // and "orders-service has actually consumed that broadcast yet",
+        // not a bug on either side. createOrder itself rejects before
+        // persisting anything when the buyer isn't active yet (see
+        // OrderService.createOrder), so polling here can never create a
+        // duplicate order -- only the eventual 200 attempt ever writes one.
+        HttpResponse<String> response = awaitHttp(Duration.ofSeconds(10),
+                () -> postJson(ORDERS_URL, "/orders/createOrder", orderBody, buyerHeaders),
+                r -> r.statusCode() == 200);
         assertEquals(200, response.statusCode(), "order creation should succeed: " + response.body());
         return String.valueOf(parse(response.body()).get("id"));
     }
