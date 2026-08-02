@@ -1221,6 +1221,18 @@ The stack split is deliberate:
       used to report unconditionally — a service whose breaker has tripped
       open now actually shows as unavailable. Proven by
       `TestHealthCheck_ReflectsRealBreakerState`.
+- [ ] **Opened 2026-08-02 (Low).** No fast local dev loop exists: every
+      code change requires a full multi-stage `docker compose build`
+      (Maven/Go recompiling from scratch inside the image, no live
+      sync/hot-reload) before it can be validated against the real
+      containers, which is slow enough on Docker Desktop for Windows to be
+      a real cost during a multi-fix session. `docker compose watch`
+      (native to recent Compose versions) or a tool like Tilt/Skaffold
+      could sync changed files/artifacts into running containers instead
+      of rebuilding the image every time — evaluate whether either fits
+      this project's multi-stage-build Dockerfiles (they'd need
+      restructuring to separate the build step from a syncable artifact)
+      before adopting one.
 
 </details>
 
