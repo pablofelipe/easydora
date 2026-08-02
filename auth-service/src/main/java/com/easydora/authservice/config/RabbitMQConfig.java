@@ -47,6 +47,13 @@ public class RabbitMQConfig {
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(jsonMessageConverter());
+        // Observation support (ADR-0024's 2026-08-02 Update): with an
+        // ObservationRegistry/Tracer on the classpath (micrometer-tracing-
+        // bridge-otel), Spring AMQP injects the current trace's traceparent
+        // into the outgoing message's headers automatically -- this is how
+        // a trace started by an HTTP request continues across a RabbitMQ
+        // publish, the same hop CorrelationId already propagates over.
+        rabbitTemplate.setObservationEnabled(true);
         return rabbitTemplate;
     }
 

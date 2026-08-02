@@ -4,11 +4,13 @@ import time
 from datetime import datetime, timedelta
 
 import pika
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from app.consumer import process_order_created, process_order_status_changed
 from app.correlation import correlation_scope, current_or_new_correlation_id
 from app.health import ProgressWatchdog
+from app.tracing import extract_trace_context, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +232,10 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdo
 
     def on_order_created(ch, method, properties, body):
         _record_progress()
-        with _scope_from_properties(properties):
+        trace_ctx = extract_trace_context(properties.headers)
+        with _scope_from_properties(properties), tracer.start_as_current_span(
+            f"{ORDER_CREATED_QUEUE} receive", context=trace_ctx, kind=trace.SpanKind.CONSUMER
+        ):
             try:
                 event = json.loads(body)
                 process_order_created(event, auth_client, sender, correlation_id=properties.correlation_id or "")
@@ -241,7 +246,10 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdo
 
     def on_order_status_changed(ch, method, properties, body):
         _record_progress()
-        with _scope_from_properties(properties):
+        trace_ctx = extract_trace_context(properties.headers)
+        with _scope_from_properties(properties), tracer.start_as_current_span(
+            f"{ORDER_STATUS_CHANGED_QUEUE} receive", context=trace_ctx, kind=trace.SpanKind.CONSUMER
+        ):
             try:
                 event = json.loads(body)
                 process_order_status_changed(event, repository, sender)
@@ -252,7 +260,10 @@ def consume_forever(channel, auth_client, repository, sender, jwt_cache, watchdo
 
     def on_jwt_created(ch, method, properties, body):
         _record_progress()
-        with _scope_from_properties(properties):
+        trace_ctx = extract_trace_context(properties.headers)
+        with _scope_from_properties(properties), tracer.start_as_current_span(
+            f"{JWT_CREATED_QUEUE} receive", context=trace_ctx, kind=trace.SpanKind.CONSUMER
+        ):
             try:
                 event = json.loads(body)
                 _cache_jwt_created(event, jwt_cache)

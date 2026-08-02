@@ -154,6 +154,14 @@ func (p *OutboxPublisher) publishPending() {
 			continue
 		}
 
+		// No live trace context survives the write-to-publish gap here, the
+		// same limitation docs/architecture/observability.md documents for
+		// CorrelationId before the outbox envelope trick -- unlike
+		// CorrelationId/MessageId, traceparent isn't stored in that
+		// envelope (deferred, not done: see ADR-0024's 2026-08-02 Update),
+		// so this publish carries no traceparent header and a consumer
+		// receiving it starts a fresh root span rather than continuing the
+		// one that originally triggered the reservation.
 		confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
 			context.Background(),
 			event.Exchange,

@@ -67,6 +67,22 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Distributed tracing (docs/adr/0024-distributed-tracing-via-propagated-identifiers.md's
+             2026-08-02 Update): Micrometer Tracing's OTel bridge plus the
+             OTLP exporter, both version-managed by spring-boot-starter-parent.
+             Additive to the existing CorrelationId propagation above, not a
+             replacement; see the ADR update for why. Auto-instruments
+             Spring MVC request handling and adds traceId/spanId to every
+             log line's MDC with zero extra code; RabbitMQ propagation is
+             wired explicitly in each service's RabbitMQConfig. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

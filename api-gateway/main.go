@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"easydora/correlation-commons"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sony/gobreaker"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"log"
 	"net"
 	"net/http"
@@ -151,6 +153,14 @@ var (
 )
 
 func main() {
+	ctx := context.Background()
+	shutdownTracing := setupTracing(ctx, getEnv("OTEL_SERVICE_NAME", "api-gateway"))
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(stopCtx)
+	}()
+
 	router := gin.Default()
 	router.Use(correlationMiddleware())
 	router.Use(metricsMiddleware())
@@ -168,8 +178,13 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("API Gateway starting on port %s", port)
-	
-	if err := router.Run(":" + port); err != nil {
+
+	// otelhttp.NewHandler wraps the whole router: it starts a server span
+	// per incoming request, extracting an incoming W3C traceparent header
+	// if present (otelhttp uses the propagator set by setupTracing) --
+	// this is how a trace started by the frontend or curl continues
+	// through the Gateway rather than starting a disconnected new one.
+	if err := http.ListenAndServe(":"+port, otelhttp.NewHandler(router, "api-gateway")); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
@@ -233,13 +248,19 @@ func createReverseProxy(target, serviceName string) gin.HandlerFunc {
 			})
 		}
 
-		proxy.Transport = &http.Transport{
+		// otelhttp.NewTransport wraps the outbound call: it starts a client
+		// span as a child of the inbound server span (propagated via
+		// c.Request.Context(), which httputil.ReverseProxy passes through
+		// unchanged) and injects the resulting traceparent header onto the
+		// outgoing request -- this is how the trace continues into
+		// whichever downstream service handles it next.
+		proxy.Transport = otelhttp.NewTransport(&http.Transport{
 			ResponseHeaderTimeout: 30 * time.Second,
 			DialContext: (&net.Dialer{
 				Timeout:   10 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
-		}
+		})
 
 		// httputil.ReverseProxy copies every backend response header onto
 		// the client response via Header.Add, not Set -- since

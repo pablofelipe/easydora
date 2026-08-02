@@ -1,8 +1,11 @@
+import os
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from prometheus_client import make_asgi_app
 
 from app.auth import AuthenticatedUserDependency, JwtCache
@@ -15,8 +18,11 @@ from app.rabbitmq import run_consumer
 from app.repository import NotificationRepository
 from app.schema import ensure_schema
 from app.sender import FakeNotificationSender
+from app.tracing import setup_tracing
 
 configure_logging()
+setup_tracing(os.getenv("OTEL_SERVICE_NAME", "notification-service"))
+HTTPXClientInstrumentor().instrument()
 
 settings = load_settings()
 repository = NotificationRepository(settings.db_dsn)
@@ -55,6 +61,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="notification-service", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 # The frontend calls this service through the Gateway with an Authorization
 # header, which the browser treats as a non-simple request requiring a

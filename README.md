@@ -87,15 +87,18 @@ notification/observability view. It is deliberately not a full storefront
   documented and validated against real containers. See the
   [walkthrough](docs/walkthrough.md) and
   [sequence diagram](docs/sequence-diagram.md).
-- **Distributed tracing via propagated identifiers** — a CorrelationId is
-  born at the first HTTP request, or reused from the client. It rides
-  every hop's HTTP headers and native AMQP message properties unchanged.
-  This lets you follow one business operation through every service's
-  logs with a single grep, in three languages, with no tracing backend.
-  See
+- **Distributed tracing, two complementary mechanisms** — a CorrelationId
+  is born at the first HTTP request, or reused from the client. It rides
+  every hop's HTTP headers and native AMQP message properties unchanged,
+  letting you follow one business operation through every service's logs
+  with a single grep, in three languages. Alongside it, every service
+  also exports OpenTelemetry spans to a Jaeger backend, giving a visual
+  span tree and real per-hop latency across HTTP and RabbitMQ hops, in
+  the same three languages. See
   [docs/architecture/observability.md](docs/architecture/observability.md)
   and
-  [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md).
+  [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)
+  (including its 2026-08-02 Update).
 - **A thin-client frontend, not a parallel architecture** — the SvelteKit
   UI has no business logic of its own. It calls the Gateway exclusively.
   It surfaces the backend's own tracing identifiers, instead of inventing
@@ -278,7 +281,7 @@ The stack split is deliberate:
 | [0021](docs/adr/0021-payment-outcome-integration.md) | Payment outcome integration — billing-service publishes `payment.approved`/`payment.failed`, orders-service reacts | Accepted | Closes the gap ADR-0020 found. `billing-service` now publishes a payment outcome event once `PaymentService.processPayment` resolves it. A new `PaymentEventsConsumer` in `orders-service` finally calls `OrderService.handlePaymentReceived`/`handlePaymentFailed`, previously unreachable since ADR-0001 removed their incorrectly-typed predecessor. Also fixed a latent bug those methods had: `previousState` was hardcoded to `PENDING` instead of the order's real prior state, found by the first tests that ever exercised them. `notification-service` required no changes. |
 | [0022](docs/adr/0022-notification-service-consumption-resilience.md) | notification-service consumption resilience (retry, backoff, dead-lettering) | Accepted | Closes notification-service's last remaining gap from ADR-0019/ADR-0017. Its `pika` consumer used to ack even on failure, silently dropping malformed or unexpected-error messages. It now retries up to 3 times with exponential backoff, using a RabbitMQ retry queue with a per-message TTL, not a sleep or poll, before dead-lettering. This matches the same numbers and conceptual behavior as the Spring services, built on different primitives, since Pika has no retry-template equivalent. Found, and since fixed (see ADR-0022's Update): `products-service`'s `handleUserVerified` had no role filter, so every buyer's `user.verified` event was dead-lettered. |
 | [0023](docs/adr/0023-notification-service-persistence-evolution-strategy.md) | Notification Service Persistence Evolution Strategy | Accepted | Formally reviews and closes the "no Alembic" gap left open since ADR-0014. `scripts/init.sql` has not changed once across four ADRs of functional growth. A comparison against `inventory-service`, whose own idempotent init.sql *has* evolved twice, safely, with no versioned tool, shows the current approach has headroom beyond what notification-service has needed. Keeps the idempotent script. Documents concrete criteria for reopening the decision if the schema outgrows it. |
-| [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagate through HTTP headers and native AMQP message properties, not a new wire format. All seven services log them in a consistent structured format. Two small shared modules exist: `correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services. This is a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. |
+| [0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md) | Distributed tracing via propagated correlation identifiers, not a tracing backend | Accepted | CorrelationId/RequestId/MessageId propagate through HTTP headers and native AMQP message properties, not a new wire format. All seven services log them in a consistent structured format. Two small shared modules exist: `correlation-commons` for the four Spring services, `correlation-commons-go` for the two Go services. This is a deliberate, narrow exception to this project's "no shared library" convention, since this code has no business meaning and must stay identical to hold the CorrelationId contract. Found and fixed two real bugs: notification-service's retry path silently dropped correlation/message ids, and the Go shared module's logger had a service name hardcoded from before it had a second consumer. See [docs/architecture/observability.md](docs/architecture/observability.md) for the full design. A 2026-08-02 Update adopts OpenTelemetry and a Jaeger backend alongside this design, not instead of it: every service now also exports spans, with a real login producing a single trace spanning 6 services and 13 spans across three languages. Outbox-mediated publishes (orders-service, inventory-service, billing-service) don't yet carry a trace across their write-to-publish gap — a documented, not-yet-closed residual gap, unlike CorrelationId's own envelope trick for the same gap. |
 | [0025](docs/adr/0025-gateway-transparent-routing.md) | Gateway transparent routing — every service is self-namespaced | Accepted | Closes the `inventory-service` 404-through-the-gateway bug ADR-0024 found. The Gateway no longer strips any service prefix; it forwards the incoming path unchanged. `auth-service`/`products-service`/`orders-service`/`billing-service` each gained a `server.servlet.context-path` matching their own Gateway segment (`inventory-service` was already self-namespaced). Every direct caller of those four services (Dockerfile `HEALTHCHECK`s, CI readiness checks, `e2e-tests`, the Postman collection) was updated in lockstep. The Postman collection now has parallel `Via Gateway (primary)` and `Direct (debug)` folder trees. |
 | [0026](docs/adr/0026-frontend-thin-client.md) | SvelteKit frontend as a thin client over the API Gateway | Accepted | A new `frontend/` (SvelteKit + TypeScript, SSR disabled, `adapter-node`) consumes only the Gateway. Building it surfaced and fixed four real defects no prior `curl`-based client could catch: CORS wired but shadowed by Spring Security in two services and entirely missing in four; `products-service`'s JWT filter terminating requests before `permitAll()` paths could ever be reached; its catalog endpoints unreachable by any buyer token by design; and the Gateway echoing `X-Correlation-Id`/`X-Request-Id` twice under one header. `notification-service` gains a Gateway route, closing the one gap ADR-0025 left open. |
 | [0027](docs/adr/0027-jwt-principal-as-sole-identity-source.md) | JWT principal as the sole identity source for orders/products | Accepted | Closes a Critical Roadmap item. `orders-service`/`products-service` derived business identity from a client-supplied `X-User-Id` header, instead of the authenticated JWT principal. This let any valid token impersonate any other user by changing one header, confirmed live with a real two-buyer impersonation before the fix. Both controllers now derive identity exclusively from `@AuthenticationPrincipal`. `X-User-Id` no longer exists anywhere in either service's request path. Its 2026-07-10 Update extends the same pattern to `billing-service`'s `PaymentController`, all four endpoints, closing a separate High Roadmap item. |
@@ -1012,6 +1015,21 @@ The stack split is deliberate:
       (ADR-0034) end to end. See
       [ADR-0038](docs/adr/0038-infrastructure-startup-resilience.md)'s
       2026-07-20 Update.
+- [x] **Opened 2026-08-02, closed 2026-08-02.** ADR-0024 revisited its own
+      rejection of a tracing backend: a Jaeger container plus OpenTelemetry
+      in all eight services, additive to the existing CorrelationId design,
+      not a replacement of it. A real login produced one trace spanning 6
+      services and 13 spans across three languages and five parallel
+      consumers of the same broadcast. Found and fixed a real, unrelated
+      bug while rebuilding every image from scratch for the first time
+      since the parent POM's version was fixed: `auth-service/Dockerfile`
+      still hardcoded a stale jar filename its three siblings had already
+      moved off. Also found, and left open, a genuine gap: outbox-mediated
+      publishes (`orders-service`, `inventory-service`, `billing-service`)
+      don't yet carry a trace across their write-to-publish gap, unlike
+      CorrelationId's own envelope trick for the same gap. See
+      [ADR-0024](docs/adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
+      2026-08-02 Update.
 
 </details>
 

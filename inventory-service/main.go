@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -20,9 +21,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
+    shutdownTracing := setupTracing(context.Background(), getEnvOrDefault("OTEL_SERVICE_NAME", "inventory-service"))
+    defer func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        _ = shutdownTracing(ctx)
+    }()
+
     // Load .env file
     loadEnv();
 
@@ -151,7 +160,17 @@ func main() {
     })))))
 
     log.Println("Inventory Service started on :8083")
-    log.Fatal(http.ListenAndServe(":8083", nil))
+    // otelhttp.NewHandler wraps the default mux: starts a server span per
+    // incoming request, extracting an incoming W3C traceparent header if
+    // present -- same role as api-gateway's identical wrapping.
+    log.Fatal(http.ListenAndServe(":8083", otelhttp.NewHandler(http.DefaultServeMux, "inventory-service")))
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+    if v := os.Getenv(key); v != "" {
+        return v
+    }
+    return defaultValue
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

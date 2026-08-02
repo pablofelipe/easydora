@@ -8,10 +8,16 @@ backend to do this.
 
 For the architectural decision behind this approach, see
 [ADR-0024](../adr/0024-distributed-tracing-via-propagated-identifiers.md).
-ADR-0024 explains *why* the project chose this approach over a full
-OpenTelemetry/Jaeger/Zipkin tracing backend. This document explains
-*how*: the three identifiers, their lifecycle, the propagation
-mechanism per hop, and worked examples from a real run.
+ADR-0024 explains *why* the project originally chose this approach over a
+full tracing backend, and why its 2026-08-02 Update later adopted one
+(Jaeger, via OpenTelemetry) alongside it, not instead of it. This
+document explains *how* the identifier-based approach works: the three
+identifiers, their lifecycle, the propagation mechanism per hop, and
+worked examples from a real run — all of it still true and still the
+mechanism every log line uses. The OpenTelemetry/Jaeger side (span
+export, per-language SDK wiring, the `traceparent` carrier alongside
+these same RabbitMQ hops) is documented entirely in ADR-0024's Update,
+not duplicated here.
 
 This document covers the *logging/tracing* pillar only. The
 quantitative pillar (request rate, latency, error rate, queue depth,

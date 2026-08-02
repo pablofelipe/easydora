@@ -178,6 +178,124 @@ Context and Decision above: this system's flows are linear chains,
 CorrelationId propagation already reconstructs their timeline, and no
 ADR here has ever been blocked on not knowing which hop was slow.
 
+## Update — 2026-08-02: a tracing backend, adopted alongside CorrelationId, not instead of it
+
+This ADR's rejection of a tracing backend rested on one concrete
+criterion, stated in its own Consequences section: revisit this decision
+if the project's own goal shifts from demonstrating architectural
+patterns toward demonstrating distributed *operations* themselves. That
+shift has happened for this specific capability — visual trace
+waterfalls and per-hop latency are now something this project wants to
+demonstrate operating, not just design around. Nothing else in the
+original Context changed: this system's flows are still linear chains,
+and CorrelationId still fully reconstructs any one operation's timeline
+from logs alone.
+
+This is not a reversal of the CorrelationId/RequestId/MessageId design
+([docs/architecture/observability.md](../architecture/observability.md)).
+That design stays exactly as documented and remains the log-grep
+mechanism. What's added here is a second, independent capability this
+project had no other way to get: a visual span tree and real per-hop
+latency numbers, which a background-poller-driven at-least-once log
+identifier was never built to answer. That distinction is also what
+separates this decision from the second-broker adapter
+[ADR-0041](0041-kafka-rabbitmq-broker-benchmark.md) considered and
+rejected for the Kafka benchmark: a live second broker there would have
+duplicated a capability RabbitMQ already provides, with no requirement
+this project actually has pointing at the difference. A tracing backend
+duplicates nothing already present — it earns its place under
+[architectural-principles.md](../architecture/architectural-principles.md)'s
+principle #2 precisely because there was no existing mechanism doing
+this job.
+
+### What was added
+
+A single **Jaeger** all-in-one container (OTLP receiver built in, no
+separate collector) in `docker-compose.yml` — the same "one extra
+container, not a stack" shape this project already applies to
+Prometheus/Grafana (ADR-0036). Every one of the eight services now
+exports spans to it:
+
+- **api-gateway, inventory-service** (Go): `go.opentelemetry.io/otel`'s
+  SDK, `otelhttp` wrapping both the inbound router and the outbound
+  reverse-proxy transport for HTTP spans; a small carrier adapter
+  (`internal/messaging/tracing_carrier.go`, inventory-service) injects/
+  extracts a W3C `traceparent` into RabbitMQ message headers, alongside
+  the existing `correlation_id`/`message_id` AMQP properties — a
+  separate header because `traceparent` has its own W3C-defined format,
+  not something to conflate with CorrelationId's own identifier.
+- **auth-service, products-service, orders-service, billing-service**
+  (Spring Boot): Micrometer Tracing's OTel bridge plus the OTLP exporter
+  (`management.tracing.sampling.probability=1.0`, no sampling — same
+  "trace everything" reasoning this project already applies to the
+  Outbox's own unremarkable poll interval, ADR-0003). RabbitMQ
+  propagation needed no new code at all:
+  `RabbitTemplate.setObservationEnabled(true)` and
+  `SimpleRabbitListenerContainerFactory.setObservationEnabled(true)` are
+  existing Spring AMQP options that inject/extract `traceparent`
+  automatically once an `ObservationRegistry`/`Tracer` bean exists.
+- **notification-service** (FastAPI):
+  `opentelemetry-instrumentation-fastapi` for the HTTP surface,
+  `opentelemetry-instrumentation-httpx` for the one synchronous call to
+  auth-service, and a manual `propagate.extract`/`start_as_current_span`
+  pair around each of the three `pika` consumer callbacks (this
+  service's own carrier is a plain dict, `pika`'s header type already
+  matches OTel's default `Getter`/`Setter` shape).
+
+### Evidence, not just a running container
+
+A real login (`POST /login`, `auth.exchange`/`jwt.created`) produced one
+trace spanning **6 services, depth 6, 13 spans**: api-gateway → auth-service
+→ a single producer span, fanning out into **five** independent consumer
+spans across three languages and two of this project's messaging queues'
+worth of competing/parallel consumers — `notification-service`,
+`orders-service` (twice, its two independent `jwt.created` queues,
+ADR-0001's fan-out fix), `products-service`, `billing-service`. Screenshot:
+[`images/jaeger-jwt-created-fanout-trace.jpg`](images/jaeger-jwt-created-fanout-trace.jpg).
+A `POST /createProduct` call produced an equally real cross-language
+trace: `products-service`'s HTTP handler → its own
+`product.exchange/product.created` producer span → a consumer span in
+`orders-service` (Java) and a separate one in `inventory-service` (Go) —
+proof the W3C `traceparent` propagates correctly across a RabbitMQ hop
+between two different language runtimes, not just within one.
+
+### A real, honest gap this surfaced: Outbox-mediated publishes don't carry a trace
+
+`POST /createOrder`'s own trace stops at the HTTP server span. It does
+not continue into `stock.reserve`/`order.created`'s producer or consumer
+spans, even though the same call's CorrelationId reaches every one of
+those hops correctly. The reason is structural, not a bug: `orders-service`,
+`inventory-service`, and `billing-service` all publish through the Outbox
+pattern (ADR-0037) — a background poller sends the message seconds after
+the original request's span has already ended, the same write-to-publish
+gap [docs/architecture/observability.md](../architecture/observability.md)
+already documents for CorrelationId. CorrelationId survives that gap
+because the outbox row's payload is wrapped in a small internal envelope
+before storage. `traceparent` is not added to that envelope in this
+Update — doing so touches a cross-language envelope format shared by
+`correlation-commons` (Java) and `correlation-commons-go`, plus every
+outbox-writing call site in both languages, which is a larger, separate
+change than instrumenting the already-live HTTP/RabbitMQ hops above. The
+services that still publish directly rather than through the Outbox
+(`auth-service`'s `user.registered`/`jwt.created`, `products-service`'s
+`product.*`) show no such gap, as the two traces above demonstrate.
+
+### Incidental fixes made while validating this live
+
+- `auth-service/Dockerfile` had a stale hardcoded jar filename
+  (`auth-service-0.0.1-SNAPSHOT.jar`) left over from before the parent
+  POM's version was fixed at `0.3.0` — every other service's Dockerfile
+  already used a wildcard (`*.jar`). Never surfaced before because no
+  session had rebuilt this image from scratch since that version was
+  set. Fixed to match its three siblings; unrelated to tracing itself.
+- `go.work`'s and both Go services' `go.mod`'s `go` directive moved from
+  `1.23.0` to `1.25.0` (the OpenTelemetry Go SDK's own dependency chain
+  requires it); both Dockerfiles' builder base image moved from
+  `golang:1.23-alpine` to `golang:1.25-alpine` to match.
+- `notification-service/requirements.txt` pins `setuptools<81`:
+  `opentelemetry-instrumentation` 0.48b0 still imports the now-removed
+  `pkg_resources` API, which `setuptools>=81` no longer ships.
+
 ## References
 
 - [docs/architecture/observability.md](../architecture/observability.md) —
@@ -205,4 +323,14 @@ ADR here has ever been blocked on not knowing which hop was slow.
 - [ADR-0036](0036-metrics-via-prometheus-grafana.md) — the 2026-07-14
   Update above's narrower revisit: Prometheus/Grafana adopted for
   quantitative metrics, while this ADR's rejection of a tracing backend
-  stands unchanged.
+  stood unchanged until the 2026-08-02 Update below; also the "one extra
+  container, not a stack" shape the Jaeger addition mirrors.
+- [ADR-0037](0037-consolidated-outbox-pattern-specification.md) — the
+  Outbox pattern whose write-to-publish gap the 2026-08-02 Update's
+  "real, honest gap" section identifies as the reason `traceparent`
+  doesn't yet survive an outbox-mediated publish.
+- [ADR-0041](0041-kafka-rabbitmq-broker-benchmark.md) — the contrasting
+  case the 2026-08-02 Update draws on: a live second broker rejected
+  there for duplicating an existing capability with no real requirement
+  behind it, versus a tracing backend adopted here for providing a
+  capability that had no existing equivalent at all.

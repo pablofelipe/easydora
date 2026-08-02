@@ -56,6 +56,7 @@ func contextFromDelivery(d amqp.Delivery) context.Context {
 	}
 	ctx = correlation.WithCorrelationID(ctx, correlationID)
 	ctx = correlation.WithMessageID(ctx, d.MessageId)
+	ctx = extractTraceContext(ctx, d.Headers)
 	return ctx
 }
 
@@ -396,6 +397,8 @@ func (r *RabbitMQConsumer) ConsumeReserveStockCommands(
 		return channel, msgs, nil
 	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
+		ctx, span := startConsumerSpan(ctx, "inventory.reserve.queue")
+		defer span.End()
 		correlation.Info(consumerLogger, ctx, "message received", "event", "stock.reserve", "aggregateId", "")
 
 		var command models.ReserveStockCommand
@@ -456,6 +459,8 @@ func (r *RabbitMQConsumer) ConsumeReleaseStockCommands(inventoryService service.
 		return channel, msgs, nil
 	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
+		ctx, span := startConsumerSpan(ctx, "inventory.release.queue")
+		defer span.End()
 
 		var command models.ReleaseStockCommand
 		if err := json.Unmarshal(d.Body, &command); err != nil {
@@ -517,6 +522,8 @@ func (r *RabbitMQConsumer) consumeProductEvent(
 		return channel, msgs, nil
 	}, func(d amqp.Delivery) {
 		ctx := contextFromDelivery(d)
+		ctx, span := startConsumerSpan(ctx, queueName)
+		defer span.End()
 		correlation.Info(consumerLogger, ctx, "message received", "event", routingKey, "aggregateId", "")
 
 		if err := handle(d.Body); err != nil {

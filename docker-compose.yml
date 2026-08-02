@@ -83,6 +83,24 @@ services:
     networks:
       - easydora-network
 
+  # Jaeger: distributed tracing backend, OTLP receiver built in (4317
+  # gRPC / 4318 HTTP) -- see docs/adr/0024-distributed-tracing-via-propagated-identifiers.md's
+  # 2026-08-02 Update. All-in-one image bundles the collector, storage
+  # (in-memory, not persisted across restarts) and query UI in one
+  # container -- adequate for this project's traffic volume, same
+  # reasoning ADR-0024 already applies to not adopting sampling.
+  jaeger:
+    image: jaegertracing/all-in-one:1.65.0
+    restart: on-failure
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Query UI
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+    networks:
+      - easydora-network
+
   # API Gateway
   api-gateway:
     build:
@@ -98,6 +116,8 @@ services:
       - ORDERS_SERVICE_URL=http://orders-service:8084
       - BILLING_SERVICE_URL=http://billing-service:8085
       - NOTIFICATION_SERVICE_URL=http://notification-service:8086
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=api-gateway
     depends_on:
       - auth-service
       - products-service
@@ -105,6 +125,7 @@ services:
       - inventory-service
       - billing-service
       - notification-service
+      - jaeger
     networks:
       - easydora-network
 
@@ -130,11 +151,14 @@ services:
       - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
 
@@ -157,11 +181,14 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
 
@@ -184,11 +211,14 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
 
@@ -213,11 +243,15 @@ services:
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=inventory-service
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
 
@@ -240,11 +274,14 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=admin
       - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
 
@@ -263,6 +300,8 @@ services:
       - DB_NAME=easydora
       - DB_USER=admin
       - DB_PASSWORD=${DB_PASSWORD}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=notification-service
     depends_on:
       postgres:
         condition: service_healthy
@@ -270,9 +309,11 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_started
+      jaeger:
+        condition: service_started
     networks:
       - easydora-network
-      
+
   # Frontend
   # VITE_GATEWAY_URL is a build-time value baked into the client bundle by
   # Vite (see frontend/src/lib/api/client.ts) -- it must be an address the

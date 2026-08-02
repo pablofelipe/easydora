@@ -334,6 +334,10 @@ public class RabbitMQConfig {
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter messageConverter) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
+        // Observation support (ADR-0024's 2026-08-02 Update): injects the
+        // current trace's traceparent into the outgoing message's headers.
+        // See auth-service's identical setting for the full rationale.
+        rabbitTemplate.setObservationEnabled(true);
         return rabbitTemplate;
     }
 
@@ -349,6 +353,10 @@ public class RabbitMQConfig {
         // code, just Spring Boot's native listener container configurer.
         configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(messageConverter);
+        // Observation support, consumer side: extracts an incoming
+        // traceparent header and continues that trace for the duration of
+        // the listener method, rather than starting a disconnected one.
+        factory.setObservationEnabled(true);
         // Publishes ListenerContainerIdleEvent every 30s even with no
         // messages flowing - the signal RabbitMqProgressEventListener/
         // ProgressWatchdog use to prove the container's own loop is still

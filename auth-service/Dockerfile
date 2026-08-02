@@ -29,7 +29,7 @@ RUN cd auth-service && mvn clean package -DskipTests
 # Stage final
 FROM eclipse-temurin:17-jdk-alpine
 VOLUME /tmp
-COPY --from=builder /build/auth-service/target/auth-service-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=builder /build/auth-service/target/*.jar app.jar
 
 EXPOSE 8081
 
