@@ -166,6 +166,98 @@ jobs:
           RABBITMQ_PASSWORD: local_dev_placeholder
         run: go test -tags=integration ./...
 
+  # Owns and automates the empirical confirmation ADR-0038 recorded
+  # manually: that the four Spring services tolerate Postgres/RabbitMQ not
+  # being ready yet at boot, instead of crashing on the first connection
+  # attempt. Unlike every other job here, this one deliberately does NOT
+  # use a `services:` block -- those start before any step runs, which
+  # would remove the exact race this job exists to reproduce. Postgres and
+  # RabbitMQ are started manually, in a later step, only once the app has
+  # already been running against neither for a while.
+  boot-race:
+    name: ${{ matrix.service }} (Postgres/RabbitMQ startup race)
+    runs-on: ubuntu-latest
+    needs: [spring-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: auth-service
+            port: 8081
+            context_path: /auth
+          - service: products-service
+            port: 8082
+            context_path: /products
+          - service: orders-service
+            port: 8084
+            context_path: /orders
+          - service: billing-service
+            port: 8085
+            context_path: /billing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: install correlation-commons
+        run: |
+          mvn install -N
+          cd correlation-commons && mvn install -DskipTests
+      - name: package ${{ matrix.service }}
+        working-directory: ${{ matrix.service }}
+        run: mvn -DskipTests package
+
+      - name: start ${{ matrix.service }} with neither Postgres nor RabbitMQ reachable yet
+        working-directory: ${{ matrix.service }}
+        env:
+          DB_PASSWORD: local_dev_placeholder
+          RABBITMQ_PASSWORD: local_dev_placeholder
+          SPRING_PROFILES_ACTIVE: dev
+          APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
+        run: |
+          JAR=$(ls target/*.jar | grep -v original- | head -n1)
+          nohup java -jar "$JAR" > /tmp/boot-race.log 2>&1 &
+          echo $! > /tmp/boot-race.pid
+
+      - name: confirm the process survives the race instead of crashing immediately
+        run: |
+          sleep 15
+          PID=$(cat /tmp/boot-race.pid)
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "process exited before Postgres/RabbitMQ ever started -- boot-race tolerance regressed"
+            cat /tmp/boot-race.log
+            exit 1
+          fi
+          echo "still running 15s into a Postgres/RabbitMQ-less boot, as expected"
+
+      - name: start Postgres and RabbitMQ only now, deliberately late
+        run: |
+          docker run -d --name ci-postgres -p 5432:5432 \
+            -e POSTGRES_DB=easydora -e POSTGRES_USER=admin -e POSTGRES_PASSWORD=local_dev_placeholder \
+            postgres:15-alpine
+          docker run -d --name ci-rabbitmq -p 5672:5672 \
+            -e RABBITMQ_DEFAULT_USER=admin -e RABBITMQ_DEFAULT_PASS=local_dev_placeholder \
+            rabbitmq:3-management-alpine
+
+      - name: wait for the service to recover once real infra shows up
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${{ matrix.port }}${{ matrix.context_path }}/health" > /dev/null; then
+              echo "recovered and became healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "never recovered within 120s of Postgres/RabbitMQ becoming available"
+          cat /tmp/boot-race.log
+          exit 1
+
+      - name: dump service log on failure
+        if: failure()
+        run: cat /tmp/boot-race.log || true
+
   # Phase 3: cross-service e2e (ADR-0013). Unlike Phase 2 -- which runs each
   # service's own test suite against a real broker/DB but always in
   # isolation, one service per job -- this starts multiple real services as

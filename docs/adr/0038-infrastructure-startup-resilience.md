@@ -600,6 +600,76 @@ own reasoning above). The frontend's own gaps (no signup, no `SELLER`
 screen, no cancel button) remain, tracked as separate, later,
 product-scoped work — see the README Roadmap.
 
+## Update — 2026-08-03: the boot-race tolerance is now owned by a CI job, not just an empirical claim
+
+Closes a Low Roadmap item raised against this ADR's own Context section:
+the four Spring services' tolerance of a Postgres/RabbitMQ startup race
+was "confirmed empirically here" — meaning by a human, once, against a
+manually wiped Postgres volume — never by a test this project runs on
+every push. That's a real gap: nothing would catch a future dependency
+bump or config change quietly reintroducing the crash-on-first-attempt
+behavior this ADR fixed.
+
+A new `boot-race` job in `.github/workflows/ci.yml`, one matrix entry per
+Spring service, closes it. It deliberately does not use a `services:`
+block — those start before any step runs, which would remove the exact
+race under test. Instead: package the service, start it as a background
+process with neither Postgres nor RabbitMQ reachable, wait 15s and assert
+the process is still alive (proving it didn't crash on the first failed
+connection attempt), *then* start Postgres and RabbitMQ via `docker run`,
+and poll `/<context-path>/health` until it reports healthy within a 120s
+budget. A regression in either `spring.datasource.hikari.initialization-fail-timeout`
+or Spring AMQP's own autoconfigured retry would show up as this job
+failing, not as a claim nobody re-checks.
+
+Evaluated and rejected embedded/lightweight Postgres (e.g.
+`otj-pg-embedded`) as a way to simulate the delay more precisely: it would
+add a new test-only dependency to all four services for a scenario
+`docker run`, already used elsewhere in this same CI file, reproduces
+exactly as well with zero new dependencies.
+
+## Update — 2026-08-03: bounding notification-service's own boot-time RabbitMQ connection
+
+Closes a second, related Low Roadmap item: `notification-service`'s
+`run_consumer` retried its very first RabbitMQ connection attempt
+unboundedly, forever, with no upper bound at all — inconsistent with its
+own `ensure_schema`'s bounded-then-raise Postgres connection (Postgres
+"fails loudly," letting the container crash and restart, if it can't
+connect after `MAX_ATTEMPTS`), and inconsistent with `inventory-service`'s
+own already-bounded boot-time RabbitMQ connection (this same ADR's
+Decision section, above).
+
+Checked whether this asymmetry was actually already accepted, cross-language,
+for a good reason before changing anything: it wasn't. The Spring
+services' RabbitMQ connectivity is unbounded too (Spring AMQP's
+`SimpleMessageListenerContainer` retries indefinitely by default, no
+project-owned config overrides it) — but that's the *steady-state*
+reconnect path (after at least one prior successful connection), which
+this project deliberately keeps unbounded everywhere, for the same reason
+ADR-0038's original Decision gives: a transient broker outage shouldn't
+crash an otherwise-working process. `run_consumer` never structurally
+separated that from the very first connection attempt at boot, the way
+Go's `pkg/database`/`internal/messaging` already do (one bounded
+boot-time function, one separate unbounded `watchConnection` loop for
+later reconnects).
+
+Split it the same way: `BOOT_MAX_ATTEMPTS = 10` (matching
+`ensure_schema`'s own `MAX_ATTEMPTS`) bounds only the very first
+connection attempt. Exhausting it raises, crashing the process instead of
+leaving it reporting healthy forever having never connected once — this
+does not reintroduce the silent-death bug ADR-0017 fixed, since a crashed
+container is externally visible (Docker/Kubernetes restart it) where a
+quietly-dead background thread inside an otherwise-"healthy" process was
+not. Every later disconnect, after the first successful connection,
+keeps retrying unboundedly, unchanged.
+
+Proven by a new `test_run_consumer_gives_up_after_boot_max_attempts_never_connecting`
+in `tests/test_rabbitmq_boot_bound.py`: a permanently-failing `connect()`
+raises after exactly `BOOT_MAX_ATTEMPTS` calls. The existing
+`test_run_consumer_retries_past_a_startup_connection_failure` (3 failed
+attempts then success) needed no change, since 3 is still well under the
+new bound.
+
 ## References
 
 - [ADR-0017](0017-notification-service-startup-resilience.md) — the
