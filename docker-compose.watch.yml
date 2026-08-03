@@ -1,0 +1,141 @@
+# Override for `docker compose watch` (ADR-0042). Not a standalone file --
+# apply on top of the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.watch.yml up --watch
+#
+# Every application service here builds its `dev` Dockerfile stage instead
+# of the production one (see each Dockerfile). Those stages keep the full
+# toolchain (Maven+JDK, Go, npm) and already-downloaded dependencies in the
+# image, so a `sync+restart`/`sync` cycle recompiles or hot-reloads only the
+# changed source instead of triggering a full `docker build`. Infra
+# containers (Postgres, RabbitMQ, Prometheus, Grafana, Jaeger) are
+# unaffected -- they aren't in this file.
+#
+# `rebuild` rules exist for dependency manifests (pom.xml, go.mod/go.sum,
+# package.json/package-lock.json) and the shared correlation-commons/
+# correlation-commons-go libraries: none of those can be picked up by a
+# running container, since the dev image only pre-installs whatever
+# dependency graph existed at the last `docker build`.
+services:
+  api-gateway:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./api-gateway
+          target: /build/api-gateway
+          action: sync+restart
+        - path: ./api-gateway/go.mod
+          action: rebuild
+        - path: ./api-gateway/go.sum
+          action: rebuild
+        - path: ./correlation-commons-go
+          action: rebuild
+
+  inventory-service:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./inventory-service
+          target: /build/inventory-service
+          action: sync+restart
+        - path: ./inventory-service/go.mod
+          action: rebuild
+        - path: ./inventory-service/go.sum
+          action: rebuild
+        - path: ./correlation-commons-go
+          action: rebuild
+
+  auth-service:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./auth-service/src
+          target: /build/auth-service/src
+          action: sync+restart
+        - path: ./auth-service/pom.xml
+          action: rebuild
+        - path: ./pom.xml
+          action: rebuild
+        - path: ./correlation-commons
+          action: rebuild
+
+  products-service:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./products-service/src
+          target: /build/products-service/src
+          action: sync+restart
+        - path: ./products-service/pom.xml
+          action: rebuild
+        - path: ./pom.xml
+          action: rebuild
+        - path: ./correlation-commons
+          action: rebuild
+
+  orders-service:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./orders-service/src
+          target: /build/orders-service/src
+          action: sync+restart
+        - path: ./orders-service/pom.xml
+          action: rebuild
+        - path: ./pom.xml
+          action: rebuild
+        - path: ./correlation-commons
+          action: rebuild
+
+  billing-service:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./billing-service/src
+          target: /build/billing-service/src
+          action: sync+restart
+        - path: ./billing-service/pom.xml
+          action: rebuild
+        - path: ./pom.xml
+          action: rebuild
+        - path: ./correlation-commons
+          action: rebuild
+
+  # notification-service's Dockerfile is unchanged -- it's a single stage
+  # that already contains the interpreter and installed dependencies, so
+  # `--reload` alone (uvicorn's own file watcher) is enough; no dev target,
+  # no restart action needed.
+  notification-service:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8086", "--reload"]
+    develop:
+      watch:
+        - path: ./notification-service/app
+          target: /app/app
+          action: sync
+        - path: ./notification-service/scripts
+          target: /app/scripts
+          action: sync
+        - path: ./notification-service/requirements.txt
+          action: rebuild
+
+  frontend:
+    build:
+      target: dev
+    develop:
+      watch:
+        - path: ./frontend/src
+          target: /app/src
+          action: sync
+        - path: ./frontend/static
+          target: /app/static
+          action: sync
+        - path: ./frontend/package.json
+          action: rebuild
+        - path: ./frontend/package-lock.json
+          action: rebuild

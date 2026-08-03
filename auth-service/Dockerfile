@@ -26,6 +26,15 @@ COPY auth-service/src auth-service/src
 # Build do projeto
 RUN cd auth-service && mvn clean package -DskipTests
 
+# Dev stage (docker compose watch, ADR-0042): reuses the builder's already
+# -downloaded Maven cache (including the locally-installed correlation-commons
+# jar) and compiled classes, running the app via spring-boot:run in offline
+# mode so a `sync+restart` cycle only recompiles changed sources instead of
+# triggering a full `docker build`.
+FROM builder AS dev
+WORKDIR /build/auth-service
+CMD ["mvn", "-o", "spring-boot:run"]
+
 # Stage final
 FROM eclipse-temurin:17-jdk-alpine
 VOLUME /tmp

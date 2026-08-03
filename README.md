@@ -155,6 +155,30 @@ kubectl apply -f k8s/base/secrets.yaml   # copy from secrets.example.yaml first
 kubectl kustomize k8s/base --load-restrictor LoadRestrictionsNone | kubectl apply -f -
 ```
 
+### Fast local dev loop (`docker compose watch`)
+
+The default `docker compose up` above builds each service's full
+multi-stage production image — the right choice for validating a release,
+but slow to repeat after every single-line code change (a full Maven
+recompile plus repackage per Spring Boot service, in particular). For an
+active debugging session, run instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.watch.yml up --watch
+```
+
+This builds each service's `dev` Dockerfile stage (full toolchain +
+already-downloaded dependencies, kept in the image) instead of the
+production one, then syncs changed source files into the already-running
+container — recompiling or hot-reloading only what changed, instead of
+rebuilding the image. Editing a dependency manifest (`pom.xml`,
+`go.mod`/`go.sum`, `package.json`) or the shared `correlation-commons`/
+`correlation-commons-go` libraries still falls back to a full rebuild of
+just that service, triggered automatically. See
+[ADR-0042](docs/adr/0042-fast-local-dev-loop-docker-compose-watch.md) for
+the full design and the trade-offs of this second, dev-only image per
+service.
+
 ## Architecture
 
 See the [Architecture Overview](docs/architecture/overview.md) for the
@@ -191,7 +215,7 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 - [Architecture Overview](docs/architecture/overview.md) — the map: bounded
   contexts, business flows, communication, persistence, and the
   exchange/event table.
-- [Architecture Decision Records](#architecture-decision-records) — 40
+- [Architecture Decision Records](#architecture-decision-records) — 42
   ADRs, one per architectural decision made along the way, in chronological
   order.
 - [Observability](docs/architecture/observability.md) — how one business
@@ -299,6 +323,7 @@ The stack split is deliberate:
 | [0039](docs/adr/0039-jwt-broadcast-cache-restart-and-ttl.md) | Broadcast JWT cache — restart-recovery limitation and token-lifetime TTL | Accepted | Centralizes a limitation previously only mentioned as an aside inside ADR-0027 and ADR-0028, that a service restart wipes its JWT cache and recovery means the user logging in again, into its own dedicated decision record. Identifies one asymmetry never previously documented: none of the four broadcast-JWT caches expires an entry when the underlying JWT's own `expiresIn` elapses; only a restart clears it. Keeps the broadcast-cache model as-is. Explicitly rejects local JWKS verification and a persisted/shared cache, with objective criteria for when a shared cache like Redis would earn its place. Decides to add an `expiresIn`-based TTL to close the asymmetry. A 2026-07-15 Update implements the TTL, and the cache-miss-by-restart test, in all four services: `orders-service`, `products-service`, `billing-service` (a new `JwtUserInfo` constructor overload, evicted lazily on the next read that finds an expired entry) and `notification-service` (an optional `expires_at` on `JwtCache.add`). Landed together with `jwt_cache_lookup_total` (see ADR-0036's second Update). |
 | [0040](docs/adr/0040-minimal-kubernetes-kind-deployment.md) | Minimal Kubernetes (kind) deployment as a parallel execution platform, alongside Docker Compose | Accepted | Docker Compose already abstracts several properties of a declarative deployment platform: continuous reconciliation, health checks driving availability/recovery, configuration/application separation, declarative resource representation. A minimal `kind` cluster (`k8s/`) makes them explicit without changing the application. Every service already resolves the others by hostname and already exposes a real `/health` endpoint, so the same images run unchanged, only reused via Kubernetes Service DNS and readiness/liveness probes. Scope: one Namespace, Kustomize base with no overlays, a single PersistentVolumeClaim (Postgres only), Deployment rather than StatefulSet for Postgres/RabbitMQ, since their real value needs more than one replica, which this project doesn't have. `kind` was chosen over Minikube/k3d for running upstream Kubernetes components without a distribution's own substitutions or default-enabled add-ons. Explicit Non-Goals: HA, autoscaling, GitOps, service mesh, cloud provisioning, CI against kind. Docker Compose remains the recommended environment for local development. A 2026-07-17 Update adds the frontend, reusing the same image already built for Docker Compose unmodified. |
 | [0041](docs/adr/0041-kafka-rabbitmq-broker-benchmark.md) | Kafka vs. RabbitMQ broker benchmark | Accepted | ADR-0007 removed Kafka and kept RabbitMQ as the sole broker, reasoned entirely from workload properties, never measured. A standalone benchmark harness (`benchmarks/broker-comparison/`, its own `docker-compose.yml` and Go module, never part of any service's runtime) ran both brokers side by side on the same machine: publish-then-wait-for-ack throughput (the same call pattern `OutboxPublisher` uses everywhere it exists) and behavior across a hard broker-container restart. RabbitMQ measured roughly 14x the throughput and recovered automatically from the restart; Kafka's default client did not resume publishing within the same test window. A second-broker adapter living inside a real service was considered and rejected — no concrete use case (e.g. offset-based replay) exists today to justify one, so the comparison stays outside the production topology entirely. One new, previously undocumented finding: RabbitMQ's automatic recovery lost 2 of 207 broker-acknowledged messages under the hard kill, a narrow gap in the outbox's at-least-once guarantee (ADR-0037) left open for a future ADR if it recurs. |
+| [0042](docs/adr/0042-fast-local-dev-loop-docker-compose-watch.md) | Fast local dev loop via `docker compose watch` | Accepted | Closes a Low Roadmap item: every code change required a full multi-stage `docker compose build` (no incremental Maven/Go/npm compilation), slow enough on Docker Desktop for Windows to be a real cost during a debugging session. Adopts `docker compose watch`, native to the already-installed Compose version, over Tilt/Skaffold — no new tool to learn or install. Applied via a separate `docker-compose.watch.yml` override, so the default `docker compose up` production path is unchanged. Each service gained a `dev` Dockerfile stage keeping its full toolchain and already-downloaded dependencies in the image: Go services swap the prebuilt binary for `go run`, the four Spring Boot services run `mvn -o spring-boot:run` (offline, reusing the builder stage's cache), reusing `sync+restart`'s container-persistence to get Maven's own incremental compilation across restarts. `notification-service` needed no Dockerfile change at all (`uvicorn --reload` already does in-process hot-reload); the frontend's `dev` stage just skips the production build for `vite dev`'s own HMR. Dependency-manifest and shared-library changes (`pom.xml`, `go.mod`, `package.json`, `correlation-commons`/`correlation-commons-go`) still trigger a full rebuild, automatically. |
 
 ## Roadmap
 
@@ -1254,7 +1279,7 @@ The stack split is deliberate:
       used to report unconditionally — a service whose breaker has tripped
       open now actually shows as unavailable. Proven by
       `TestHealthCheck_ReflectsRealBreakerState`.
-- [ ] **Opened 2026-08-02 (Low).** No fast local dev loop exists: every
+- [x] **Opened 2026-08-02 (Low).** No fast local dev loop exists: every
       code change requires a full multi-stage `docker compose build`
       (Maven/Go recompiling from scratch inside the image, no live
       sync/hot-reload) before it can be validated against the real
@@ -1266,6 +1291,11 @@ The stack split is deliberate:
       this project's multi-stage-build Dockerfiles (they'd need
       restructuring to separate the build step from a syncable artifact)
       before adopting one.
+      See [ADR-0042](docs/adr/0042-fast-local-dev-loop-docker-compose-watch.md).
+      Closed: adopted `docker compose watch` over Tilt/Skaffold (no new
+      tool needed). Every service gained a `dev` Dockerfile stage; applied
+      via a separate `docker-compose.watch.yml` override so the default
+      `docker compose up` production path is unchanged.
 
 </details>
 

@@ -26,6 +26,15 @@ COPY billing-service/src billing-service/src
 # Build do projeto
 RUN cd billing-service && mvn clean package -DskipTests
 
+# Dev stage (docker compose watch, ADR-0042): reuses the builder's already
+# -downloaded Maven cache (including the locally-installed correlation-commons
+# jar) and compiled classes, running the app via spring-boot:run in offline
+# mode so a `sync+restart` cycle only recompiles changed sources instead of
+# triggering a full `docker build`.
+FROM builder AS dev
+WORKDIR /build/billing-service
+CMD ["mvn", "-o", "spring-boot:run"]
+
 # Stage final
 FROM eclipse-temurin:17-jre-alpine
 

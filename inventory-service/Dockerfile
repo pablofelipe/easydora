@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
@@ -29,3 +29,17 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1
 
 CMD ["./main"]
+
+# Dev stage (docker compose watch, ADR-0042): reuses the already-downloaded
+# module cache and source tree, swapping the prebuilt binary for `go run`
+# so a `sync+restart` cycle recompiles only the changed source instead of
+# triggering a full `docker build`.
+FROM builder AS dev
+WORKDIR /build/inventory-service
+CMD ["go", "run", "."]
+
+# This service has no separate minimal runtime stage (unlike api-gateway) --
+# `builder` doubles as production today. Re-tagging it keeps that behavior
+# as the default `docker build` target now that `dev` is no longer the last
+# stage in this file.
+FROM builder AS final

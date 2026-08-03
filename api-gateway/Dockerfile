@@ -17,7 +17,15 @@ RUN go mod download
 COPY api-gateway/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
-# Runtime stage  
+# Dev stage (docker compose watch, ADR-0042): reuses the builder's already
+# -downloaded module cache and source tree, swapping the prebuilt binary
+# for `go run` so a `sync+restart` cycle recompiles only the changed
+# source instead of triggering a full `docker build`.
+FROM builder AS dev
+WORKDIR /build/api-gateway
+CMD ["go", "run", "."]
+
+# Runtime stage
 FROM alpine:3.18
 
 WORKDIR /app
