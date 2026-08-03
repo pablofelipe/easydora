@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the policy documented in
 [docs/project-governance/versioning-and-release-policy.md](docs/project-governance/versioning-and-release-policy.md).
 
+## [0.4.0] - 2026-08-03
+
+Structural ADRs this release: 1 (ADR-0024's 2026-08-02 Update — adopting
+OpenTelemetry and a Jaeger backend, a new observability signal type,
+additive to CorrelationId rather than replacing it). Consecutive
+non-structural releases: 0. See the Architecture Stability tracker in
+the versioning policy doc above.
+
+### Added
+- OpenTelemetry distributed tracing with a Jaeger backend across all
+  eight services (ADR-0024's 2026-08-02 Update): a real login produces
+  one trace spanning 6 services and 13 spans across three languages.
+- Trace context (`traceparent`) now propagates across the Outbox
+  pattern's write-to-publish gap in auth-service, orders-service,
+  billing-service, and inventory-service, closing the one gap the
+  tracing adoption above left open (ADR-0024's 2026-08-03 Update). Live
+  -validated: a real order-creation trace now spans 20 spans across 5
+  services, rooted at the original HTTP request.
+- Standalone RabbitMQ vs Kafka broker benchmark harness and ADR-0041,
+  measuring the ADR-0007 broker decision instead of only arguing it.
+- Fast local dev loop via `docker compose watch` (ADR-0042): a `dev`
+  Dockerfile stage per service, applied through a
+  `docker-compose.watch.yml` override so the default production build
+  path is unchanged.
+- `notification_retry_total{outcome}` metric and a Grafana panel,
+  surfacing a retry or dead-lettering that was previously visible only
+  in log lines.
+- `boot-race` CI job (one per Spring service), replacing a one-time
+  manual confirmation of Postgres/RabbitMQ startup-race tolerance with a
+  test that runs on every push.
+- billing-service now rejects `processPayment` for an order that isn't
+  `INVENTORY_RESERVED`; orders-service gains an ADMIN-gated retry
+  endpoint (and a frontend `/refunds` page) for orders stuck in
+  `REFUND_FAILED`.
+
+### Fixed
+- inventory-service's `OutboxPublisher` never set `DeliveryMode` on
+  published messages, so a hard broker kill could lose a message even
+  after a positive publisher confirm — the root cause of the 2/207
+  message loss ADR-0041's benchmark found.
+- `ReserveStock`'s post-TTL duplication window: a redelivered command
+  after the in-memory idempotency cache expires (or a process restart
+  wipes it) no longer reserves stock a second time.
+- `registerUser` now writes `user.registered` through the Outbox instead
+  of publishing directly, closing the gap where a publish failure after
+  a successful save could silently drop the event.
+- A real regression the change above surfaced: with `user.registered`
+  delayed by the Outbox's poll cadence, it could arrive after
+  `jwt.created` had already activated a buyer/seller, and both consumers
+  unconditionally reset `active` back to `false` — now only forced on a
+  genuinely new record.
+- auth-service's weak dev JWT secret fallback (168 bits, below
+  HMAC-SHA's 256-bit minimum).
+- `notification-service`'s RabbitMQ boot connection retried forever with
+  no upper bound, unlike its own bounded Postgres connection — bounded
+  to 10 attempts, matching it.
+- `JWT_SECRET`/`jwt.secret` removed as dead configuration from all four
+  Spring services, including `auth-service` itself (never read anywhere
+  — `app.jwt.secret` is the one real secret).
+- api-gateway's circuit breaker inferred a downstream failure from a
+  `502` status code alone, indistinguishable from a backend that
+  legitimately returns one; now flagged directly on the request context.
+  Its `ResponseHeaderTimeout` (30s) also meant the breaker's worst case
+  took 150s to open — reduced to 5s (worst case 25s), measured against a
+  real frozen (not just stopped) container.
+- `/health` across all four Spring services and both Go services now
+  performs a real, timeout-bounded database connectivity probe instead
+  of an unconditional "Connected".
+- A recurring e2e flake: `createOrder` no longer asserts on the first
+  attempt against a buyer activation that's asynchronous relative to
+  login's own HTTP response.
+
+### Changed
+- README and `docs/architecture/` rewritten in Simplified Technical
+  English (ASD-STE100 style).
+- `CLAUDE.md` citations removed from every committed doc (gitignored, so
+  a fresh clone can't follow them).
+- Every `pom.xml` and `frontend/package.json`/`package-lock.json`
+  bumped to `0.4.0`.
+
+[0.4.0]: https://github.com/pablofelipe/easydora/compare/v0.3.0...v0.4.0
+
 ## [0.3.0] - 2026-07-23
 
 Structural ADRs this release: 1 (ADR-0038's 2026-07-20 Update — RabbitMQ

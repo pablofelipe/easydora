@@ -108,6 +108,13 @@ Updated at every tagged release. Resets to 0 whenever a release contains
 at least one architectural change per the definition above.
 
 ```text
+v0.4.0
+Structural ADRs: 1 (ADR-0024's 2026-08-02 Update — adopting OpenTelemetry
+  and a Jaeger backend is a new observability signal type, additive to
+  CorrelationId rather than replacing it, not just a new metric within
+  the existing model)
+Consecutive non-structural releases: 0
+
 v0.3.0
 Structural ADRs: 1 (ADR-0038's 2026-07-20 update — RabbitMQ topology
   redeclaration on reconnect and publisher confirms in the Outbox
