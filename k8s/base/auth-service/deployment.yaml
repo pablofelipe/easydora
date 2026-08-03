@@ -34,11 +34,6 @@ spec:
                 secretKeyRef:
                   name: easydora-secrets
                   key: DB_PASSWORD
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: easydora-secrets
-                  key: JWT_SECRET
             - name: APP_JWT_SECRET
               valueFrom:
                 secretKeyRef:

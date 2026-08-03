@@ -30,8 +30,8 @@ call changed.
 - Docker Desktop (Windows/Mac) or Docker Engine (Linux) + Docker Compose
 - `curl`
 - A `.env` file at the repo root with `DB_PASSWORD`, `RABBITMQ_PASSWORD`,
-  `JWT_SECRET`, `APP_JWT_SECRET` set (see ADR-0005) — required for
-  `docker compose up` to start at all
+  `APP_JWT_SECRET` set (see ADR-0005) — required for `docker compose up`
+  to start at all
 
 ## 1. Start everything
 

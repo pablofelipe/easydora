@@ -1200,10 +1200,17 @@ The stack split is deliberate:
       `RefundPaymentCommand` through the Outbox; `billing-service`'s
       `refundPayment` was already idempotent, so retrying against a
       `Payment` that turned out fine is harmless.
-- [ ] **Opened 2026-07-04 (Low).** Whether `JWT_SECRET`/`app.jwt.secret`
+- [x] **Opened 2026-07-04 (Low).** Whether `JWT_SECRET`/`app.jwt.secret`
       is genuinely dead configuration in `products-service`,
       `orders-service`, and `billing-service` was never conclusively
       resolved. See [ADR-0005](docs/adr/0005-secret-rotation.md).
+      Closed: confirmed dead — and, correcting an earlier assumption in
+      ADR-0005, dead in `auth-service` too (`JwtService` signs tokens with
+      `app.jwt.secret` via `JwtProperties`, never the plain `jwt.secret`).
+      Removed from all four services' `application.properties`,
+      `docker-compose.yml`, the Kubernetes manifests, `.env.example`, and
+      CI. `APP_JWT_SECRET`/`app.jwt.secret`, the one real secret, is
+      untouched.
 - [ ] **Opened 2026-07-09 (Low).** `notification-service`'s
       `process_order_created`/`process_order_status_changed` remain
       unaware that a retry/DLQ policy exists at all — the whole policy

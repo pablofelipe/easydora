@@ -49,6 +49,32 @@ Separately, the plain `jwt.secret=${JWT_SECRET:default-secret-key}` property (di
 - Running any service locally outside Docker (`mvn test`, `mvn spring-boot:run`) now requires `DB_PASSWORD` / `RABBITMQ_PASSWORD` (and `APP_JWT_SECRET` for auth-service) to be set as real environment variables — e.g. by sourcing `.env` — for anything that actually connects to Postgres/RabbitMQ. Before this change, those commands worked with no setup because the real credentials were hardcoded. This is a deliberate trade-off, not an oversight.
 - Whether `JWT_SECRET`/`jwt.secret` is genuinely dead configuration in products-service, orders-service, and billing-service (mirroring the `app.jwt.secret` finding above) was not conclusively resolved — left open for a future decision.
 
+## Update (2026-08-03): `jwt.secret`/`JWT_SECRET` confirmed dead everywhere, removed
+
+The question left open above — whether the plain `jwt.secret`/`JWT_SECRET`
+property is genuinely dead configuration in `products-service`,
+`orders-service`, and `billing-service` — is resolved: it is. Tracing
+every consumer of `jwt.secret`/`JWT_SECRET` across all four Spring
+services' `src/main` (same evidence standard as the `app.jwt.secret`
+finding above) found no `@Value`, `@ConfigurationProperties`, or any
+other reader of it anywhere in the codebase.
+
+This also corrects a mistaken claim made above: `auth-service`'s own copy
+of `jwt.secret=${JWT_SECRET:default-secret-key}` was assumed to have "a
+real consumer only in auth-service (`JwtService`)". It does not.
+`JwtService` signs tokens using `jwtProperties.getSecret()`, sourced from
+`JwtProperties` (`@ConfigurationProperties(prefix = "app.jwt")`) — i.e.
+`app.jwt.secret`, not `jwt.secret`. The plain property was dead in
+`auth-service` too, not just its three siblings.
+
+`jwt.secret`/`JWT_SECRET` was removed entirely, from all four services'
+`application.properties`, `docker-compose.yml`, `k8s/base/*/deployment.yaml`,
+`k8s/base/secrets.example.yaml`, `.env.example`, and the CI e2e jobs'
+placeholder env vars. `APP_JWT_SECRET`/`app.jwt.secret` — the one real,
+live secret, used only by `auth-service` — is untouched. Full `mvn test`
+re-run per affected service after removal, all green, confirming nothing
+depended on the removed property.
+
 ## References
 
 - ADR-0003 (outbox pattern for auth-service) and ADR-0004 (auth-service schema authority fix) — the work during which `docker-compose.yml` was reopened and this exposure was found.

@@ -236,7 +236,6 @@ jobs:
           DB_PASSWORD: local_dev_placeholder
           RABBITMQ_PASSWORD: local_dev_placeholder
           SPRING_PROFILES_ACTIVE: dev
-          JWT_SECRET: ci_pipeline_placeholder_secret_key_do_not_use_in_prod_env
           APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
         run: |
           JAR=$(ls target/*.jar | grep -v original- | head -n1)
@@ -351,7 +350,6 @@ jobs:
           DB_PASSWORD: local_dev_placeholder
           RABBITMQ_PASSWORD: local_dev_placeholder
           SPRING_PROFILES_ACTIVE: dev
-          JWT_SECRET: ci_pipeline_placeholder_secret_key_do_not_use_in_prod_env
           APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
         run: |
           JAR=$(ls target/*.jar | grep -v original- | head -n1)
@@ -470,7 +468,6 @@ jobs:
           DB_PASSWORD: local_dev_placeholder
           RABBITMQ_PASSWORD: local_dev_placeholder
           SPRING_PROFILES_ACTIVE: dev
-          JWT_SECRET: ci_pipeline_placeholder_secret_key_do_not_use_in_prod_env
           APP_JWT_SECRET: ci_pipeline_placeholder_app_secret_do_not_use_in_prod
         run: |
           JAR=$(ls target/*.jar | grep -v original- | head -n1)
