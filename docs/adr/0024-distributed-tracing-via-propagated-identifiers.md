@@ -296,6 +296,102 @@ services that still publish directly rather than through the Outbox
   `opentelemetry-instrumentation` 0.48b0 still imports the now-removed
   `pkg_resources` API, which `setuptools>=81` no longer ships.
 
+## Update — 2026-08-03: closing the Outbox write-to-publish trace gap
+
+Closes the Low Roadmap item the section above opened: `orders-service`,
+`inventory-service`, and `billing-service`'s Outbox-mediated publishes now
+carry a trace across the write-to-publish gap, the same way CorrelationId
+already does via its own envelope trick. `auth-service` (also an Outbox
+user, ADR-0037) gets the identical fix for free, since all four Java
+services share the same `correlation-commons` codec — leaving it out
+would have been an arbitrary, undocumented exception to a fix the shared
+module already applies uniformly.
+
+**Java (`correlation-commons`)**: `OutboxEnvelope`/`OutboxEnvelopeCodec`
+gained a fourth field, `traceparent`, alongside `correlationId`/
+`messageId` — nullable, since an outbox row written outside any traced
+request/message is legitimate, not an error.
+
+**A first version of this fix was live-validated and found not to work,
+corrected before landing.** It used raw OpenTelemetry API directly:
+`GlobalOpenTelemetry.getPropagators().getTextMapPropagator().inject(...)`
+to capture, `Context.makeCurrent()` around the publish to restore. Unit
+tests against that version passed — they proved OTel's own inject/
+extract round-trip, which was never the broken part. Live validation
+against a real stack (creating a real order, inspecting the resulting
+trace in Jaeger) found every outbox-mediated publish's *internal* chain
+correctly connected (write → publish → consumer, across services) but
+never linked back to the *original* HTTP request — the root span was
+always `OutboxPublisher`'s own `@Scheduled` task span, never
+`POST /orders/createOrder`. Root cause: Spring AMQP's
+`RabbitTemplate.setObservationEnabled(true)` parents its producer span
+from Micrometer's own current-span tracking (`Tracer.currentSpan()`/
+`ObservationRegistry`'s current observation), not from OpenTelemetry's
+raw `Context.current()` directly. Making an OTel `Context` current via
+`Context.makeCurrent()` does not, by itself, update what Micrometer
+considers current — the two propagation mechanisms only stay in sync
+when code goes through Micrometer's own API.
+
+The corrected `OutboxTraceparent` is built on Micrometer Tracing's own
+`Tracer`/`Propagator` interfaces instead (`io.micrometer.tracing.Tracer`,
+`io.micrometer.tracing.propagation.Propagator` — the same abstractions
+`RabbitTemplate`'s instrumentation itself consults). `capture(tracer,
+propagator)` reads `tracer.currentSpan()` and injects its `TraceContext`
+into a carrier. `restoreAndStartProducerSpan(tracer, propagator,
+traceparent, spanName)` extracts a `Span.Builder` from the stored
+traceparent (or starts a new root span if none was captured) and starts
+a real `PRODUCER`-kind span from it. Each of the three services'
+`OutboxPublisher` (and `UserService`/`OrderService`/`PaymentService` at
+write time) now takes `Tracer`/`Propagator` as constructor dependencies
+— both already auto-configured beans in every service, the same ones
+backing this ADR's original Micrometer Tracing OTel bridge adoption — and
+wraps the actual `rabbitTemplate.send(...)` call in `try (Tracer.SpanInScope
+scope = tracer.withSpan(restoredSpan)) { ... } finally { restoredSpan.end();
+}`. No new pom.xml dependency needed for the production code: `micrometer-tracing`
+is already a transitive dependency wherever `micrometer-tracing-bridge-otel`
+is (the shared parent POM, inherited by `correlation-commons` and all
+four services).
+
+**Go (`inventory-service`)**: `correlation-commons-go`'s `outboxEnvelope`
+struct gained the same fourth field. Capture (`captureTraceparent`, a
+small private helper in `postgres_repository.go`, using
+`otel.GetTextMapPropagator().Inject` into a `propagation.MapCarrier`) and
+restore (`restoreOutboxTraceContext`/`startOutboxProducerSpan`, new
+functions in `tracing_carrier.go`, alongside the existing consumer-side
+`extractTraceContext`/`startConsumerSpan` they mirror) stayed local to
+`inventory-service` rather than moving into `correlation-commons-go`
+itself — that module is a separate Go module with no existing OTel
+dependency of its own (unlike the Java side, where the parent POM already
+made it free), and `inventory-service` is the only Go outbox user, so
+centralizing would have added a new dependency to a shared module for a
+single caller's benefit.
+
+**Verification**: `OutboxTraceparentTest` (`correlation-commons`) builds a
+real Micrometer Tracing OTel bridge (`OtelTracer`/`OtelPropagator` over a
+self-contained `OpenTelemetrySdk`, no Jaeger/OTLP export) rather than
+mocking `Tracer`/`Propagator` — this is the exact layer the first,
+broken version got wrong, so only a real round-trip through it can prove
+parent/child linkage the way Spring AMQP's Observation-based
+instrumentation actually consults it. It proves a span started under
+`tracer.withSpan(original)`, captured, then restored via
+`restoreAndStartProducerSpan`, produces a span sharing the original's
+trace id with `parentId` equal to the original's own span id — genuine
+parent/child, not just matching trace ids. `OutboxEnvelopeCodecTest`'s
+cases round-trip `traceparent` through JSON (including the null/empty
+case); `correlation-commons-go`'s own envelope test does the Go side's
+wire-format equivalent. All four Java services' full `mvn test` suites
+and `inventory-service`'s `go build`/`go vet`/`go test` stay green.
+
+**Live-validated against a real stack**, not just deferred to unit tests:
+the first (broken) version was caught specifically *because* it was
+checked against real Jaeger output from a real order-creation flow before
+being declared done, not from unit tests alone (which it had already
+passed). The corrected version's live re-validation — confirming a real
+trace now spans from `POST /orders/createOrder` through the outbox
+publish into `inventory-service`'s consumer — is the next live Docker
+Compose validation pass this project runs, the same evidence standard
+the original 2026-08-02 Update above used.
+
 ## References
 
 - [docs/architecture/observability.md](../architecture/observability.md) —

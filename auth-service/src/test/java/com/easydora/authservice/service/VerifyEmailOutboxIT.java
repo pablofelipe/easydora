@@ -84,7 +84,7 @@ class VerifyEmailOutboxIT {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, outboxEventRepository, new ObjectMapper());
+        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, outboxEventRepository, new ObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         assertThatThrownBy(() -> userService.verifyEmail("token-flaky"))
                 .isInstanceOf(RuntimeException.class)

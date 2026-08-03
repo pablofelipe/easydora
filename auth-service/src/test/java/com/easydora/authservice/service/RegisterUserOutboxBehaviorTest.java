@@ -70,7 +70,7 @@ class RegisterUserOutboxBehaviorTest {
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
 
         UserService userService = new UserService(userRepository, passwordEncoder,
-                verificationTokenService, outboxEventRepository, newObjectMapper());
+                verificationTokenService, outboxEventRepository, newObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         assertThatThrownBy(() -> userService.registerUser(requestWithRole("BUYER")))
                 .isInstanceOf(RuntimeException.class)
@@ -97,7 +97,7 @@ class RegisterUserOutboxBehaviorTest {
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
         UserService userService = new UserService(userRepository, passwordEncoder,
-                verificationTokenService, outboxEventRepository, newObjectMapper());
+                verificationTokenService, outboxEventRepository, newObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         userService.registerUser(requestWithRole("BUYER"));
 

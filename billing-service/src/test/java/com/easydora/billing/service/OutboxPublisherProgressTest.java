@@ -29,7 +29,7 @@ class OutboxPublisherProgressTest {
     @Test
     void recordsProgressOnEveryPollTickEvenWhenPublishFails() {
         OutboxEvent event = new OutboxEvent("order.exchange", "payment.approved",
-                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", "{\"paymentId\":1}"));
+                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", null, "{\"paymentId\":1}"));
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
         when(outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc())
                 .thenReturn(List.of(event));
@@ -40,7 +40,7 @@ class OutboxPublisherProgressTest {
 
         ProgressWatchdog watchdog = mock(ProgressWatchdog.class);
         OutboxPublisher publisher = new OutboxPublisher(
-                outboxEventRepository, rabbitTemplate, new SimpleMeterRegistry(), watchdog);
+                outboxEventRepository, rabbitTemplate, new SimpleMeterRegistry(), watchdog, io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         publisher.publishPendingEvents();
 

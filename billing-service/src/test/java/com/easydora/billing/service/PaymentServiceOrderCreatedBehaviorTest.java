@@ -49,7 +49,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.empty());
 
         PaymentService paymentService = new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
-                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");
@@ -72,7 +72,7 @@ class PaymentServiceOrderCreatedBehaviorTest {
         when(paymentRepository.findByOrderId("order-123")).thenReturn(Optional.of(new Payment()));
 
         PaymentService paymentService = new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
-                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         OrderCreatedEvent event = new OrderCreatedEvent();
         event.setOrderId("order-123");

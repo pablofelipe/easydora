@@ -43,7 +43,7 @@ func TestOutboxPublisher_DoesNotMarkPublishedWhenExchangeMissing(t *testing.T) {
 	exchangeName := fmt.Sprintf("test.missing.exchange.%d", time.Now().UnixNano())
 
 	correlationID := fmt.Sprintf("outbox-confirm-test-%d", time.Now().UnixNano())
-	payload := correlation.WrapOutboxPayload(correlationID, "", `{"hello":"world"}`)
+	payload := correlation.WrapOutboxPayload(correlationID, "", "", `{"hello":"world"}`)
 
 	var eventID int64
 	if err := db.QueryRow(
@@ -121,7 +121,7 @@ func TestOutboxPublisher_PublishesMessagesAsPersistent(t *testing.T) {
 	declareTestQueue(t, pubCh, testQueue, "order.exchange", "test.persistence")
 
 	correlationID := fmt.Sprintf("persistence-test-%d", time.Now().UnixNano())
-	payload := correlation.WrapOutboxPayload(correlationID, "", `{"hello":"world"}`)
+	payload := correlation.WrapOutboxPayload(correlationID, "", "", `{"hello":"world"}`)
 	if _, err := db.Exec(
 		`INSERT INTO inventory_schema.outbox_events (exchange, routing_key, payload) VALUES ($1, $2, $3)`,
 		"order.exchange", "test.persistence", payload,

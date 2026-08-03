@@ -9,6 +9,9 @@ import (
 	"inventory-service/internal/models"
 	"log"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type InventoryRepository interface {
@@ -278,6 +281,18 @@ func (r *PostgresRepository) lockReservationOutcome(tx *sql.Tx, orderID string) 
 // (see internal/correlation/envelope.go). OutboxPublisher unwraps this and
 // promotes both to native AMQP properties at actual publish time, so the
 // wire shape of the event body itself never changes.
+// captureTraceparent reads ctx's current span (if any) into a W3C
+// traceparent string, so it can be stored alongside correlationId/
+// messageId across the Outbox's write-now-publish-later gap (ADR-0024's
+// 2026-08-03 Update). Returns "" when there is no active span -- an
+// outbox row written outside any traced request/message is a legitimate,
+// unremarkable state, not an error.
+func captureTraceparent(ctx context.Context) string {
+    carrier := propagation.MapCarrier{}
+    otel.GetTextMapPropagator().Inject(ctx, carrier)
+    return carrier.Get("traceparent")
+}
+
 func (r *PostgresRepository) insertOutboxEvent(ctx context.Context, tx *sql.Tx, exchange, routingKey string, payload any) error {
     body, err := json.Marshal(payload)
     if err != nil {
@@ -287,6 +302,7 @@ func (r *PostgresRepository) insertOutboxEvent(ctx context.Context, tx *sql.Tx, 
     envelope := correlation.WrapOutboxPayload(
         correlation.CurrentOrNewCorrelationID(ctx),
         correlation.NewID(),
+        captureTraceparent(ctx),
         string(body),
     )
 

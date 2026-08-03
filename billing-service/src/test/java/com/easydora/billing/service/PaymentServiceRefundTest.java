@@ -43,7 +43,7 @@ class PaymentServiceRefundTest {
 
     private PaymentService newPaymentService(PaymentProvider provider) {
         return new PaymentService(paymentRepository, provider, outboxEventRepository,
-                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
     }
 
     private List<PaymentEvent> events(List<OutboxEvent> savedEvents) {

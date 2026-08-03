@@ -21,10 +21,13 @@ import com.easydora.orders.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationContext;
 import com.easydora.correlation.OutboxEnvelopeCodec;
+import com.easydora.correlation.OutboxTraceparent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,6 +49,8 @@ public class OrderService {
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper outboxObjectMapper;
     private final Counter ordersCreatedCounter;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
 
@@ -55,13 +60,17 @@ public class OrderService {
                        ProductOwnershipRepository productOwnershipRepository,
                        OutboxEventRepository outboxEventRepository,
                        ObjectMapper outboxObjectMapper,
-                       MeterRegistry meterRegistry) {
+                       MeterRegistry meterRegistry,
+                       Tracer tracer,
+                       Propagator propagator) {
         this.buyerRepository = buyerRepository;
         this.orderRepository = orderRepository;
         this.stateMachineService = stateMachineService;
         this.productOwnershipRepository = productOwnershipRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.outboxObjectMapper = outboxObjectMapper;
+        this.tracer = tracer;
+        this.propagator = propagator;
         // Business metric (ADR-0036): infra-level metrics (request rate,
         // JVM, RabbitMQ) already answer "is the system healthy"; this one
         // answers a question infra can't -- "how much business is actually
@@ -645,6 +654,7 @@ public class OrderService {
             String envelopedPayload = OutboxEnvelopeCodec.wrap(
                     CorrelationContext.currentOrNewCorrelationId(),
                     CorrelationContext.newMessageId(),
+                    OutboxTraceparent.capture(tracer, propagator),
                     body);
             outboxEventRepository.save(new OutboxEvent(exchange, routingKey, envelopedPayload));
         } catch (JsonProcessingException e) {

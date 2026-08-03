@@ -89,7 +89,7 @@ class VerifyEmailOutboxHappyPathIT {
         OutboxEventRepository userServiceOutboxRepository = mock(OutboxEventRepository.class);
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
-        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, userServiceOutboxRepository, new ObjectMapper());
+        UserService userService = new UserService(userRepository, passwordEncoder, verificationTokenService, userServiceOutboxRepository, new ObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         userService.verifyEmail("token-ok");
 
@@ -106,7 +106,7 @@ class VerifyEmailOutboxHappyPathIT {
         OutboxEventRepository pollerOutboxRepository = mock(OutboxEventRepository.class);
         when(pollerOutboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc()).thenReturn(List.of(savedEvent));
         OutboxPublisher publisher = new OutboxPublisher(pollerOutboxRepository, rabbitTemplate,
-                new SimpleMeterRegistry(), mock(ProgressWatchdog.class));
+                new SimpleMeterRegistry(), mock(ProgressWatchdog.class), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         publisher.publishPendingEvents();
 

@@ -20,10 +20,11 @@ public final class OutboxEnvelopeCodec {
     private OutboxEnvelopeCodec() {
     }
 
-    public static String wrap(String correlationId, String messageId, String body) {
+    public static String wrap(String correlationId, String messageId, String traceparent, String body) {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("correlationId", correlationId);
         node.put("messageId", messageId);
+        node.put("traceparent", traceparent);
         node.put("body", body);
         try {
             return MAPPER.writeValueAsString(node);
@@ -38,6 +39,7 @@ public final class OutboxEnvelopeCodec {
             return new OutboxEnvelope(
                     node.path("correlationId").asText(null),
                     node.path("messageId").asText(null),
+                    node.path("traceparent").asText(null),
                     node.path("body").asText(null)
             );
         } catch (JsonProcessingException e) {

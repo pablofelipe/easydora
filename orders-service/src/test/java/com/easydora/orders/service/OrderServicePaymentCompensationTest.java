@@ -53,7 +53,7 @@ class OrderServicePaymentCompensationTest {
 
     private OrderService newOrderService() {
         return new OrderService(buyerRepository, orderRepository, stateMachineService, productOwnershipRepository,
-                outboxEventRepository, OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+                outboxEventRepository, OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
     }
 
     private Order orderIn(OrderState state) {

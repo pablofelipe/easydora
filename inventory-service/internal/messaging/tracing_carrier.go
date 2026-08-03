@@ -59,3 +59,26 @@ func startConsumerSpan(ctx context.Context, queueName string) (context.Context, 
 	tracer := otel.Tracer("inventory-service/messaging")
 	return tracer.Start(ctx, queueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 }
+
+// restoreOutboxTraceContext reconstructs a Context from a traceparent
+// captured at outbox write time (ADR-0024's 2026-08-03 Update), the
+// RabbitMQ-hop equivalent of correlationId/messageId's own envelope trick
+// crossing the same write-now-publish-later gap. An empty traceParent
+// (no active span at write time) is a legitimate, unremarkable state --
+// ctx is returned unchanged in that case, same as extractTraceContext
+// does for headers with no traceparent key.
+func restoreOutboxTraceContext(ctx context.Context, traceParent string) context.Context {
+	if traceParent == "" {
+		return ctx
+	}
+	carrier := amqpHeaderCarrier{"traceparent": traceParent}
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+}
+
+// startOutboxProducerSpan starts a span representing this outbox row's
+// actual publish, as a child of whatever restoreOutboxTraceContext
+// restored (or a new root span if the row carried no traceparent at all).
+func startOutboxProducerSpan(ctx context.Context, routingKey string) (context.Context, trace.Span) {
+	tracer := otel.Tracer("inventory-service/messaging")
+	return tracer.Start(ctx, routingKey+" outbox publish", trace.WithSpanKind(trace.SpanKindProducer))
+}

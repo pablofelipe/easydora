@@ -56,7 +56,7 @@ class VerifyEmailOutboxBehaviorTest {
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
 
         UserService userService = new UserService(userRepository, passwordEncoder,
-                verificationTokenService, outboxEventRepository, new ObjectMapper());
+                verificationTokenService, outboxEventRepository, new ObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         assertThatThrownBy(() -> userService.verifyEmail("token-flaky"))
                 .isInstanceOf(RuntimeException.class)
@@ -87,7 +87,7 @@ class VerifyEmailOutboxBehaviorTest {
         ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
         UserService userService = new UserService(userRepository, passwordEncoder,
-                verificationTokenService, outboxEventRepository, new ObjectMapper());
+                verificationTokenService, outboxEventRepository, new ObjectMapper(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         userService.verifyEmail("token-ok");
 

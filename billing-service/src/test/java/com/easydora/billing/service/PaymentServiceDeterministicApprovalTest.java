@@ -52,7 +52,7 @@ class PaymentServiceDeterministicApprovalTest {
 
     private PaymentService newPaymentService() {
         return new PaymentService(paymentRepository, paymentProvider, outboxEventRepository,
-                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry());
+                OutboxEventCaptureSupport.objectMapper(), new SimpleMeterRegistry(), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
     }
 
     @Test

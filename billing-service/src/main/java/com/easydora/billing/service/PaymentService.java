@@ -4,6 +4,7 @@ import com.easydora.billing.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationContext;
 import com.easydora.correlation.OutboxEnvelopeCodec;
+import com.easydora.correlation.OutboxTraceparent;
 import com.easydora.billing.dto.PaymentDTO;
 import com.easydora.billing.entity.OutboxEvent;
 import com.easydora.billing.exception.OrderNotReadyForPaymentException;
@@ -18,6 +19,8 @@ import com.easydora.billing.service.provider.PaymentProvider;
 import com.easydora.billing.service.provider.PaymentResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -43,14 +46,18 @@ public class PaymentService {
     private final ObjectMapper outboxObjectMapper;
     private final Counter paymentsApprovedCounter;
     private final Counter paymentsFailedCounter;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     public PaymentService(PaymentRepository paymentRepository, PaymentProvider paymentProvider,
             OutboxEventRepository outboxEventRepository, ObjectMapper outboxObjectMapper,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry, Tracer tracer, Propagator propagator) {
         this.paymentRepository = paymentRepository;
         this.paymentProvider = paymentProvider;
         this.outboxEventRepository = outboxEventRepository;
         this.outboxObjectMapper = outboxObjectMapper;
+        this.tracer = tracer;
+        this.propagator = propagator;
         // Business metrics (ADR-0036): infra-level metrics already answer
         // "is the system healthy"; these answer a question infra can't --
         // how much of the payment volume actually succeeds.
@@ -263,6 +270,7 @@ public class PaymentService {
             String envelopedPayload = OutboxEnvelopeCodec.wrap(
                     CorrelationContext.currentOrNewCorrelationId(),
                     CorrelationContext.newMessageId(),
+                    OutboxTraceparent.capture(tracer, propagator),
                     body);
             outboxEventRepository.save(new OutboxEvent(exchange, routingKey, envelopedPayload));
         } catch (JsonProcessingException e) {

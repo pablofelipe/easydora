@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel"
 )
 
 var outboxLogger = correlation.NewLogger(os.Stdout, "inventory-service")
@@ -132,7 +133,7 @@ func (p *OutboxPublisher) publishPending() {
 	}
 
 	for _, event := range events {
-		correlationID, messageID, body, err := correlation.UnwrapOutboxPayload(event.Payload)
+		correlationID, messageID, traceParent, body, err := correlation.UnwrapOutboxPayload(event.Payload)
 		if err != nil {
 			correlation.Error(outboxLogger, context.Background(), "failed to decode outbox envelope -- will retry next poll",
 				"aggregateId", event.ID, "error", err.Error())
@@ -154,16 +155,19 @@ func (p *OutboxPublisher) publishPending() {
 			continue
 		}
 
-		// No live trace context survives the write-to-publish gap here, the
-		// same limitation docs/architecture/observability.md documents for
-		// CorrelationId before the outbox envelope trick -- unlike
-		// CorrelationId/MessageId, traceparent isn't stored in that
-		// envelope (deferred, not done: see ADR-0024's 2026-08-02 Update),
-		// so this publish carries no traceparent header and a consumer
-		// receiving it starts a fresh root span rather than continuing the
-		// one that originally triggered the reservation.
+		// Restores the traceparent captured at write time (ADR-0024's
+		// 2026-08-03 Update) -- the RabbitMQ-hop equivalent of
+		// correlationId/messageId's own envelope trick above -- and starts
+		// this publish's own producer span as its child, instead of the
+		// consumer starting a fresh root span disconnected from the
+		// request that originally triggered the reservation.
+		tracedCtx := restoreOutboxTraceContext(ctx, traceParent)
+		tracedCtx, span := startOutboxProducerSpan(tracedCtx, event.RoutingKey)
+		headers := amqp.Table{}
+		otel.GetTextMapPropagator().Inject(tracedCtx, amqpHeaderCarrier(headers))
+
 		confirmation, err := p.channel.PublishWithDeferredConfirmWithContext(
-			context.Background(),
+			tracedCtx,
 			event.Exchange,
 			event.RoutingKey,
 			false, // mandatory
@@ -173,10 +177,12 @@ func (p *OutboxPublisher) publishPending() {
 				CorrelationId: correlationID,
 				MessageId:     messageID,
 				DeliveryMode:  amqp.Persistent,
+				Headers:       headers,
 				Body:          []byte(body),
 			},
 		)
 		if err != nil {
+			span.End()
 			correlation.Error(outboxLogger, ctx, "failed to publish outbox event -- will retry next poll",
 				"event", event.RoutingKey, "aggregateId", event.ID, "error", err.Error())
 			continue
@@ -188,10 +194,12 @@ func (p *OutboxPublisher) publishPending() {
 		// resolves, it does not hang forever. Only a positive ack means
 		// the event is durably the broker's responsibility now.
 		if ok := confirmation.Wait(); !ok {
+			span.End()
 			correlation.Error(outboxLogger, ctx, "outbox event publish was not confirmed by the broker -- will retry next poll",
 				"event", event.RoutingKey, "aggregateId", event.ID)
 			continue
 		}
+		span.End()
 
 		if err := p.repo.MarkOutboxEventPublished(event.ID); err != nil {
 			correlation.Error(outboxLogger, ctx, "failed to mark outbox event as published",

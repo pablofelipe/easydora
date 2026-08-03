@@ -4,6 +4,7 @@ import com.easydora.authservice.config.RabbitMQConfig;
 import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationContext;
 import com.easydora.correlation.OutboxEnvelopeCodec;
+import com.easydora.correlation.OutboxTraceparent;
 import com.easydora.authservice.dto.SignupRequest;
 import com.easydora.authservice.dto.SignupResponse;
 import com.easydora.authservice.entity.OutboxEvent;
@@ -16,6 +17,8 @@ import com.easydora.authservice.event.UserRegisteredEvent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,14 +43,18 @@ public class UserService {
     private final VerificationTokenService verificationTokenService;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     @Autowired
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, VerificationTokenService verificationTokenService, OutboxEventRepository outboxEventRepository, ObjectMapper objectMapper) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, VerificationTokenService verificationTokenService, OutboxEventRepository outboxEventRepository, ObjectMapper objectMapper, Tracer tracer, Propagator propagator) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.verificationTokenService = verificationTokenService;
         this.outboxEventRepository = outboxEventRepository;
         this.objectMapper = objectMapper;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
     
     public SignupResponse registerUser(SignupRequest signupRequest) {
@@ -85,6 +92,7 @@ public class UserService {
         String envelopedPayload = OutboxEnvelopeCodec.wrap(
             CorrelationContext.currentOrNewCorrelationId(),
             CorrelationContext.newMessageId(),
+            OutboxTraceparent.capture(tracer, propagator),
             eventJson
         );
         outboxEventRepository.save(new OutboxEvent(
@@ -190,6 +198,7 @@ public class UserService {
         String envelopedPayload = OutboxEnvelopeCodec.wrap(
             CorrelationContext.currentOrNewCorrelationId(),
             CorrelationContext.newMessageId(),
+            OutboxTraceparent.capture(tracer, propagator),
             String.valueOf(user.getId())
         );
 

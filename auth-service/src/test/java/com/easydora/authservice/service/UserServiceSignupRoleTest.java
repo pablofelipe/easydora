@@ -37,7 +37,7 @@ class UserServiceSignupRoleTest {
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
         return new UserService(userRepository, passwordEncoder,
-                verificationTokenService, outboxEventRepository, objectMapper);
+                verificationTokenService, outboxEventRepository, objectMapper, io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
     }
 
     private SignupRequest requestWithRole(String role) {

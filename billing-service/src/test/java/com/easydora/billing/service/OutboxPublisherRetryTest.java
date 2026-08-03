@@ -35,7 +35,7 @@ class OutboxPublisherRetryTest {
     @Test
     void pendingEventStaysUnpublishedUntilBrokerAcceptsIt() {
         OutboxEvent event = new OutboxEvent("order.exchange", "payment.approved",
-                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", "{\"orderId\":\"order-1\"}"));
+                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", null, "{\"orderId\":\"order-1\"}"));
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
         when(outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc())
                 .thenReturn(List.of(event));
@@ -45,7 +45,7 @@ class OutboxPublisherRetryTest {
                 .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
         OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate,
-                new SimpleMeterRegistry(), mock(ProgressWatchdog.class));
+                new SimpleMeterRegistry(), mock(ProgressWatchdog.class), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         publisher.publishPendingEvents();
 
@@ -67,7 +67,7 @@ class OutboxPublisherRetryTest {
     @Test
     void outboxEventsPublishedCounterOnlyCountsRealPublishesNotRetriedFailures() {
         OutboxEvent event = new OutboxEvent("order.exchange", "payment.approved",
-                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", "{\"orderId\":\"order-1\"}"));
+                OutboxEnvelopeCodec.wrap("test-correlation-id", "test-message-id", null, "{\"orderId\":\"order-1\"}"));
         OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
         when(outboxEventRepository.findByPublishedAtIsNullOrderByCreatedAtAsc())
                 .thenReturn(List.of(event));
@@ -78,7 +78,7 @@ class OutboxPublisherRetryTest {
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         OutboxPublisher publisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate,
-                meterRegistry, mock(ProgressWatchdog.class));
+                meterRegistry, mock(ProgressWatchdog.class), io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP);
 
         publisher.publishPendingEvents();
 

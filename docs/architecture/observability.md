@@ -86,12 +86,20 @@ durable across that gap.
 Adding a new database column would work, but it is a real migration.
 Per [ADR-0023](0023-notification-service-persistence-evolution-strategy.md)'s
 sibling reasoning, this project treats schema changes deliberately, not
-as a default choice. Instead, both services' outbox writer wraps the
-original payload in a small internal envelope before storing it:
+as a default choice. Instead, every outbox-writing service's outbox
+writer wraps the original payload in a small internal envelope before
+storing it:
 
 ```json
-{"correlationId": "...", "messageId": "...", "body": "<the original payload, verbatim>"}
+{"correlationId": "...", "messageId": "...", "traceparent": "...", "body": "<the original payload, verbatim>"}
 ```
+
+`traceparent` (added by [ADR-0024](adr/0024-distributed-tracing-via-propagated-identifiers.md)'s
+2026-08-03 Update) crosses this same write-to-publish gap the same way:
+captured from the current span at write time, restored as the publish
+call's OTel context so its producer span is parented correctly instead of
+starting an orphan trace. May be null/empty — an outbox row written
+outside any traced request/message is legitimate, not an error.
 
 This envelope is **never visible outside the Outbox mechanism itself**.
 The poller unwraps the envelope at publish time. It promotes
@@ -102,7 +110,7 @@ a bare, non-JSON-object string: `auth-service`'s `user.verified` event,
 published as `String.valueOf(userId)`, for example `"888"` (see
 ADR-0003). No consumer, schema, or existing test anywhere in the
 system needed to change for this technique. The technique is purely an
-implementation detail of two outbox tables' `payload` column.
+implementation detail of each outbox table's `payload` column.
 
 **Deliberately not fixed here**: this project does not yet propagate a
 *CausationId*, the id of the specific message that caused this one, as

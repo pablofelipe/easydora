@@ -4,6 +4,7 @@ import com.easydora.correlation.BusinessEventLog;
 import com.easydora.correlation.CorrelationConstants;
 import com.easydora.correlation.OutboxEnvelope;
 import com.easydora.correlation.OutboxEnvelopeCodec;
+import com.easydora.correlation.OutboxTraceparent;
 import com.easydora.authservice.entity.OutboxEvent;
 import com.easydora.authservice.health.ProgressWatchdog;
 import com.easydora.authservice.repository.OutboxEventRepository;
@@ -11,6 +12,9 @@ import com.easydora.authservice.repository.OutboxEventRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -48,12 +52,16 @@ public class OutboxPublisher {
     private final Counter outboxEventsPublishedCounter;
     private final Timer outboxPublishLagTimer;
     private final ProgressWatchdog progressWatchdog;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     public OutboxPublisher(OutboxEventRepository outboxEventRepository, RabbitTemplate rabbitTemplate,
-            MeterRegistry meterRegistry, ProgressWatchdog progressWatchdog) {
+            MeterRegistry meterRegistry, ProgressWatchdog progressWatchdog, Tracer tracer, Propagator propagator) {
         this.outboxEventRepository = outboxEventRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.progressWatchdog = progressWatchdog;
+        this.tracer = tracer;
+        this.propagator = propagator;
         // Business metrics (ADR-0036/ADR-0037): infra-level metrics already
         // answer "is the system healthy"; these answer a question infra
         // can't -- how much of the outbox backlog is actually draining, and
@@ -93,7 +101,22 @@ public class OutboxPublisher {
                 properties.setMessageId(envelope.messageId());
                 Message message = new Message(envelope.body().getBytes(StandardCharsets.UTF_8), properties);
 
-                rabbitTemplate.send(event.getExchange(), event.getRoutingKey(), message);
+                // Restores the traceparent captured at write time (ADR-0024's
+                // 2026-08-03 Update) as a real Micrometer span in scope around
+                // the actual send, so the producer span RabbitTemplate's own
+                // Observation instrumentation creates is parented under the
+                // original request's trace instead of starting an orphan one.
+                // Must go through Tracer/Propagator, not raw OTel Context --
+                // RabbitTemplate's Observation-based instrumentation consults
+                // Micrometer's own current-span tracking, which a raw OTel
+                // Context.makeCurrent() does not update.
+                Span restoredSpan = OutboxTraceparent.restoreAndStartProducerSpan(
+                        tracer, propagator, envelope.traceparent(), event.getRoutingKey() + " outbox publish");
+                try (Tracer.SpanInScope spanScope = tracer.withSpan(restoredSpan)) {
+                    rabbitTemplate.send(event.getExchange(), event.getRoutingKey(), message);
+                } finally {
+                    restoredSpan.end();
+                }
 
                 event.markPublished();
                 outboxEventRepository.save(event);
