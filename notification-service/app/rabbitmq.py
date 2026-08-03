@@ -31,7 +31,28 @@ rabbitmq_topology_setup_total = Counter(
     ["outcome"],
 )
 
+# Makes _route_to_retry_or_dlq's outcome a queryable metric (ADR-0036/
+# ADR-0037's convention), not just a log line: process_order_created/
+# process_order_status_changed never see a retry count, and until now
+# nothing outside this file's own WARNING/ERROR logs did either.
+notification_retry_total = Counter(
+    "notification_retry_total",
+    "Total messages routed by _route_to_retry_or_dlq, by outcome (retry or dead_letter).",
+    ["outcome"],
+)
+
 RECONNECT_DELAY_SECONDS = 5
+
+# Bounds only the very first connection attempt, before this process has
+# ever connected once -- mirrors app/schema.py's ensure_schema (also
+# MAX_ATTEMPTS=10) and inventory-service's own already-bounded boot-time
+# RabbitMQ connection (ADR-0038's Decision). Consistent with both: a
+# permanently unreachable broker at boot should fail loudly (raise, let
+# the container crash and restart) rather than leave the process
+# "healthy" forever having never connected once. The steady-state
+# reconnect path below (after at least one successful connection) is
+# deliberately NOT bounded this way -- see ADR-0038's Update.
+BOOT_MAX_ATTEMPTS = 10
 
 # Explicit, not left to whatever pika/RabbitMQ negotiate by default (see
 # docs/adr/0038-infrastructure-startup-resilience.md's Update): detection
@@ -176,6 +197,7 @@ def _route_to_retry_or_dlq(channel, method, properties, body) -> None:
             "message failed (attempt %d/%d), retrying in %dms: routing_key=%s",
             attempt, MAX_ATTEMPTS, delay_ms, method.routing_key,
         )
+        notification_retry_total.labels(outcome="retry").inc()
     else:
         channel.basic_publish(
             exchange=DLX_EXCHANGE,
@@ -187,6 +209,7 @@ def _route_to_retry_or_dlq(channel, method, properties, body) -> None:
             "message exhausted %d attempts, routed to the dead letter queue: routing_key=%s",
             MAX_ATTEMPTS, method.routing_key,
         )
+        notification_retry_total.labels(outcome="dead_letter").inc()
 
     channel.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -297,8 +320,20 @@ def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache,
     not -- plus every message processed and every idle tick inside
     consume_forever, so an arbitrarily long, tolerated broker outage never
     looks "stuck" as long as this loop keeps retrying.
+
+    The very first connection attempt is bounded (BOOT_MAX_ATTEMPTS,
+    ADR-0038's 2026-08-03 Update): giving up and raising after that many
+    failures is a deliberate exception to "never gives up permanently"
+    above, matching ensure_schema's own bounded-then-raise shape for
+    Postgres -- a permanently unreachable broker (e.g. a misconfigured
+    RABBITMQ_URL) should crash this container loudly instead of leaving it
+    reporting healthy forever, having never connected once. Once past that
+    first connection, every later disconnect goes through the unbounded
+    reconnect path unchanged -- a transient broker outage should still
+    self-heal without crashing an otherwise-working process.
     """
     first_connection = True
+    boot_attempts = 0
     while True:
         if watchdog is not None:
             watchdog.record_progress()
@@ -317,10 +352,22 @@ def run_consumer(rabbitmq_url: str, auth_client, repository, sender, jwt_cache,
         except Exception:
             if not first_connection:
                 rabbitmq_topology_setup_total.labels(outcome="failure").inc()
-            logger.exception(
-                "RabbitMQ connection lost or unavailable; retrying in %ss",
-                RECONNECT_DELAY_SECONDS,
-            )
+                logger.exception(
+                    "RabbitMQ connection lost or unavailable; retrying in %ss",
+                    RECONNECT_DELAY_SECONDS,
+                )
+            else:
+                boot_attempts += 1
+                if boot_attempts >= BOOT_MAX_ATTEMPTS:
+                    logger.error(
+                        "RabbitMQ still unreachable after %d boot-time attempts; giving up",
+                        BOOT_MAX_ATTEMPTS,
+                    )
+                    raise
+                logger.exception(
+                    "RabbitMQ not ready yet (boot attempt %d/%d); retrying in %ss",
+                    boot_attempts, BOOT_MAX_ATTEMPTS, RECONNECT_DELAY_SECONDS,
+                )
             time.sleep(RECONNECT_DELAY_SECONDS)
             continue
 

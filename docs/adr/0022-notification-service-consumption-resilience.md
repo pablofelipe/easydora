@@ -154,6 +154,34 @@ entry; this fix did not warrant its own ADR, as it corrects a single
 consumer method to match the behavior its siblings already had, rather
 than introducing a new architectural decision.
 
+## Update — 2026-08-03
+
+Closes a Low Roadmap item raised against this ADR's own Decision text:
+"the business functions remain unaware this exists" was true and
+deliberate for `process_order_created`/`process_order_status_changed`
+themselves, but it also meant a retry or a terminal dead-lettering was
+invisible to anyone *outside* `_route_to_retry_or_dlq`'s own log lines —
+no metric surfaced it, unlike this project's other previously-log-only
+internal states (`inventory_idempotent_duplicate_detected_total`,
+`jwt_cache_lookup_total`, both from ADR-0036).
+
+Checked first whether this posed a real idempotency risk on retry, not
+just an observability one: it doesn't. Both business functions either
+never raise (an expected failure like an unreachable auth-service is
+recorded as a `FAILED` `Notification`, not an exception) or raise before
+any persistence happens (`sender.send()` is the last statement in either
+function; if it raises, nothing was written that a retry could
+duplicate). So the actual gap was purely observability.
+
+Added `notification_retry_total{outcome}` (`retry`/`dead_letter`), a
+Prometheus counter incremented in `_route_to_retry_or_dlq` itself — no
+change to either business function, keeping this ADR's original
+separation intact. A new panel on the `EasyDora / Resilience` Grafana
+dashboard (ADR-0038) plots it. Proven by two new unit tests in
+`tests/test_rabbitmq_retry_metrics.py`, following the same fake-channel
+pattern `test_rabbitmq_retry_correlation.py` already used, asserting the
+counter's `outcome`-labeled value before/after each path.
+
 ## References
 
 - [ADR-0019](0019-message-consumption-resilience.md) - the Spring-side

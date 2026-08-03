@@ -1,7 +1,7 @@
 {
   "uid": "easydora-resilience",
   "title": "EasyDora / Resilience",
-  "description": "RabbitMQ reconnection observability (docs/adr/0038's 2026-07-20 Update) plus the two business/risk counters that previously had no panel -- see ADR-0036.",
+  "description": "RabbitMQ reconnection observability (docs/adr/0038's 2026-07-20 Update) plus the business/risk counters that previously had no panel -- see ADR-0036 and ADR-0022's 2026-08-03 Update.",
   "tags": ["easydora"],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -87,6 +87,21 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (operation) (rate(inventory_idempotent_duplicate_detected_total[5m]))",
           "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "notification-service retry/DLQ outcome/s",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (rate(notification_retry_total[5m]))",
+          "legendFormat": "{{outcome}}",
           "refId": "A"
         }
       ]
