@@ -221,6 +221,9 @@ Frontend (SvelteKit, thin client) consumes the API Gateway only.
 - [Observability](docs/architecture/observability.md) — how one business
   operation is traced end to end through every service's logs, via a
   propagated CorrelationId, without a tracing backend.
+- [Operational Intelligence proposal](docs/architecture/operational-intelligence-proposal.md)
+  — a proposed, deferred architectural direction. Not approved and not
+  implemented.
 - [Postman collection](postman/) — the same main flow as an importable,
   runnable collection, with automatic ID/token capture. It complements the
   walkthrough.
